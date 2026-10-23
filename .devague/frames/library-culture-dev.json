@@ -1,0 +1,876 @@
+{
+  "slug": "library-culture-dev",
+  "title": "library.culture.dev",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-23T23:06:01Z",
+  "updated": "2026-10-23T23:39:52Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "library.culture.dev is Culture's one library: pipelines publish recordings, EPUB books, PDFs, newspapers and Markdown into it; it also hosts every repo's devague record \u2014 specs, plans and .devague content; Gwen (embodiment) reads, cites and remembers from it and keeps her diary there; it replaces ebooks.culture.dev, and xteink becomes a device-side client of it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Every content kind named in the announcement (recording transcript, EPUB, PDF, newspaper, Markdown, diary, spec, plan, devague record) has at least one real item in the library at ship time \u2014 not just a schema slot",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Does culture-library supersede ebooks-cli as xteink#3's split destination (xteink#3 names ebooks-cli, a bare scaffold; README 'private self-hosted ebook library (API, OPDS, MCP)'), and is ebooks-cli then archived?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Yes \u2014 culture-library takes over ebooks-cli's intended purpose (private self-hosted library: API, OPDS, MCP) and is xteink#3's split destination (operator, 2026-10-24)"
+        },
+        {
+          "id": "q2",
+          "text": "Gwen's diary: stored in the library as private kind=diary items (needs scoped write key c6 + visibility c7, and reverses embodiment's confirmed boundary c26 'Gwen never writes to the library' + h14/AST test), or kept in eidetic (short scoped records with supersede/links fit a diary per eidetic-cli Record) with the library only serving a read view?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Diary items: Gwen stores her diary in the library as diary items (operator, 2026-10-24) \u2014 needs c6 scoped write key + c7 private visibility, and an embodiment ask to lift c26 'never writes'"
+        },
+        {
+          "id": "q5",
+          "text": "Search scope: metadata-only like xteink (q matches title+author) with consumers (Gwen, pocketsync) building their own vector indexes, or full-text/semantic search inside the library? eidetic does not scale to book bodies (no embedding cache, embeds all candidates per search)",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Full-text and semantic search, both inside the library (operator, 2026-10-24)"
+        },
+        {
+          "id": "q6",
+          "text": "Retire ebooks.culture.dev by 'cultureflare remote-login teardown' or keep a 301 Single Redirect to library.culture.dev (needs a proxied DNS record kept after teardown; cf-redirect-create.sh refuses if the culture.dev zone already has a redirect ruleset)?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "ebooks.culture.dev is torn down eventually (no long-lived redirect) (operator, 2026-10-24)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "library.culture.dev is Culture's one library: pipelines publish recordings, EPUB books, PDFs, newspapers and Markdown into it; Gwen (embodiment) reads, cites and remembers from it and keeps her diary there; it replaces ebooks.culture.dev, and xteink becomes a device-side client of it",
+          "kind": "announcement",
+          "reason": "operator added repo devague records to scope (2026-10-24)"
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "library.culture.dev keeps xteink's /api/library contract as a compatible subset (multipart POST file/title/author/kind with sha256 dedup 201/200; GET list ?q&kind&limit&offset, GET {id}, GET {id}/file; DELETE; {detail,code} errors) so culture-rules library.push and Gwen's planned client seam re-point by base URL, not rewrite \u2014 xteink docs/api.md + api/openapi.json (feat/issue-1), culture-rules node/actions/library.py, embodiment spec c12/c13",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "culture-rules' unchanged library.push (base_url re-pointed) and xteink's client succeed against culture-library: a contract test replays the xteink feat/issue-1 API calls (POST dedup 201/200, list, get, file, delete, {detail,code} errors) and passes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "culture-rules library.push hard-codes the xteink device-queue second step (/api/devices/{id}/queue, newspaper_device var) and kind=article: does the library accept-and-forward queueing to xteink, or does library.push become push-only with xteink pulling (needs a culture-rules change)?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "xteink reads from the library (pulls); the library has no device queue and does not forward; culture-rules does the data movement (operator, 2026-10-24)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "The library widens xteink's item model: kinds beyond book/article (newspaper, document, transcript, diary, spec, plan, devague-record) and formats beyond epub/bmp/txt (PDF stored natively instead of 415 pdf_not_supported; Markdown and JSON stored as-is). No audio \u2014 recordings arrive as transcript text \u2014 xteink core/models.py kind enum + ingest 415",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Uploading a PDF, a .md and a .json returns 201 and GET .../file returns the identical bytes; an audio upload is refused with a {detail,code} error naming the supported formats",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "Recordings: does the library store the Pocket audio (.m4a, ~103 MB / 39 recordings today) and transcripts itself, pulled from pocketsync's events.jsonl / MQTT events/pocketsync/recording/enriched + files tree, or only a transcript document (EPUB/MD) pushed by a new culture-rules step after audio.transcribe (which today writes only local transcript.<model>.json)?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Text only: recordings enter the library as transcript text; audio stays local (S3 in future), not in the library (operator, 2026-10-24)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The library widens xteink's item model: kinds beyond book/article (newspaper, document, transcript, recording, diary) and formats beyond epub/bmp/txt (PDF stored natively instead of 415 pdf_not_supported; Markdown stored as-is, not only pandoc-converted; audio such as Pocket .m4a) \u2014 xteink core/models.py kind enum + ingest 415",
+          "kind": "requirement",
+          "reason": "q3: text only, no audio"
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The library-generic half of xteink feat/issue-1 is cited (cite-don't-import) into culture-library: core/{library,store,models,ingest,keys,errors}.py, server/routes_library.py, server/{access,auth}.py, client.py, MCP push_file/list_library, /api/keys and the web UI; storage stays SQLite + content-addressed files/<aa>/<sha256> \u2014 xteink#3's extraction list",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "Cited code keeps a provenance header naming xteink feat/issue-1 commit + path, and the cited modules' tests are carried over and pass",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "The e-reader side stays in xteink and is not built here: device keys (xtd_), device protocol v1, per-device queue, mirror, firmware tables, MCP send_to_device, USB CLI, avahi, and the xteink.culture.dev tunnel; xteink becomes an HTTP client of library.culture.dev \u2014 xteink#3 'xteink keeps the device side', xteink routes_device.py/core/devices.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "culture-library has no device keys, device routes, queue or firmware tables \u2014 a grep/test over culture_library/ finds none \u2014 and xteink's queue works by pulling from the library API",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "API keys gain scopes (at least read vs write, ideally per kind) because xteink's xtk_ keys are unscoped full-operator keys and Gwen's diary needs a write key that cannot delete books or mint keys \u2014 xteink core/keys.py (hash-only, no scopes), embodiment spec c15",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "A read-scoped key gets 403 on POST/DELETE and on /api/keys; a write key scoped to kind=diary gets 403 when uploading or deleting any other kind; tests pin both",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Items carry visibility (private vs shared) so Gwen's diary and sensitive recordings are not browsable by every reader; embodiment CLAUDE.md:244-246 requires daemon writes default private, and pocketsync README routes recordings to shared destinations only when enrichment.filters.sensitive is present and low",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "A private item is absent from list, search results, get and file for any caller without private scope (404, not 403, so its existence does not leak), on the API, MCP and the site",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "library.culture.dev is served by a docker compose stack on spark behind cultureflare 'remote-login setup --hostname library.culture.dev --service http://<svc>:<port> --allow <owner>' (Access SSO; dry-run then --apply; tunnel token sealed via --shushu), its own tunnel since cultureflare replaces a tunnel's whole ingress (xteink deviation d1); the server verifies Cf-Access-Jwt-Assertion itself \u2014 cultureflare _remote_login, xteink compose.yaml + docs/remote-access.md, pocketsync web/access.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The stack restarts unattended after a host reboot within 120 s; anonymous browser \u2192 Access wall; /api without key \u2192 401; the server rejects a request whose Cf-Access-Jwt-Assertion fails RS256/aud verification even when it reaches the origin directly",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The 17 live items in xteink's data volume (xteink_xteink-data, /data 36 MB: 16 article EPUBs, 1 book) migrate into the library with sha256 preserved, so Gwen's planned reconcile by (item id, sha256) does not purge and re-index everything \u2014 xteink core/store.py, embodiment spec c33",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "A migration report lists 17/17 xteink items with matching sha256 and kind remapped (Daily newspaper \u2192 newspaper), and is idempotent on re-run",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "assumption",
+      "text": "Changes to sibling repos (culture-rules library.push generalization, a pocket\u2192library rule, xteink as client, embodiment's c26 write boundary, ebooks.culture.dev teardown) are filed as issues via the communicate skill, not edited from this repo \u2014 CLAUDE.md siblings + embodiment c26 'asks are drafted for the operator's go-ahead'",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "non_goal",
+      "text": "No retirement of pocketchat.culture.dev and no change to pocketsync's sync/enrichment/vector search this cycle: pocketsync stays the landing zone; the library consumes from it \u2014 pocketsync README non-goals ('landing zone', consumers pull) and embodiment spec non-goal on pocketsync",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A server runtime needs third-party dependencies (xteink's server stack, pandoc for MD/HTML\u2192EPUB), which breaks culture-library CLAUDE.md's 'runtime package has zero third-party dependencies' \u2014 the dependency set is a deliberate, recorded decision (likely an optional [server] extra) \u2014 culture-library pyproject dependencies=[], CLAUDE.md CLI architecture",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The runtime package's CLI (culture-library whoami/doctor/explain...) still installs and runs with zero third-party deps; server deps live only in an optional extra, recorded in CLAUDE.md",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The library hosts each repo's devague record: docs/specs/*.md, docs/plans/*.md, docs/deliveries/*.md and .devague/{frames,plans,deliveries}/*.json + {reviews,questions}/*.md \u2014 across ~75 repos in ~/git (\u22482,000 .devague files: 651 frames, 578 plans, 363 reviews, 267 questions, 253 deliveries; largest are colleague 292, lobes-cli 216, culture-nodes 143), ~80 MB with docs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "For a sample of \u2265 5 repos, every committed docs/{specs,plans,deliveries}/*.md and .devague/{frames,plans,deliveries,reviews,questions}/* pushed by the rule appears in the library with matching content",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q7",
+          "text": "Source of truth for repo docs: committed state on each repo's default branch (GitHub, includes repos not cloned here, excludes in-progress work) or the local ~/git working trees (includes untracked frames like embodiment's drafting plan, and gitignored .devague in reachy-mini-cli 125 files, culture-guide, notion-agent, agentculture-cli, reachy-lobes)?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Deferred to culture-rules: which tree a rule reads (GitHub default branch vs ~/git) is the rule's choice; the library accepts either, keyed by remote URL + path + commit (follows from the q8 decision, operator 2026-10-24)"
+        },
+        {
+          "id": "q8",
+          "text": "Push or pull: does each repo publish on merge (a CI step / guildmaster-broadcast skill, i.e. a change in ~75 repos), does a culture-rules rule fire on push events, or does the library crawl GitHub/~/git on a schedule (no repo changes)?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "culture-rules moves the data; the library is source-agnostic and accepts push (API/MCP) and serves pull (API/MCP/site) \u2014 no crawler or repo hook inside the library (operator, 2026-10-24)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Repo documents are mutable and versioned, unlike sha256-immutable books: identity is (repo, path), each version is pinned to a git commit sha, and the library shows the current version with history \u2014 a spec amended or a frame re-exported replaces, not duplicates",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Pushing the same (remote, path) at a new commit creates a new version, not a new item; pushing the same commit twice is a no-op; history lists both commits",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Repo documents inherit their repo's visibility: 17 of 129 agentculture GitHub repos are PRIVATE (incl. culture-core, steward, devex, guildmaster, grant, cultureagent, agent-lifecycle, katvan) \u2014 their specs/plans are never shown to readers who could not read the repo",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A document pushed from any of the 17 PRIVATE repos is private by default; a test pushes one from a repo marked private and asserts it is invisible to a shared-scope key",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q9",
+          "text": "Visibility model: map GitHub repo visibility to library visibility automatically (private repo \u2192 private item), and who may read private ones \u2014 operator only via Access, or mesh agents with scoped keys?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Frame and plan JSON (schema_version 5 per devague docs/spec-contract.md) is rendered as readable pages \u2014 claims with status, honesty conditions, scope entries, open questions, plan waves \u2014 rather than served as raw JSON only; the raw file stays downloadable",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "Every frame/plan JSON with schema_version \u2264 5 in ~/git renders without error (a corpus test over the real files); unknown future schema renders raw with a notice instead of failing",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "The library never writes back to repos and does not change devague: devague stays deterministic, offline and local-only (devague issue #20, spec-contract 'All operations run fully offline against local .devague/ state'); the library is a reader/mirror of committed state",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "culture-library contains no git write, no repo checkout mutation and no devague invocation \u2014 a grep/AST test pins it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The library dedups repo documents by (remote URL, path, commit) so a culture-rules rule that reads ~/git \u2014 which holds 106 extra .devague dirs under .worktrees.* and */.worktrees \u2014 cannot multiply frames",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "Pushing the same frame from ~/git/<repo> and ~/git/.worktrees.<repo>/<branch> at the same commit yields one version",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Ingest skips git worktree copies: ~/git holds 106 extra .devague dirs under .worktrees.* and */.worktrees \u2014 a filesystem crawl would multiply every frame; dedup by (repo, path, commit)",
+          "kind": "requirement",
+          "reason": "q8: culture-rules moves data; library dedups"
+        }
+      ]
+    },
+    {
+      "id": "c19",
+      "kind": "decision",
+      "text": "culture-library replaces ebooks-cli's intended purpose: it is the destination of xteink#3's library split (storage, ingest, library API, OPDS/WebDAV, MCP push_file/list_library); ebooks-cli is superseded (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "Gwen's diary lives in the library as private diary items written by Gwen with a scoped write key (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "Recordings are text only in the library (transcripts); audio stays local, moving to S3 in future \u2014 the library stores no audio (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "culture-rules does all data movement into and out of the library; the library is agnostic and exposes push and pull through its HTTP API, an MCP server for agents, and a website for humans (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "xteink reads from the library (pull); the device queue stays in xteink (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "The library provides both full-text and semantic search (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "ebooks.culture.dev is torn down eventually, after library.culture.dev serves its content (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "audience",
+      "text": "The operator (owner, browsing and reading at library.culture.dev behind Cloudflare SSO), Culture pipelines run by culture-rules (push and pull through the API), mesh agents via MCP \u2014 first Gwen (embodiment), who reads, cites and writes her diary \u2014 and xteink, which pulls items for its e-readers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "Each named reader has a working path on ship day: operator via site, culture-rules via API, Gwen via MCP, xteink via API pull",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "check the README and explain catalog name these four readers and which surface (site, API, MCP) each uses",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "before_state",
+      "text": "Today the content is scattered: 17 EPUBs (newspapers, 3 documents, 1 book) sit in xteink's local-only library behind ebooks.culture.dev with kinds book/article only and no PDF; 39 Pocket recordings live only in pocketsync; ~2,000 devague records are spread over ~75 repos with no single place to read them; Gwen can read none of it and has no diary",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The numbers (17 items, 39 recordings, ~2,000 records, ~75 repos) are re-measured on the day of export, not copied from this frame",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "re-derive from s1, s7, s13 and embodiment spec l.12 before export",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "after_state",
+      "text": "Opening library.culture.dev shows one catalog \u2014 books, newspapers, documents, PDFs, transcripts, Gwen's diary and every repo's specs, plans and devague records \u2014 grouped by day with kind filters, full-text and semantic search, and a reader for each kind; culture-rules pushes the daily newspaper and transcripts into it, xteink pulls from it, Gwen asks it questions over MCP and writes her diary, and ebooks.culture.dev is gone",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "Each after-state sentence maps to a test or evidence item in the plan; none ships unverified",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "demo walk: open site, search one phrase that appears only in a newspaper body, open a spec page, open a transcript, see a private diary entry only when signed in",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "why_it_matters",
+      "text": "The operator wants one place to read, search and talk with everything they have read, recorded and planned; Gwen can only remember and cite what she can reach, and the mesh's specs and plans are its institutional memory but are unreadable unless you open each repo",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The operator confirms this states their reason (user-owned)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "keep this aligned with embodiment spec 'Why it matters' l.17",
+      "revisions": [
+        {
+          "text": "The operator wants one place to read, search and talk with everything he has read, recorded and planned; Gwen can only remember and cite what she can reach, and the mesh's specs and plans are its institutional memory but are unreadable unless you open each repo",
+          "kind": "why_it_matters",
+          "reason": "neutral pronoun"
+        }
+      ]
+    },
+    {
+      "id": "c30",
+      "kind": "success_signal",
+      "text": "After migration all 17 xteink items are in the library with identical sha256 (17/17), the next 05:00 newspaper lands via culture-rules with 0 manual steps, \u2265 70 repos' devague records are listed, a full-text query returns hits from a newspaper body in < 1 s, and an anonymous request to library.culture.dev gets the Access wall while an API call without a key gets 401",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "Each number is measured on spark, recorded in docs/evidence/, and the 1 s full-text bound holds at the full corpus size",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "measure each number in a delivery evidence file; the 1 s bound is measured on spark with the full corpus indexed",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "success_signal",
+      "text": "Gwen answers a typed question with \u2265 1 [n] citation that opens the library reader at the cited passage, and writes \u2265 1 diary entry per day that is visible only to private-scoped readers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "Measured end-to-end through embodiment once its seam points at library.culture.dev; until then recorded as pending, not passed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "verify against embodiment's planned seam (c12/c13 there) once it points at library.culture.dev",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "decision",
+      "text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "xteink feat/issue-1 is local-only (unpushed; xteink#3 asks for it to be pushed/merged) \u2014 the code culture-library would cite exists only on this host and may move under it",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Transcript EPUB format is unseen (embodiment v3; no transcript in the 2026-10-24 catalog) \u2014 whether segment start/end/speaker survive decides if the library reader can jump to a moment like pocketchat does",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "../xteink feat/issue-1 (docs/api.md, api/openapi.json, core/store.py)",
+      "finding": "Live library behind ebooks.culture.dev: /api/library CRUD with sha256 dedup, kinds book|article only, formats epub/bmp/txt (MD/HTML\u2192EPUB via pandoc, PDF 415), 50 MiB cap + zip-bomb checks, SQLite + `files/<aa>/<sha256>`; 17 items / 36 MB; GET /api/library is 401 without an xtk_ key",
+      "seeds": [
+        "c2",
+        "c3",
+        "c9"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "../xteink#3 + ../ebooks-cli",
+      "finding": "xteink#3 (open) splits library\u2192ebooks-cli, device side stays; ebooks-cli is a bare template scaffold with no library code \u2014 the destination is unclaimed and culture-library can take it",
+      "seeds": [
+        "c4",
+        "c5",
+        "q1"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "../xteink compose.yaml + docs/remote-access.md",
+      "finding": "Two tunnels: ebooks.culture.dev\u2192api:8780 (Access SSO allow-list) and xteink.culture.dev\u2192api:8781 (--no-access, device keys); server verifies Cf-Access-Jwt-Assertion itself; MCP :8782 LAN-only",
+      "seeds": [
+        "c5",
+        "c8"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "../xteink core/keys.py + server/auth.py",
+      "finding": "xtk_ API keys are hash-only bearer tokens with no scopes \u2014 any key can delete items and mint keys",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "../culture-rules node/actions/library.py + docs/rules/newspaper",
+      "finding": "library.push is the only publisher today: daily 05:00 Asia/Jerusalem newspaper EPUB, kind=article, POST /api/library then POST `/api/devices/<id>/queue`, Bearer grant:XTEINK_PUSH_API_KEY; base_url is actor data (config change) but paths, kind and the queue step are code",
+      "seeds": [
+        "c2",
+        "q4",
+        "c10"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "../culture-rules docs/rules/pocket-transcribe (audio.transcribe)",
+      "finding": "Transcription writes only local `transcript.<model>.json` under `output_dir/<audio_sha256>/`; nothing pushes transcripts to any library \u2014 a new step/action is needed",
+      "seeds": [
+        "q3",
+        "c10"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "../pocketsync (sinks/local.py, events.py, web/access.py, README data contract)",
+      "finding": "Landing zone by design: Mongo docs + files tree `<YYYY>/<MM>/<id>/{meta.json`,transcript.*,summary.md,audio.m4a} (39 recordings, ~103 MB audio); outbound only events.jsonl / MQTT; sensitive filter gates shared destinations; no library/ebooks references; access.py is a reusable stdlib Access verifier",
+      "seeds": [
+        "c11",
+        "c7",
+        "q3"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "../embodiment docs/specs/2026-10-23-gwen-is-pocketchat-transcripts-as-knowledge.md",
+      "finding": "Exported+challenged spec (no code, plan has 0 tasks) already names culture-library at library.culture.dev as the knowledge home (c30), binds via a GET-only seam on xteink's contract (c12/c13/c15), reconciles by (id, sha256) (c33), and confirms boundary c26 'Gwen never writes to the library' \u2014 a diary in the library reverses c26; v4 parks culture-library's contract/auth as unknown",
+      "seeds": [
+        "c2",
+        "c9",
+        "q2",
+        "c10"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "../embodiment embodiment/memory.py + CLAUDE.md:244-246",
+      "finding": "Gwen's memory is eidetic (files backend, gwen-ingest private scope); no diary concept exists; daemon writes must default private",
+      "seeds": [
+        "q2",
+        "c7"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "../cultureflare _remote_login + cultureflare-write skill scripts",
+      "finding": "remote-login setup provisions tunnel+DNS+Access (dry-run default, --shushu seals tokens); teardown by hostname; redirects only via cf-redirect-create.sh (zone Single Redirect, non-additive, needs a proxied DNS record)",
+      "seeds": [
+        "c8",
+        "q6"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "../eidetic-cli (memory/record.py, embed.py, README)",
+      "finding": "Records are short text+metadata, no blobs or chunking, embeds all candidates per recall \u2014 fits a diary, not book-body search",
+      "seeds": [
+        "q2",
+        "q5"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "culture-library (pyproject.toml, culture_library/, CLAUDE.md)",
+      "finding": "Scaffold only: CLI introspection verbs, dependencies=[], no server/compose/deploy; CLAUDE.md mandates zero runtime deps and 'spec it before building'",
+      "seeds": [
+        "c12",
+        "c4"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "~/git/*/.devague + docs/{specs,plans,deliveries} (inventory)",
+      "finding": "~75 repos carry devague records: ~2,000 .devague files (651 frames, 578 plans, 363 reviews, 267 questions, 253 deliveries) plus exported md; mostly tracked, but reachy-mini-cli/culture-guide/notion-agent/agentculture-cli/reachy-lobes gitignore .devague and many repos have untracked in-progress frames (e.g. embodiment's drafting plan)",
+      "seeds": [
+        "c13",
+        "q7"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "~/git/.worktrees.* and */.worktrees",
+      "finding": "106 extra .devague directories live in git worktrees \u2014 a naive crawl duplicates them",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "gh repo list agentculture (visibility)",
+      "finding": "129 repos: 112 PUBLIC, 17 PRIVATE (guildmaster, mjolnir-agent, cultureagent, jetson-containers-agent, katvan, rollout-cli, steward, culture-agent-template, reterminal-cli, grant, devex, operator-cli, agtag, culture-guide, culture-core, agent-lifecycle, identity-cli)",
+      "seeds": [
+        "c15",
+        "q9"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "../devague docs/spec-contract.md",
+      "finding": "Frames/plans/deliveries are versioned JSON (schema_version 5) on a deterministic, offline-only CLI; export renders spec-md with a Scope exploration section \u2014 the library reads these files, it cannot ask devague to do anything networked",
+      "seeds": [
+        "c16",
+        "c17",
+        "c14"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "~/git/agentculture-cli remote",
+      "finding": "origin points at github.com/agentculture/culture-guide.git \u2014 a local clone's directory name is not a reliable repo identity; key repo docs by remote URL",
+      "seeds": [
+        "c14"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c32",
+      "seam": "rendered pages vs docs/design/reference/*.png",
+      "behavior": "The built site renders the same 22 reference views (desktop 1680x1000 and phone 400x860; light and dark; home, newspaper/spec/frame readers, list hidden, list drawer, site state, upload) with the same layout, components, spacing, colors and type as the reference screenshots; a Playwright visual test with the same viewports, fixture data and reduced motion fails on any layout, color or component difference beyond font antialiasing (pixel-diff threshold set in the test, at most 1% of pixels)",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c32",
+      "seam": "CSS design tokens",
+      "behavior": "Every color, radius and font token in the site stylesheet equals docs/design/library-site.md and docs/design/prototype.html exactly (cream light: --bg #faf5e8, --accent #00684a; dark blue: --bg #172b47, --accent #5fd897; the six kind colors in fixed order); a test parses the stylesheet and compares",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c32",
+      "seam": "typography",
+      "behavior": "Only Lato is used (computed font-family on every visible element), at weights 300/400/700/900 as specified; no serif or other face, checked in the Playwright run after document.fonts.ready",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c32",
+      "seam": "layout and breakpoints",
+      "behavior": "Content max width 1760px with 32px/16px gutters; reader list pane 340px with Hide/Show list; at <= 900px the pane is a closed-by-default drawer over a scrim that closes on scrim tap and Escape; at <= 720px search takes its own row and Upload becomes an icon; document scrollWidth equals viewport width at 400px on every view",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c32",
+      "seam": "interactions",
+      "behavior": "Home opens with nothing selected (Continue reading / Start with the newest + Latest cards with kind filters); opening a card shows the reader with list, filters, All cards, previous/next; theme toggle, last-read item, pane state and reading progress persist per browser; search highlights matches and opens the first full-text hit; Upload opens the dialog with file, title, kind, visibility and the API call, and a real upload lands via POST /api/library",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c32",
+      "seam": "site state page",
+      "behavior": "Tiles, status rows (icon + label) and the chart grid match the reference; every chart has a hover tooltip, a Table toggle and a source line; kind colors pass scripts/validate_palette.js on both surfaces; numbers come from the live library, not hard-coded",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
+}
