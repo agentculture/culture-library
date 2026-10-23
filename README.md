@@ -2,83 +2,39 @@
 
 Culture's library of your own content and media: recordings, books, newspapers, articles, EPUBs, PDFs, docs and more. One catalog to ingest, index, search and serve it all, published at library.culture.dev.
 
-## What you get
+`culture-library` is an [AgentCulture](https://github.com/agentculture) mesh
+agent: a Python package with an agent-first CLI, a mesh identity, and the
+canonical skill kit.
+
+## Status
+
+**Early scaffold.** This repo was created from
+[`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
+and currently ships only the sibling-pattern baseline described below. The
+library itself — ingesting media, indexing, search, and serving at
+library.culture.dev — is [planned](#roadmap) and not yet implemented.
+
+## What's here today
 
 - **An agent-first CLI** cited from [teken](https://github.com/agentculture/teken)
-  (`afi-cli`) — the runtime package has no third-party dependencies.
-- **A mesh identity** — `culture.yaml` (`suffix` + `backend`) and the matching
-  resident prompt file (`CLAUDE.md`, since this template runs
-  `backend: claude`). The mesh resident is one of **two separate
-  selections** over this clone — see
-  [Two selections, not one](#two-selections-not-one) below.
-- **Four harness prompt files**, one per agent harness, each read by exactly
-  one of them (see [Prompt files by harness](#prompt-files-by-harness) below).
-  All four harnesses are usable interactively regardless of which one
-  `culture.yaml` names as the mesh resident.
-- **The canonical guildmaster skill kit** (11 skills) under `.claude/skills/`,
-  vendored cite-don't-import. See [`docs/skill-sources.md`](docs/skill-sources.md).
-- **A build + deploy baseline** — pytest, lint, the agent-first rubric gate, and
-  PyPI Trusted Publishing wired into GitHub Actions.
-
-## Prompt files by harness
-
-Four harnesses, four root files, no shared base — each file is read by
-exactly one harness:
-
-| Harness | File(s) |
-|---------|---------|
-| Claude Code | [`CLAUDE.md`](CLAUDE.md) |
-| Pi / associate | [`AGENTS.override.md`](AGENTS.override.md) + [`.pi/SYSTEM.md`](.pi/SYSTEM.md) |
-| colleague | [`AGENTS.colleague.md`](AGENTS.colleague.md) |
-| Qwen Code | [`QWEN.md`](QWEN.md) |
-
-**Claude Code** — `CLAUDE.md` is the fullest write-up of the repo's
-conventions; read it first.
-
-**Pi / associate** — `AGENTS.override.md` replaces this directory's
-`AGENTS.md`/`CLAUDE.md` in Pi's context layer, so Pi does not inherit
-`CLAUDE.md`. `.pi/SYSTEM.md` replaces Pi's default system prompt with the
-non-coding `associate` identity (read/find/summarize only).
-
-**colleague** — colleague's prompt cascade is `AGENTS.md` →
-`AGENTS.colleague.md` → `AGENTS.colleague.<model>.md`. This repo ships only
-the middle layer: there is no `AGENTS.md` (a shared base across harnesses was
-considered and rejected) and no per-model override file.
-
-**Qwen Code** — Qwen Code reads `QWEN.md` and `AGENTS.md`; since there is no
-`AGENTS.md`, `QWEN.md` is its sole source of guidance.
-
-There is intentionally **no `AGENTS.md`** at the root — each harness gets an
-unrelated file rather than cascading from a shared base.
-
-## Two selections, not one
-
-It is tempting to read "switch harness" as one decision. It is actually two,
-and this template exists partly to keep them separate:
-
-1. **The interactive harness** — which binary you run (`claude`, `pi`,
-   `colleague`, `qwen`). `cd` into the clone and run any of them; all four
-   are live simultaneously, and none of them requires editing a file or
-   flipping a switch. A harness can be force-selected for one invocation
-   (e.g. a CI smoke check) without ever touching `culture.yaml` — see
-   [`docs/automation-contract.md`](docs/automation-contract.md).
-2. **The mesh resident** — the single `backend` `culture.yaml` declares,
-   which is what the Culture daemon starts and what `steward doctor`
-   checks. `guild harness use <name>` changes only this.
-
-`culture.yaml`'s `backend` affects (2) only. It never affects which harness
-you can invoke interactively in (1). See
-[`docs/harness-selection.md`](docs/harness-selection.md) for the full
-writeup, including who reads this config and why existing siblings are not
-retrofitted by this arc.
+  (`afi-cli`). The runtime package has no third-party dependencies.
+- **A mesh identity**: `culture.yaml` (`suffix: culture-library`,
+  `backend: claude`) plus the matching resident prompt file, `CLAUDE.md`.
+- **Four harness prompt files**, one per agent harness (see
+  [Prompt files by harness](#prompt-files-by-harness)).
+- **The guildmaster skill kit** under `.claude/skills/`, vendored
+  cite-don't-import. See [`docs/skill-sources.md`](docs/skill-sources.md).
+- **A build + deploy baseline**: pytest, lint, the agent-first rubric gate, a
+  per-harness smoke check, and PyPI Trusted Publishing in GitHub Actions.
 
 ## Quickstart
 
 ```bash
 uv sync
 uv run pytest -n auto                 # run the test suite
-uv run culture-library whoami  # identity from culture.yaml
-uv run culture-library learn   # self-teaching prompt (add --json)
+uv run culture-library whoami         # identity from culture.yaml
+uv run culture-library learn          # self-teaching prompt (add --json)
+uv run culture-library doctor         # agent-identity invariants
 uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
 ```
 
@@ -95,31 +51,66 @@ uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
 
 Every command supports `--json`. Results go to stdout, errors/diagnostics to
 stderr (never mixed). Exit codes: `0` success, `1` user error, `2` environment
-error, `3+` reserved.
+error, `3+` reserved. Library verbs (ingest, search, serve, …) will be added as
+new noun groups on the same contract.
 
-## Make it your own
+## Roadmap
 
-1. Rename the package `culture_library/` and the `culture-library`
-   CLI/dist name throughout `pyproject.toml`, the package, `tests/`,
-   `sonar-project.properties`, and this `README.md`. The name is hard-coded in
-   ~100 places, so list every occurrence first — see the `git grep` discovery
-   command in [`CLAUDE.md`](CLAUDE.md), the authoritative rename procedure.
-2. Edit `culture.yaml` with your `suffix` and `backend`, and adjust its
-   `gate` section (below) to your project's setup and test commands.
-3. Rewrite `CLAUDE.md` for your agent and run `/init`. Rewrite the other three
-   harness files (`AGENTS.override.md` + `.pi/SYSTEM.md`, `AGENTS.colleague.md`,
-   `QWEN.md`) too if your agent uses those harnesses — don't let them drift out
-   of sync with `CLAUDE.md`.
-4. Re-vendor only the skills you need from guildmaster (see
-   [`docs/skill-sources.md`](docs/skill-sources.md)).
+- **Ingest**: bring your own recordings, books, newspapers, articles, EPUBs,
+  PDFs and docs into one catalog.
+- **Index & search** across everything in the catalog.
+- **Serve** the catalog, published at library.culture.dev.
 
-See [`CLAUDE.md`](CLAUDE.md) for the full conventions (version-bump-every-PR,
-the `cicd` PR lane, deploy setup).
+The design is not settled yet. This list restates the project's goal; it does
+not describe a committed design.
+
+## Prompt files by harness
+
+Four harnesses, four root files, no shared base — each file is read by
+exactly one harness:
+
+| Harness | File(s) |
+|---------|---------|
+| Claude Code | [`CLAUDE.md`](CLAUDE.md) |
+| Pi / associate | [`AGENTS.override.md`](AGENTS.override.md) + [`.pi/SYSTEM.md`](.pi/SYSTEM.md) |
+| colleague | [`AGENTS.colleague.md`](AGENTS.colleague.md) |
+| Qwen Code | [`QWEN.md`](QWEN.md) |
+
+`CLAUDE.md` is the fullest write-up of the repo's conventions; read it first.
+`AGENTS.override.md` stops Pi inheriting `CLAUDE.md`, and `.pi/SYSTEM.md`
+gives Pi the non-coding `associate` identity (read/find/summarize only).
+There is intentionally **no `AGENTS.md`** at the root: it would shadow the Pi
+and colleague prompt cascades, and the CI smoke check fails if one appears.
+
+### Two selections, not one
+
+1. **The interactive harness** is whichever binary you run (`claude`, `pi`,
+   `colleague`, `qwen`). All four are live over the same clone at once, and
+   choosing one never requires editing a file. See
+   [`docs/automation-contract.md`](docs/automation-contract.md).
+2. **The mesh resident** is the single `backend` in `culture.yaml`. It is what
+   the Culture daemon starts and what `steward doctor` checks, and only
+   `guild harness use <name>` changes it.
+
+See [`docs/harness-selection.md`](docs/harness-selection.md) for the full
+writeup.
+
+## Development
+
+- **Every PR bumps the version** (the `version-bump` skill updates
+  `pyproject.toml` and `CHANGELOG.md`). The `version-check` CI job fails the
+  PR otherwise.
+- **Lint**: black, isort, flake8 (line length 100), bandit, markdownlint, and
+  `scripts/scan-secrets.py`. See [`CLAUDE.md`](CLAUDE.md) for the exact
+  commands.
+- **Deploy**: pushing to `main` publishes to PyPI via Trusted Publishing, and
+  PRs publish a `.devN` build to TestPyPI
+  (`.github/workflows/publish.yml`).
 
 ## The `gate` section
 
-`culture.yaml` may carry a top-level `gate` section that declares how to set
-up and test this repo, so tooling (for example a PR-fixer that re-runs the
+`culture.yaml` carries a top-level `gate` section that declares how to set up
+and test this repo, so tooling (for example a PR-fixer that re-runs the
 checks before pushing) needs no per-repo knowledge:
 
 ```yaml

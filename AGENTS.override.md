@@ -20,10 +20,17 @@ what the repo is and how it is laid out, not who is reading it.
 
 ## What this project is
 
-`culture-library` is a clonable template for AgentCulture mesh agents —
-a working, minimal example of the sibling pattern every Culture agent follows:
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. It is a sibling to
+`culture-library` is the AgentCulture mesh agent for Culture's library of
+your own content and media — recordings, books, newspapers, articles, EPUBs,
+PDFs, docs and more — aiming at one catalog to ingest, index, search and serve
+it all, published at library.culture.dev.
+
+**It is an early scaffold.** It was created from `culture-agent-template` and
+today contains only that template's baseline: an agent-first CLI with
+introspection verbs, a mesh identity, the canonical skill kit, and a
+buildable/deployable package. No ingest, index, search or serving code exists
+yet. If asked what the library can do, say so rather than describing planned
+features as present. It is a sibling to
 [`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
 supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
 and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this
@@ -85,9 +92,10 @@ culture.yaml              mesh identity (suffix + backend)
 - The vendored skills under `.claude/skills/` are cited **verbatim** from
   guildmaster — never propose editing their scripts; the fix belongs upstream
   (`docs/skill-sources.md` has the re-sync procedure).
-- The package/CLI name (`culture_library` / `culture-library`)
-  is hard-coded in roughly a hundred places; a rename is a `git grep` sweep,
-  not a hand edit (see `CLAUDE.md`'s "Cloning this template" section).
+- Some prose (CLI help/`explain` text, a few code comments, the
+  `docs/harness-*.md` pages) still calls this repo "a clonable template". That
+  wording was inherited from the scaffold. It does not describe what the repo
+  is for.
 - Every PR bumps the version (`version-bump` skill); CI's `version-check` job
   blocks merge otherwise.
 - This file describes the repo **as it exists on disk today**. If you are
