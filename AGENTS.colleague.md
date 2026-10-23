@@ -23,17 +23,22 @@ colleague concatenates up to three files, in order, as its prompt cascade:
 
 **This repo ships only layer 2.** There is deliberately no `AGENTS.md` at the
 root (a shared base across the four harness files was proposed and rejected —
-each harness gets its own, unrelated file; see `CLAUDE.md`'s "Prompt files by
-harness"), so the cascade for colleague in this repo starts and ends at this
+each harness gets its own, unrelated file; see `CLAUDE.md`'s "Identity and
+harnesses"), so the cascade for colleague in this repo starts and ends at this
 file. There is also no `AGENTS.colleague.<sanitized-model>.md` — this repo
 doesn't need per-model overrides today. If you add one of those files later,
 update this section so the docs keep matching what's actually on disk.
 
 ## What this project is
 
-`culture-library` is a clonable template for AgentCulture mesh agents —
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. `CLAUDE.md` in this repo is written for
+`culture-library` is the AgentCulture mesh agent for Culture's library of
+your own content and media (recordings, books, newspapers, articles, EPUBs,
+PDFs, docs), aiming at one catalog to ingest, index, search and serve it all
+at library.culture.dev. It is an **early scaffold** created from
+`culture-agent-template`. Today it holds only the template baseline (an
+agent-first CLI, a mesh identity, the canonical skill kit, a
+buildable/deployable package). No library code exists yet, so don't assume
+an ingest/index/search layer you haven't seen on disk. `CLAUDE.md` in this repo is written for
 a Claude Code session working *on* the repo — it is not your runtime prompt,
 but it is the fullest write-up of the repo's conventions if you need more
 context than fits here (worktree layout, memory discipline, `ask-colleague`
@@ -49,3 +54,9 @@ usage, the full skill kit list).
   (see `docs/skill-sources.md` for the re-sync procedure).
 - Every PR bumps the version (`version-bump` skill) — CI's `version-check` job
   blocks merge otherwise.
+- CLI code follows the contracts in `culture_library/cli/` (failures raise
+  `CliError`, results go to stdout and diagnostics to stderr, every command
+  takes `--json`, and new verbs get an `explain/catalog.py` entry). See
+  `CLAUDE.md`'s "CLI architecture".
+- Tests: `uv run pytest -n auto`. Lint: black, isort, flake8 (line length 100),
+  bandit, markdownlint.

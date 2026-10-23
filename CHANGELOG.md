@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-10-24
+
+### Changed
+
+- `CLAUDE.md` re-initialized from the seed placeholder into the full runtime prompt for the culture-library agent: purpose and early-scaffold status, commands (incl. single-test and the exact CI lint set), CLI architecture contracts, identity and harness rules, skills, conventions, and a Roadmap for the not-yet-built catalog (ingest, index, search, serve at library.culture.dev).
+- `README.md`, `QWEN.md`, `AGENTS.override.md` and `AGENTS.colleague.md` now describe the library agent rather than the clonable template the scaffold rename inherited; template clone/rename instructions removed.
+
+### Fixed
+
+- `AGENTS.override.md`, `AGENTS.colleague.md` and `README.md` cross-referenced `CLAUDE.md` sections ("Cloning this template", "Prompt files by harness") that the seed CLAUDE.md no longer contained.
+
 ## [0.10.0] - 2026-10-06
 
 ### Added

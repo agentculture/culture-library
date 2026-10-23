@@ -9,11 +9,20 @@ Qwen Code session.
 
 ## What this project is
 
-`culture-library` is a **clonable template for AgentCulture mesh agents**.
-It is a working, minimal example of the sibling pattern every Culture agent
-follows: an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent that `steward doctor` recognizes.
+`culture-library` is the AgentCulture mesh agent for **Culture's library of
+your own content and media**: recordings, books, newspapers, articles, EPUBs,
+PDFs, docs and more. The goal is one catalog to ingest, index, search and
+serve it all, published at library.culture.dev.
+
+**Status: early scaffold.** The repo was created from
+`culture-agent-template` and today contains only that template's baseline:
+an agent-first CLI with introspection verbs, a mesh identity, the canonical
+skill kit, and a buildable/deployable package. No ingest, index, search or
+serving code exists yet; treat those as planned work (see
+[Roadmap](#roadmap)). Some inherited prose (CLI help/`explain` text, a few
+comments, the `docs/harness-*.md` pages) still calls the repo "a clonable
+template". That wording came from the scaffold and does not describe the
+repo's purpose.
 
 It is a sibling to [`guildmaster`](https://github.com/agentculture/guildmaster)
 (the **skills supplier**), [`steward`](https://github.com/agentculture/steward)
@@ -52,28 +61,6 @@ requires nor changes that declaration. The declaration and the resident prompt
 together satisfy the two invariants `steward doctor` verifies:
 **prompt-file-present** and **backend-consistency** (`claude` ↔ `CLAUDE.md`).
 
-## Cloning this template (re-initialization)
-
-When you start a new agent from this template:
-
-1. Rename the package directory `culture_library/` → `<your_module>/`
-   and replace `culture_library` (module) / `culture-library`
-   (CLI and dist name) throughout `pyproject.toml`, the package, `tests/`,
-   `sonar-project.properties`, and `README.md`. The name is hard-coded in
-   ~100 places, so list every occurrence first rather than renaming by hand
-   (`git grep` is portable and skips `.git` / untracked `__pycache__`):
-
-   ```bash
-   git grep -nF -e 'culture-library' -e 'culture_library'
-   ```
-
-2. Set your `suffix` (and `backend`) in `culture.yaml`. `whoami` and `doctor`
-   then reflect the new identity with no further code change.
-3. Rewrite `CLAUDE.md` (and this file, and the other two harness files) to
-   describe your agent.
-4. Re-vendor the skill kit you need from guildmaster (see
-   `docs/skill-sources.md`) — keep only the skills your agent uses.
-
 ## The CLI
 
 The CLI is cited (cite-don't-import) from teken's `python-cli` reference
@@ -92,6 +79,12 @@ diagnostics to stderr (never mixed); exit codes are `0` success, `1` user
 error, `2` environment error, `3+` reserved. The agent-first rubric is
 enforced in CI by `teken cli doctor . --strict`.
 
+New verbs register via a `register(sub)` function in
+`culture_library/cli/_commands/`, wired up in `cli/__init__.py`. They raise
+`CliError` on failure and never print tracebacks, use the `cli/_output.py`
+helpers, and get an entry in `explain/catalog.py`. `CLAUDE.md`'s "CLI
+architecture" section has the details.
+
 ## Skills
 
 `.claude/skills/` vendors the **canonical guildmaster skill kit**
@@ -103,8 +96,9 @@ from guildmaster instead.
 
 - **Every PR bumps the version** — even docs/config/CI. Use the
   `version-bump` skill; the `version-check` CI job blocks merge otherwise.
-- **Tests**: `uv run pytest -n auto`. **Lint**: black, isort, flake8 (line
-  length 100), bandit, markdownlint.
+- **Tests**: `uv run pytest -n auto` (single test:
+  `uv run pytest tests/test_cli.py::test_whoami_json -v`). **Lint**: black,
+  isort, flake8 (line length 100), bandit, markdownlint.
 - **Deploy**: pushing to `main` publishes to PyPI via Trusted Publishing
   (`.github/workflows/publish.yml`); PRs do a TestPyPI dry-run.
 
@@ -120,6 +114,11 @@ docs/skill-sources.md     skill provenance ledger
 culture.yaml              mesh identity (suffix + backend)
 .github/workflows/        tests + deploy (PyPI Trusted Publishing)
 ```
+
+## Roadmap
+
+Planned, not built: ingest your own media into one catalog, index and search
+it, and serve it at library.culture.dev. No design is settled yet.
 
 This file describes the repository **as it exists on disk today**. When you
 edit, keep claims grounded in checked-in reality; if a section drifts ahead of
