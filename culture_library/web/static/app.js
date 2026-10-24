@@ -47,7 +47,7 @@ const wrap = area => ({
     try {
       const v = area().getItem(key);
       return v === null ? null : safeValue(v);
-    } catch (e) {
+    } catch { // NOSONAR: deliberately ignored, see below
       return null; // storage unavailable (private window, blocked site data): no saved value
     }
   },
