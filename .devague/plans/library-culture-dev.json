@@ -1,0 +1,1020 @@
+{
+  "slug": "library-culture-dev",
+  "title": "library.culture.dev",
+  "frame_slug": "library-culture-dev",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-24T00:03:56Z",
+  "updated": "2026-10-24T00:07:53Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "library.culture.dev is Culture's one library: pipelines publish recordings, EPUB books, PDFs, newspapers and Markdown into it; it also hosts every repo's devague record \u2014 specs, plans and .devague content; Gwen (embodiment) reads, cites and remembers from it and keeps her diary there; it replaces ebooks.culture.dev, and xteink becomes a device-side client of it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Every content kind named in the announcement (recording transcript, EPUB, PDF, newspaper, Markdown, diary, spec, plan, devague record) has at least one real item in the library at ship time \u2014 not just a schema slot",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "library.culture.dev keeps xteink's /api/library contract as a compatible subset (multipart POST file/title/author/kind with sha256 dedup 201/200; GET list ?q&kind&limit&offset, GET {id}, GET {id}/file; DELETE; {detail,code} errors) so culture-rules library.push and Gwen's planned client seam re-point by base URL, not rewrite \u2014 xteink docs/api.md + api/openapi.json (feat/issue-1), culture-rules node/actions/library.py, embodiment spec c12/c13",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "culture-rules' unchanged library.push (base_url re-pointed) and xteink's client succeed against culture-library: a contract test replays the xteink feat/issue-1 API calls (POST dedup 201/200, list, get, file, delete, {detail,code} errors) and passes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "The library widens xteink's item model: kinds beyond book/article (newspaper, document, transcript, diary, spec, plan, devague-record) and formats beyond epub/bmp/txt (PDF stored natively instead of 415 pdf_not_supported; Markdown and JSON stored as-is). No audio \u2014 recordings arrive as transcript text \u2014 xteink core/models.py kind enum + ingest 415",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Uploading a PDF, a .md and a .json returns 201 and GET .../file returns the identical bytes; an audio upload is refused with a {detail,code} error naming the supported formats",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The library-generic half of xteink feat/issue-1 is cited (cite-don't-import) into culture-library: core/{library,store,models,ingest,keys,errors}.py, server/routes_library.py, server/{access,auth}.py, client.py, MCP push_file/list_library, /api/keys and the web UI; storage stays SQLite + content-addressed files/<aa>/<sha256> \u2014 xteink#3's extraction list",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Cited code keeps a provenance header naming xteink feat/issue-1 commit + path, and the cited modules' tests are carried over and pass",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "The e-reader side stays in xteink and is not built here: device keys (xtd_), device protocol v1, per-device queue, mirror, firmware tables, MCP send_to_device, USB CLI, avahi, and the xteink.culture.dev tunnel; xteink becomes an HTTP client of library.culture.dev \u2014 xteink#3 'xteink keeps the device side', xteink routes_device.py/core/devices.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "culture-library has no device keys, device routes, queue or firmware tables \u2014 a grep/test over culture_library/ finds none \u2014 and xteink's queue works by pulling from the library API",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "API keys gain scopes (at least read vs write, ideally per kind) because xteink's xtk_ keys are unscoped full-operator keys and Gwen's diary needs a write key that cannot delete books or mint keys \u2014 xteink core/keys.py (hash-only, no scopes), embodiment spec c15",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A read-scoped key gets 403 on POST/DELETE and on /api/keys; a write key scoped to kind=diary gets 403 when uploading or deleting any other kind; tests pin both",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Items carry visibility (private vs shared) so Gwen's diary and sensitive recordings are not browsable by every reader; embodiment CLAUDE.md:244-246 requires daemon writes default private, and pocketsync README routes recordings to shared destinations only when enrichment.filters.sensitive is present and low",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "A private item is absent from list, search results, get and file for any caller without private scope (404, not 403, so its existence does not leak), on the API, MCP and the site",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "library.culture.dev is served by a docker compose stack on spark behind cultureflare 'remote-login setup --hostname library.culture.dev --service http://<svc>:<port> --allow <owner>' (Access SSO; dry-run then --apply; tunnel token sealed via --shushu), its own tunnel since cultureflare replaces a tunnel's whole ingress (xteink deviation d1); the server verifies Cf-Access-Jwt-Assertion itself \u2014 cultureflare _remote_login, xteink compose.yaml + docs/remote-access.md, pocketsync web/access.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The stack restarts unattended after a host reboot within 120 s; anonymous browser \u2192 Access wall; /api without key \u2192 401; the server rejects a request whose Cf-Access-Jwt-Assertion fails RS256/aud verification even when it reaches the origin directly",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The 17 live items in xteink's data volume (xteink_xteink-data, /data 36 MB: 16 article EPUBs, 1 book) migrate into the library with sha256 preserved, so Gwen's planned reconcile by (item id, sha256) does not purge and re-index everything \u2014 xteink core/store.py, embodiment spec c33",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "A migration report lists 17/17 xteink items with matching sha256 and kind remapped (Daily newspaper \u2192 newspaper), and is idempotent on re-run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A server runtime needs third-party dependencies (xteink's server stack, pandoc for MD/HTML\u2192EPUB), which breaks culture-library CLAUDE.md's 'runtime package has zero third-party dependencies' \u2014 the dependency set is a deliberate, recorded decision (likely an optional [server] extra) \u2014 culture-library pyproject dependencies=[], CLAUDE.md CLI architecture",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The runtime package's CLI (culture-library whoami/doctor/explain...) still installs and runs with zero third-party deps; server deps live only in an optional extra, recorded in CLAUDE.md",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The library hosts each repo's devague record: docs/specs/*.md, docs/plans/*.md, docs/deliveries/*.md and .devague/{frames,plans,deliveries}/*.json + {reviews,questions}/*.md \u2014 across ~75 repos in ~/git (\u22482,000 .devague files: 651 frames, 578 plans, 363 reviews, 267 questions, 253 deliveries; largest are colleague 292, lobes-cli 216, culture-nodes 143), ~80 MB with docs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "For a sample of \u2265 5 repos, every committed docs/{specs,plans,deliveries}/*.md and .devague/{frames,plans,deliveries,reviews,questions}/* pushed by the rule appears in the library with matching content",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Repo documents are mutable and versioned, unlike sha256-immutable books: identity is (repo, path), each version is pinned to a git commit sha, and the library shows the current version with history \u2014 a spec amended or a frame re-exported replaces, not duplicates",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Pushing the same (remote, path) at a new commit creates a new version, not a new item; pushing the same commit twice is a no-op; history lists both commits",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Repo documents inherit their repo's visibility: 17 of 129 agentculture GitHub repos are PRIVATE (incl. culture-core, steward, devex, guildmaster, grant, cultureagent, agent-lifecycle, katvan) \u2014 their specs/plans are never shown to readers who could not read the repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A document pushed from any of the 17 PRIVATE repos is private by default; a test pushes one from a repo marked private and asserts it is invisible to a shared-scope key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Frame and plan JSON (every schema_version devague has written, 1 through 6, and files with no schema_version) is rendered as readable pages \u2014 claims with status, honesty conditions, scope entries, open questions, plan waves \u2014 rather than served as raw JSON only; the raw file stays downloadable; a file with a schema newer than the renderer knows renders raw with a notice",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h43",
+      "kind": "honesty",
+      "text": "A corpus test renders all 1,230 frame/plan files from ~/git without error, covering versions 1\u20136 and the unversioned ones; a synthetic version-7 file renders raw with a notice",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "The library never writes back to repos and does not change devague: devague stays deterministic, offline and local-only (devague issue #20, spec-contract 'All operations run fully offline against local .devague/ state'); the library is a reader/mirror of committed state",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "culture-library contains no git write, no repo checkout mutation and no devague invocation \u2014 a grep/AST test pins it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The library dedups repo documents by (remote URL, path, commit) so a culture-rules rule that reads ~/git \u2014 which holds 106 extra .devague dirs under .worktrees.* and */.worktrees \u2014 cannot multiply frames",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Pushing the same frame from ~/git/<repo> and ~/git/.worktrees.<repo>/<branch> at the same commit yields one version",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "audience",
+      "text": "The operator (owner, browsing and reading at library.culture.dev behind Cloudflare SSO), Culture pipelines run by culture-rules (push and pull through the API), mesh agents via MCP \u2014 first Gwen (embodiment), who reads, cites and writes her diary \u2014 and xteink, which pulls items for its e-readers",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Each named reader has a working path on ship day: operator via site, culture-rules via API, Gwen via MCP, xteink via API pull",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "before_state",
+      "text": "Today the content is scattered: 17 EPUBs (newspapers, 3 documents, 1 book) sit in xteink's local-only library behind ebooks.culture.dev with kinds book/article only and no PDF; 39 Pocket recordings live only in pocketsync; ~2,000 devague records are spread over ~75 repos with no single place to read them; Gwen can read none of it and has no diary",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The numbers (17 items, 39 recordings, ~2,000 records, ~75 repos) are re-measured on the day of export, not copied from this frame",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "after_state",
+      "text": "Opening library.culture.dev shows one catalog \u2014 books, newspapers, documents, PDFs, transcripts, Gwen's diary and every repo's specs, plans and devague records \u2014 grouped by day with kind filters, full-text and semantic search, and a reader for each kind; culture-rules pushes the daily newspaper and transcripts into it, xteink pulls from it, Gwen asks it questions over MCP and writes her diary, and ebooks.culture.dev is gone",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "Each after-state sentence maps to a test or evidence item in the plan; none ships unverified",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "why_it_matters",
+      "text": "The operator wants one place to read, search and talk with everything they have read, recorded and planned; Gwen can only remember and cite what she can reach, and the mesh's specs and plans are its institutional memory but are unreadable unless you open each repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The operator confirms this states their reason (user-owned)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "success_signal",
+      "text": "After migration all 17 xteink items are in the library with identical sha256 (17/17), the next 05:00 newspaper lands via culture-rules with 0 manual steps, \u2265 70 repos' devague records are listed, a full-text query returns hits from a newspaper body in < 1 s, and an anonymous request to library.culture.dev gets the Access wall while an API call without a key gets 401",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "Each number is measured on spark, recorded in docs/evidence/, and the 1 s full-text bound holds at the full corpus size",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "success_signal",
+      "text": "Gwen answers a typed question with \u2265 1 [n] citation that opens the library reader at the cited passage, and writes \u2265 1 diary entry per day that is visible only to private-scoped readers",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "Measured end-to-end through embodiment once its seam points at library.culture.dev; until then recorded as pending, not passed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Migration preserves xteink item ids, not only sha256 (amends c9): xteink's queue rows reference items 1\u201320 by item_id with ON DELETE CASCADE, culture-rules records the pushed item_id per newspaper date in its own store, and Gwen reconciles by (id, sha256); ids are never reused afterwards (AUTOINCREMENT)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "After migration, every xteink queue row and every culture-rules newspaper record resolves to the same item (same id, same sha256) in the library; a test inserts after migration and gets an id above the old maximum",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Pullers can see deletions and changes: the library exposes a change feed (or since-cursor on GET /api/library) carrying created/updated/deleted events with item id and sha256, so xteink's mirror mode, Gwen's index reconcile (embodiment c33) and culture-rules re-pull without rescanning the catalog",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "A test deletes and replaces items and a client reading the feed from a saved cursor sees exactly those events in order, with no full-catalog scan",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "The store tolerates concurrent writers: SQLite in WAL mode with a busy timeout (xteink runs journal_mode=delete, timeout 30 s) and one write path, because culture-rules pushes, Gwen's diary writes, human uploads and bulk repo-record pushes (~3,000 files) land at the same time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "A load test runs a bulk push of 3,000 repo records, 10 diary writes and an upload at once with zero 'database is locked' errors",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Repo identity and 'current version' survive clones and remote-less repos: identity is the normalized remote URL (5 folders clone agentculture/lobes-cli, 2 clone culture-guide), a repo with no remote (transformer) gets a host:path identity, and 'current' is the newest commit on the default branch \u2014 a push from a stale clone or feature branch adds history but never rolls current back",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "Pushing the same repo file from a clone at an older commit leaves 'current' unchanged and adds a history entry; transformer's files get a stable identity",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "Ingested and uploaded content is untrusted: the site reader renders extracted text (or an allowlisted, sanitized subset) and never the EPUB/HTML as markup or script, under a CSP with no inline script from content; xteink's ingest caps (50 MiB, zip-bomb member/byte limits, 60 s conversion timeout) are kept",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "A test uploads an EPUB containing script, event handlers and a javascript: link; the reader shows its text and runs nothing, and the CSP blocks inline script",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "Hebrew and mixed-direction text render correctly: dir=auto on titles, cards, list rows, search snippets and reader paragraphs, logical CSS properties in the site styles, because culture-rules runs a Hebrew STT lane (stt-he, 0.24.0) and embodiment's specs already require dir=auto",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "A Hebrew transcript and a mixed Hebrew/English title render right-to-left in cards, rows, snippets and reader, checked in the Playwright run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "Backups with a tested restore: the library becomes the only copy of Gwen's diary and the long-term home of everything else, and xteink has no library backup today (only 'device backup' of reader firmware); the DB and content files are backed up on a schedule to a second location, and a restore drill is run before ebooks.culture.dev is torn down",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "A restore drill from the latest backup onto a clean host reproduces the catalog (ids, sha256, visibility) and passes before teardown",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "Ingest never waits on indexing: an upload or push is accepted and stored even when the embedding service (lobes gateway) is down, indexing runs behind it with retries, and index lag, failures and per-source last push are shown on the site state page and an API status endpoint",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "With the gateway stopped, an upload returns 201 and appears in title search; full-text/semantic search catches up after the gateway returns, and the lag is visible meanwhile",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "boundary",
+      "text": "ebooks.culture.dev is torn down only after: xteink devices sync from the library, culture-rules has pushed 7 consecutive newspapers to library.culture.dev, and the c9 migration report is 17/17; teardown runs cultureflare remote-login teardown dry-run first, then --apply",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "The teardown is not run until the three conditions are recorded as evidence, and the dry-run output is reviewed first",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Missing visibility fails closed: an item pushed without an explicit visibility is private, so a culture-rules rule that forgets the field (e.g. for one of the 17 private repos) cannot publish it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "A push with no visibility field is invisible to a shared-scope key; a test pins it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Send to device ends at an event: POST /api/library/{id}/send {target}, the MCP tool send_to_device and the reader's 'Send to device' button each publish library.item.send_requested through events-cli carrying the item reference (id, sha256, kind, title, format, size, a content URL on the local address) plus target and requester, and return 202; the library makes no call to any device or device service",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "A test presses Send, calls the API and the MCP tool: each publishes exactly one library.item.send_requested event with the item reference and returns 202; a grep finds no HTTP client call from the library to xteink or reterminal",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "Rules can fetch what they deliver: any rule holding a read-scoped key can GET the item's metadata and bytes (GET /api/library/{id}, GET /api/library/{id}/file) by the reference in the event, so culture-rules can pass either the content or the reference on to another service",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h39",
+      "kind": "honesty",
+      "text": "A rule with a read-scoped key fetches metadata and bytes for the referenced id and gets identical bytes (sha256 matches the event)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "Send targets are a plain list of names in the library's config (label, enabled) used only to fill the menu and the event's target field; the library stores no device ids, keys or delivery mapping",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h40",
+      "kind": "honesty",
+      "text": "Changing the target list in config changes the menu and the event's target field; no device identifier appears in the library's database",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "The site confirms only what the library did: a toast and a 'Sent to <target> at <time>' line once the event is published, an error with a retry when publishing fails, and nothing about delivery, which happens outside this repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h41",
+      "kind": "honesty",
+      "text": "With the event broker down, Send shows an error and a working retry; with it up, the toast and the sent line appear; no delivered/failed delivery state exists in the library",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c52",
+      "kind": "boundary",
+      "text": "Once the send event is published, delivery is beyond culture-library: culture-rules rules decide what to do with it (xteink's queue today, reTerminal later) and own any delivery status (operator, 2026-10-24)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h42",
+      "kind": "honesty",
+      "text": "The plan has no culture-library task that delivers to a device, maps targets to devices, or tracks delivery status; those land as issues on culture-rules (c10)",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Server extra and app skeleton",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml adds an optional [server] extra (fastapi, uvicorn, mcp>=1.2,<2, python-multipart) and the base dependencies list stays empty",
+        "culture_library/server/app.py exposes create_app(config) returning an app with GET /api/health; culture-library server serve --host 127.0.0.1 --port N starts it",
+        "tests/test_zero_deps.py imports every culture_library.cli module in a venv without the extra and passes; CLAUDE.md records the [server] extra decision"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h10"
+      ],
+      "instruction": "Cite the shape of xteink feat/issue-1 (ea2f643) xteink/server/app.py and cli/_commands/server.py with a provenance header (repo, commit, path). create_app auto-includes every culture_library/server/routes_*.py module that defines a router, so later route tasks never edit app.py. Register the server noun in cli/__init__.py with an overview verb and an explain entry. Bump the version (version-bump skill)."
+    },
+    {
+      "id": "t2",
+      "summary": "Store: SQLite WAL schema and content-addressed files",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/core/store.py opens SQLite with journal_mode=WAL and busy_timeout; items(id AUTOINCREMENT, sha256 UNIQUE, kind, title, author, format, size, visibility default 'private', created_at, archived_at) and files under files/<aa>/<sha256>",
+        "tests/core/test_store.py: 4 threads x 500 inserts plus concurrent reads finish with zero 'database is locked' errors; an insert without visibility stores 'private'",
+        "every cited module carries a provenance header naming xteink commit ea2f643 and path, and the cited tests are carried over and pass"
+      ],
+      "deps": [],
+      "covers": [
+        "c35",
+        "h25",
+        "c4",
+        "h4"
+      ],
+      "instruction": "Cite xteink core/store.py, models.py, errors.py from feat/issue-1 (ea2f643) via git show; drop devices/queue/firmware tables. Widen kind to book, article, newspaper, document, transcript, diary, spec, plan, devague-record. Files: culture_library/core/{store,models,errors}.py and tests/core/."
+    },
+    {
+      "id": "t3",
+      "summary": "Frame and plan renderer for devague schema 1-6",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/render/devague.py renders a frame or plan dict to an HTML fragment with claims, statuses, honesty conditions, scope entries, questions and plan waves; all text is escaped",
+        "tests/render/test_corpus.py renders every ~/git/*/.devague/{frames,plans}/*.json when present (skips cleanly in CI) and committed fixtures for schema 1-6 and unversioned; a synthetic schema 7 file returns a raw view with a notice"
+      ],
+      "deps": [],
+      "covers": [
+        "c16",
+        "h43"
+      ],
+      "instruction": "Pure functions, no I/O beyond the input dict. Commit one small fixture per schema version under tests/render/fixtures, copied from real files in public repos only."
+    },
+    {
+      "id": "t4",
+      "summary": "Ingest: formats, caps and untrusted archives",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/core/ingest.py accepts EPUB, PDF, Markdown, text and JSON and stores the original bytes (GET file returns them identical); audio is refused with {detail, code} naming the supported formats",
+        "the 50 MiB cap, zip member-count and byte limits and the 60 s conversion timeout from xteink apply; a zip bomb fixture is refused and the refusal recorded",
+        "text extraction for search returns plain text only (no markup) for EPUB, Markdown and PDF"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c3",
+        "h3",
+        "c38"
+      ],
+      "instruction": "Cite xteink core/ingest.py (ea2f643); keep pandoc conversion optional. Files: culture_library/core/ingest.py, tests/core/test_ingest.py, tests/core/fixtures/."
+    },
+    {
+      "id": "t5",
+      "summary": "Keys with scopes and Cloudflare Access verification",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/core/keys.py mints hash-only keys with scopes read, write, admin and an optional kind list; server/auth.py enforces them: read key gets 403 on POST/DELETE and /api/keys; a write key scoped to diary gets 403 on other kinds",
+        "server/access.py verifies Cf-Access-Jwt-Assertion (RS256, aud, JWKS) when configured and rejects a forged or wrong-aud token even on a direct origin request",
+        "machine clients authenticate with keys on the loopback/LAN bind without Access (decision c44)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c6",
+        "h6"
+      ],
+      "instruction": "Cite xteink core/keys.py and server/{auth,access}.py (ea2f643); pocketsync web/access.py is the stdlib reference for the JWT verifier. Files: culture_library/core/keys.py, culture_library/server/{auth,access}.py, tests/server/test_auth.py."
+    },
+    {
+      "id": "t6",
+      "summary": "Change feed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/core/feed.py appends created, updated, archived, purged and send_requested events with item id, sha256 and a monotonic cursor; GET /api/feed?since=<cursor> returns events in order",
+        "tests/core/test_feed.py: after a mix of creates, replaces and deletes, a reader from a saved cursor sees exactly those events with no catalog scan"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c34",
+        "h24"
+      ],
+      "instruction": "Store events in the same SQLite DB (table feed). Expose a small append(conn, event) API used by later tasks. Files: culture_library/core/feed.py, server/routes_feed.py, tests/core/test_feed.py."
+    },
+    {
+      "id": "t7",
+      "summary": "Search: full-text and semantic with a background indexer",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/core/search.py answers full-text queries via SQLite FTS5 with snippets and semantic queries via embeddings from the lobes gateway embedder; results respect visibility",
+        "culture_library/core/indexer.py indexes in the background with retries; with the gateway stopped an upload still returns 201 and is title-searchable, and full-text/semantic catch up later",
+        "index lag, failures and last success are exposed as data for the status endpoint"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c41",
+        "h31"
+      ],
+      "instruction": "Read the gateway URL and key from env (never written to disk). Measure embedding cost on the real corpus and record it in the task's evidence. Files: culture_library/core/{search,indexer}.py, tests/core/test_search.py."
+    },
+    {
+      "id": "t8",
+      "summary": "Repo documents: versioned identity, visibility and dedup",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/core/repodocs.py stores docs keyed by (normalized remote URL or host:path, path) with versions pinned to commit sha; current is the newest default-branch commit; pushing an older commit or a feature branch adds history only",
+        "the same (remote, path, commit) pushed from a clone and a worktree yields one version; a doc from a private repo, or pushed without visibility, is private",
+        "a grep/AST test finds no git write, checkout or devague invocation in culture_library/",
+        "tests push a sample of docs from at least 5 public repos and read them back with matching content"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c13",
+        "h11",
+        "c14",
+        "h12",
+        "c15",
+        "h13",
+        "c17",
+        "h15",
+        "c18",
+        "h16",
+        "c37",
+        "h27"
+      ],
+      "instruction": "Push shape: POST /api/repodocs {remote, path, commit, committed_at, default_branch_head, visibility, content}. Files: culture_library/core/repodocs.py, server/routes_repodocs.py, tests/core/test_repodocs.py."
+    },
+    {
+      "id": "t9",
+      "summary": "Migration from xteink",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-library migrate from-xteink --data-dir <dir> (dry-run unless --apply) reads xteink library.db read-only and copies items with the same id and sha256, mapping 'Daily newspaper' titles to kind newspaper and the rest to document or book",
+        "the report lists 17/17 items with matching sha256 and is idempotent on re-run; the next new item gets an id above the old maximum"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c9",
+        "h9",
+        "c33",
+        "h23"
+      ],
+      "instruction": "Never write to the xteink volume; open it with mode=ro. Files: culture_library/migrate/xteink.py, cli/_commands/migrate.py, tests/migrate/. Register the migrate noun after t1's server noun."
+    },
+    {
+      "id": "t10",
+      "summary": "Library HTTP API, compatible with xteink",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "server/routes_library.py serves GET /api/library (q, kind, limit, offset), POST (multipart file/title/author/kind/visibility, 201 created or 200 on same sha256), GET {id}, GET {id}/file and DELETE {id}; errors are {detail, code}",
+        "a contract test replays the xteink feat/issue-1 calls culture-rules library.push makes (POST /api/library) and passes unchanged",
+        "a private item is absent from list and search and returns 404 on get/file for callers without private scope; an item pushed without visibility is private",
+        "DELETE archives the item (feed event archived) and a purge job removes it 30 days later; it can be restored until then (decision c45)",
+        "a grep test finds no device keys, device routes, queue or firmware code in culture_library/"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c5",
+        "h5",
+        "c7",
+        "h7",
+        "c43",
+        "h33"
+      ],
+      "instruction": "Cite xteink server/routes_library.py and core/library.py (ea2f643). Files: culture_library/core/library.py, server/routes_library.py, tests/server/test_library_api.py, tests/contract/."
+    },
+    {
+      "id": "t11",
+      "summary": "Send to device: publish the event and serve the reference",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "POST /api/library/{id}/send {target} returns 202 and publishes exactly one library.item.send_requested event via events-cli with id, sha256, kind, title, format, size, a local content URL, target and requester; it also appends to the feed",
+        "targets come from config (label, enabled); a disabled or unknown target is refused with a clear code; no device id or key is stored",
+        "a rule with a read-scoped key fetches metadata and bytes for the referenced id and the sha256 matches the event; a grep test finds no HTTP call to xteink or reterminal",
+        "with the broker down the API returns an error the site can retry"
+      ],
+      "deps": [
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c48",
+        "h38",
+        "c49",
+        "h39",
+        "c50",
+        "h40",
+        "c52",
+        "h42"
+      ],
+      "instruction": "Publish through the events-cli CLI the way pocketsync does (subprocess, no new dependency). Files: culture_library/core/send.py, server/routes_send.py, tests/core/test_send.py."
+    },
+    {
+      "id": "t12",
+      "summary": "Status and search endpoints",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET /api/status returns counts per kind and visibility, index lag and failures, last push per source, and feed cursor; numbers come from the live database",
+        "GET /api/search?q=&mode=fulltext|semantic|hybrid&kind= returns hits with snippets, honoring the caller's visibility scope"
+      ],
+      "deps": [
+        "t6",
+        "t7",
+        "t5"
+      ],
+      "covers": [
+        "c41"
+      ],
+      "instruction": "Files: culture_library/server/{routes_status,routes_search}.py, tests/server/test_status_search.py."
+    },
+    {
+      "id": "t13",
+      "summary": "MCP server for agents",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/mcp exposes push_file, list_library, search, read_item, send_to_device, and diary_write, diary_edit, diary_delete over streamable-http (LAN) and stdio; each call carries the caller's own key and obeys its scopes",
+        "a diary-scoped key can create, edit and delete its own diary entries (delete archives for 30 days) and gets an error on any other kind"
+      ],
+      "deps": [
+        "t10",
+        "t11",
+        "t7",
+        "t8"
+      ],
+      "covers": [],
+      "instruction": "Cite xteink mcp/{server,tools}.py (ea2f643). Not exposed on the public hostname. Files: culture_library/mcp/, tests/mcp/."
+    },
+    {
+      "id": "t14",
+      "summary": "OPDS and WebDAV for reading apps",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET /opds serves an OPDS 1.2 catalog (navigation by kind, acquisition links to item files) that a standard OPDS client parses; WebDAV exposes a read-only tree by kind honoring visibility"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [],
+      "instruction": "Decision c46. Keep WebDAV read-only unless a later decision says otherwise. Files: culture_library/server/{routes_opds,routes_webdav}.py, tests/server/test_opds_webdav.py."
+    },
+    {
+      "id": "t15",
+      "summary": "Site: port the approved prototype",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_library/web/ serves the site from docs/design/prototype.html's markup, styles and tokens, with data from the API instead of the embedded DATA block: home, reader with list pane, search, upload, send to device, site state, theme toggle",
+        "titles, cards, rows, snippets and reader paragraphs carry dir=auto and the stylesheet uses logical properties; a Hebrew fixture renders right-to-left",
+        "the reader renders extracted text only; an EPUB fixture with script, event handlers and a javascript: link runs nothing, and a CSP blocks inline script from content",
+        "after Send the page shows the toast and the 'Sent to <target> at <time>' line and nothing about delivery; a publish failure shows an error and a working retry"
+      ],
+      "deps": [
+        "t10",
+        "t3",
+        "t11",
+        "t12",
+        "t8"
+      ],
+      "covers": [
+        "c39",
+        "h29",
+        "c38",
+        "h28",
+        "c51",
+        "h41",
+        "c28",
+        "h19"
+      ],
+      "instruction": "Keep docs/design/library-site.md as the contract. Split the prototype's script into web/static/{app,home,reader,search,upload,send,state}.js and web/static/styles.css; no build step, no framework."
+    },
+    {
+      "id": "t16",
+      "summary": "Visual parity tests against the reference screenshots",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/visual/ runs Playwright against the built site with fixture data matching the prototype's, at 1680x1000 and 400x860, light and dark, reduced motion, and compares all 30 views in docs/design/reference/ with a pixel-diff threshold of at most 1%",
+        "the run also checks: only Lato at weights 300/400/700/900 is used; stylesheet tokens equal docs/design/library-site.md; scrollWidth equals viewport width at 400px on every view; theme, last-read, pane state and reading progress persist"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [],
+      "instruction": "This task carries obligations o1-o7 on c32. Load fixtures that reproduce the prototype's data (catalog of 17, the 23 Oct newspaper, the Gwen spec, the frame) so the screenshots are comparable. Files: tests/visual/, tests/visual/fixtures/."
+    },
+    {
+      "id": "t17",
+      "summary": "Backups and a restore drill",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-library backup run copies a consistent SQLite snapshot (online backup API) and the files tree to a configured second location on a schedule; culture-library backup restore onto a clean directory reproduces ids, sha256 and visibility",
+        "docs/operations/backup.md records a restore drill run on spark, with evidence, before any teardown"
+      ],
+      "deps": [
+        "t2",
+        "t9"
+      ],
+      "covers": [
+        "c40",
+        "h30"
+      ],
+      "instruction": "Files: culture_library/core/backup.py, cli/_commands/backup.py, docs/operations/backup.md, tests/core/test_backup.py."
+    },
+    {
+      "id": "t18",
+      "summary": "Deploy on spark",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "deploy/compose.yaml runs the server and MCP with a named data volume, binds machine-client ports to spark's loopback/LAN, restarts unattended and is healthy within 120 s of a reboot",
+        "docs/operations/deploy.md gives the cultureflare remote-login setup --hostname library.culture.dev --service http://<svc>:<port> --allow <owner> --shushu command (dry-run first, own tunnel); anonymous browser gets the Access wall and /api without a key gets 401"
+      ],
+      "deps": [
+        "t1",
+        "t10",
+        "t13"
+      ],
+      "covers": [
+        "c8",
+        "h8"
+      ],
+      "instruction": "Mirror xteink compose.yaml and docs/remote-access.md (), service names not 127.0.0.1 in --service. Provisioning itself is an operator step. Files: deploy/, docs/operations/deploy.md."
+    },
+    {
+      "id": "t19",
+      "summary": "File the sibling-repo changes as issues",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "issues are filed via the communicate skill on: culture-rules (library.push without the device-queue step and with kind/visibility; a send-to-device rule consuming library.item.send_requested; transcript and repo-docs push rules), xteink (#3 retargeted to culture-library; xteink as a library client; push feat/issue-1), embodiment (lift c26 for diary writes; base URL on the local address), ebooks-cli (superseded)",
+        "each issue links the spec and states the exact API or event contract it depends on"
+      ],
+      "deps": [
+        "t10",
+        "t11",
+        "t8"
+      ],
+      "covers": [],
+      "instruction": "Assumption c10: never edit sibling repos from here. Draft each issue body for operator review before posting."
+    },
+    {
+      "id": "t20",
+      "summary": "Teardown gate for ebooks.culture.dev",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/operations/teardown-ebooks.md lists the three conditions (devices sync from the library, 7 consecutive newspapers on library.culture.dev, migration 17/17) with evidence slots, plus the cultureflare remote-login teardown dry-run output to review before --apply"
+      ],
+      "deps": [
+        "t17",
+        "t18",
+        "t9"
+      ],
+      "covers": [
+        "c42",
+        "h32"
+      ],
+      "instruction": "The teardown is an operator action after the gate is met; this task writes the gate, it does not run it."
+    },
+    {
+      "id": "t21",
+      "summary": "Delivery evidence and success signals",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/evidence/ records, measured on spark: an item of every kind named in c1; each reader's working path (site, API, MCP, xteink pull); re-measured before-state numbers; the c30 numbers (17/17 sha256, next newspaper with 0 manual steps, at least 70 repos listed, full-text query under 1 s on the full corpus, Access wall and 401)",
+        "c31 (Gwen cites and writes diary entries) is recorded as pending until embodiment points at the library, not as passed"
+      ],
+      "deps": [
+        "t16",
+        "t18",
+        "t19",
+        "t20"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c26",
+        "h17",
+        "c27",
+        "h18",
+        "c29",
+        "h20",
+        "c30",
+        "h21",
+        "c31",
+        "h22"
+      ],
+      "instruction": "Measure, don't copy numbers from the frame (lapse l1). Count repos by remote URL."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "xteink feat/issue-1 (ea2f643) is local-only; the code t2, t4, t5, t10 and t13 cite exists only on spark. Push it (xteink#3) or cite by commit from the local clone",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Embedding cost for ~2,950 repo records plus book bodies on the lobes gateway is unmeasured; semantic indexing may need batching or a schedule",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "The 50 MiB upload cap (from xteink) may be too small for scanned PDFs; no size distribution was measured (frame v3)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "The transcript EPUB format from culture-rules is unseen (frame v2); the reader may need a transcript view with timestamps",
+      "kind": "unknown_nonblocking",
+      "task_id": "t15",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "The prototype's fixture data (17 items, the 23 Oct newspaper, the Gwen spec, this frame) must be committed as visual-test fixtures; the newspaper is web-sourced text and the frame changes as the plan progresses, so fixtures are frozen copies",
+      "kind": "follow_up",
+      "task_id": "t16",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "Sibling changes (culture-rules, xteink, embodiment) run on their own schedules; c30's 'next newspaper with 0 manual steps' and c31 depend on them landing",
+      "kind": "unknown_nonblocking",
+      "task_id": "t21",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
