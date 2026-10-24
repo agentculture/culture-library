@@ -52,7 +52,13 @@ assert len(VIEWS) == 30
 
 
 def reference_path(name: str) -> Path:
-    return (CANDIDATES if name in DEVIATED else REFERENCE) / f"{name}.png"
+    """Every view compares with the approved reference (the 18 d3/d5 views were re-approved)."""
+    return REFERENCE / f"{name}.png"
+
+
+def candidate_path(name: str) -> Path:
+    """Where ``CULTURE_LIBRARY_VISUAL_CANDIDATES=1`` writes a render for a future re-approval."""
+    return CANDIDATES / f"{name}.png"
 
 
 def _open(page, site, fragment: str = "", docs: bool = True) -> None:

@@ -1,8 +1,9 @@
 """Visual parity: each of the 30 reference views, rendered from fixture data, within 1%.
 
-Obligation o1 on claim c32 (plan task t16). The views in ``views.DEVIATED`` (deviation d3, the
-phone send-menu fix) are compared with ``docs/design/reference-candidates/`` when the operator
-has approved candidates there; ``CULTURE_LIBRARY_VISUAL_CANDIDATES=1`` (re)writes them.
+Obligation o1 on claim c32 (plan task t16). All 30 views compare with ``docs/design/reference/``;
+the 18 in ``views.DEVIATED`` (deviations d3 and d5) were re-approved by the operator on
+2026-10-24. ``CULTURE_LIBRARY_VISUAL_CANDIDATES=1`` writes renders to
+``docs/design/reference-candidates/`` for a future re-approval; it never touches the references.
 Each run prints a per-view diff table; a failing view leaves its actual and diff images in
 the output directory (``CULTURE_LIBRARY_VISUAL_OUT`` or a temp dir) and names the paths.
 """
@@ -40,14 +41,12 @@ def test_view_matches_reference(browser, site, out_dir, name, form, scheme, view
     finally:
         page.context.close()
     ref = views.reference_path(name)
-    if name in views.DEVIATED and os.environ.get("CULTURE_LIBRARY_VISUAL_CANDIDATES") == "1":
-        ref.parent.mkdir(parents=True, exist_ok=True)
-        ref.write_bytes(shot)
-    if not ref.is_file():
-        RESULTS[name] = "no approved candidate yet (d3)"
-        pytest.skip(f"{name}: awaiting operator re-approval of docs/design/reference-candidates")
+    if os.environ.get("CULTURE_LIBRARY_VISUAL_CANDIDATES") == "1":
+        cand = views.candidate_path(name)
+        cand.parent.mkdir(parents=True, exist_ok=True)
+        cand.write_bytes(shot)
     fraction, marked, note = compare.diff(shot, ref)
-    RESULTS[name] = f"{fraction * 100:6.2f}%" + (" (candidate)" if name in views.DEVIATED else "")
+    RESULTS[name] = f"{fraction * 100:6.2f}%" + (" (re-approved)" if name in views.DEVIATED else "")
     if fraction > compare.THRESHOLD or note:
         actual = out_dir / f"{name}.actual.png"
         actual.write_bytes(shot)
