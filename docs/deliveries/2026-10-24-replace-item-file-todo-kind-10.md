@@ -42,7 +42,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t3` | delivered | `PUT /api/library/{item_id}/file` in `server/routes_library.py`, plus `tests/server/test_replace_api.py` and `tests/contract/test_culture_rules_replace.py`. Merged `f74cbb6` (task commit `a89d242`). |
 | `t4` | delivered | `deploy.md` "Upgrading across a schema change", the 2026-10-23 spec's kinds line and immutability wording, CLAUDE.md, CHANGELOG, and version 0.12.0. Merged `81a19c2` (task commit `5f8ccc5`). The runbook steps were corrected in `1435f08` (d3). |
 | `t5` | partial | Follow-up issue #11 is filed. The reply on #10 with the final route is not posted; it moves to after the PR merges (d2, pending approval). |
-| `t6` | partial | Done by the agent: tagged `culture-library:0.11.0` for rollback; took a verified backup snapshot `~/backups/culture-library-pre-0.12.0/snapshots/20261024T221500Z` (51 items, 51 blobs, `verify: OK`); recorded before-counts `(51, 54)` with seq `54`; read-only `foreign_key_check` on the live DB was clean; built the 0.12.0 image; ran the migration on the image's SQLite 3.40.1 in a probe. Not done: recreating `library`/`mcp`, the migration log check, after-counts, and a live todo upload and replace (d4). |
+| `t6` | partial | Done by the agent: tagged `culture-library:0.11.0` for rollback; took a verified backup snapshot `~/backups/culture-library-pre-0.12.0/snapshots/20261024T221500Z` (51 items, 51 blobs, `verify: OK`); recorded before-counts `(51, 54)` with seq `54`; read-only `foreign_key_check` on the live DB was clean; built the 0.12.0 image; ran the migration on the image's SQLite 3.40.1 in a probe. Rehearsed the full upgrade on the snapshot restored into a scratch directory and served by the 0.12.0 image in a throwaway container (d5): migration log line `51 rows copied`, counts `(51, 54)`/seq `54` before and after, a todo upload (201), a replace (200, one `updated` event), the same bytes again (200), and a book key refused with 403 `forbidden_kind`. Not done: recreating the production `library`/`mcp` containers (d4). |
 
 ## Mid-work Decisions
 
@@ -68,6 +68,13 @@ Quoted verbatim from the `devague summary` skeleton:
   before any change. Every TDD gate in this run used `CULTURE_RULES_SRC` pointed at a
   scratch `git archive 1edfd8c` extract. CI has no checkout and skips these tests.
   Recorded as a plan follow-up risk; no deviation record covers it.
+- `d5` — the t6 rehearsal on the restored snapshot, because the production recreate is
+  blocked (d4). It gives execution-strength evidence on the real data without touching
+  production. (pending approval)
+- t5 reply timing, asked again after PR #12 opened with green CI: the decider split
+  0.52 `wait_for_merge` against 0.48 `post_now_marked_pending` (route stable P = 0.88).
+  The near tie does not override t5's confirmed criterion, so the reply stays after
+  the merge (d2).
 - Live upgrade timing: the decider leaned `upgrade_now_from_branch` 0.75 (rollback
   adequate P = 0.89; risk expected about 3.4 on a 1–5 scale). The agent followed the
   runbook with a verified backup first.
@@ -123,8 +130,8 @@ so each record names its test node.
 | Re-index and requeue on replace; refusals match upload | high | `tests/core/test_replace.py::test_replace_reindexes_body_and_requeues`, `::test_replace_refusals_match_upload_and_change_nothing` (`e5`, `e7`) |
 | Replace never leaves a live item without its blob under any interleaving (c34 / h25) | medium | `tests/core/test_replace.py::test_toggle_a_b_a_keeps_blob_and_hash` (`e21`) is sequential only; no concurrent test exists |
 | The cited culture-rules upload contract still holds | medium | `test_cited_copy_matches_upstream` (`e22`) passes against pinned `1edfd8c` only; it fails against the drifted local `8c4c3fb` |
-| The live library on spark migrated in place, 51/51 with ids unchanged (c21) | unverified | (no evidence: the recreate is blocked, d4. Before-values and the verified backup are recorded) |
-| The upgrade runbook works end to end (c33) | unverified | (steps 1–2 executed; steps 3–5 not yet run) |
+| The 0.12.0 migration keeps all 51 live items and their ids on the real data (c21) | medium | rehearsal `e29` on the restored production snapshot (d5); the production container itself is not yet recreated (d4) |
+| The upgrade runbook works end to end (c33) | medium | `e30`: steps 1–2 run on production, steps 4–5 on the restored copy; step 3 is not run on production (d4) |
 | The backup-vs-replace race is no worse than purge's | low | approved lapse `l1` (`assumption-for-measurement`): parked by analogy, `backup.py` copy order not traced |
 
 Lapse ledger evidence:
@@ -139,13 +146,13 @@ Lapse ledger evidence:
   0.12.0 via `grant run … up -d --no-deps library mcp`). Then check the
   `culture-library: migrated items kind CHECK …` log line, re-run the step-2 count
   (expect `(51, 54)`, seq `54`), smoke-test a todo upload and a replace, and file the
-  evidence for `o17`/`o18`. Rollback: the image `culture-library:0.11.0` plus snapshot
+  production evidence for `o17`/`o18` (the rehearsal evidence is `e29`/`e30`). Rollback: the image `culture-library:0.11.0` plus snapshot
   `20261024T221500Z`.
 - `t5` (`d2`): after the PR merges, reply on #10 with `replace_method=PUT`,
   `replace_path=/api/library/{id}/file`, multipart field `file`, 200 plus the item JSON,
   and the codes `forbidden_kind` 403, `duplicate_content` 409 (`other_id` only when
   visible), `not_found` 404, and the upload refusal codes.
-- Approve or reject the pending deviations `d2`, `d3` and `d4`.
+- Approve or reject the pending deviations `d2`, `d3`, `d4` and `d5`.
 - Re-cite `tests/contract/culture_rules_wire.py` to culture-rules `8c4c3fb` (#91
   removed `KIND` and requires `upload_path`). This is a pre-existing drift that the
   plan risk records.

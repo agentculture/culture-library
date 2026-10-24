@@ -2,7 +2,7 @@
   "plan_slug": "replace-item-file-todo-kind-10",
   "schema_version": 2,
   "created": "2026-10-24T22:13:09Z",
-  "updated": "2026-10-24T22:19:15Z",
+  "updated": "2026-10-24T22:35:10Z",
   "deviations": [
     {
       "id": "d1",
@@ -56,6 +56,19 @@
       "status": "proposed",
       "classification": "needs-follow-up",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t6 rehearsal: because the production recreate is blocked (d4), the 0.12.0 upgrade was rehearsed end to end on the verified pre-upgrade snapshot restored into a scratch dir and served by the 0.12.0 image in a throwaway container: migration 51/51, ids and seq kept, FK check clean, todo upload 201, PUT replace 200 with one updated event, same-bytes 200, book key 403 forbidden_kind",
+      "task_ref": "t6",
+      "reason": "Gives c21/c33 execution-strength evidence on the real data without touching production; the production recreate stays with the operator",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 35
     }
   ],
   "evidence": [
@@ -590,6 +603,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 32
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o17",
+      "test_ref": "rehearsal: snapshot 20261024T221500Z restored via 'backup restore', culture-library:local (0.12.0, built from branch) served it in throwaway container cl-rehearsal on 127.0.0.1:18796",
+      "behavior_text": "first boot logged 'migrated items kind CHECK ... 51 rows copied'; items (51,54) seq 54 before and after; foreign_key_check []; new todo ids 55/56 continue after 54",
+      "contract_text": "c21 \u2014 rehearsed on a byte-identical restored copy of the live data, NOT the production container (d5)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Executed against the verified pre-upgrade snapshot of production; the production recreate itself remains operator-owned (d4)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:35:10",
+        "commit": "2f780f9"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o18",
+      "test_ref": "deploy.md 'Upgrading across a schema change' steps 1-2 on production (tag 0.11.0, verified backup, before-counts) and steps 4-5 on the restored copy (grep -i migrat matched; counts equal)",
+      "behavior_text": "backup verify OK (51 items); step-2 query printed (51, 54) (54,) verbatim from the runbook; migration line matched the runbook's grep; after-counts equal",
+      "contract_text": "c33 \u2014 every step except step 3 against production (d4/d5)",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "Steps executed as written; step 3 (production recreate) blocked by tool permission",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:35:10",
+        "commit": "2f780f9"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
     }
   ],
   "deltas": [
