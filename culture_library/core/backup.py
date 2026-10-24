@@ -9,6 +9,13 @@ Layout under the backup root::
 The database is copied with SQLite's online backup API, so it is consistent while the
 server writes (WAL). Blobs are immutable and named by their hash, so only missing ones
 are copied and each copy is verified. Pruning removes old snapshots, never blobs.
+
+Which blobs: every sha256 named by any table with a ``sha256`` column (catalog ``items``,
+repo-document ``repodoc_versions``, and any later table), except the ``feed`` log, which
+also names blobs of purged items. Backup copies them, restore copies them back, and verify
+checks each one. The manifest records items and repo-document versions (with counts); a
+snapshot taken before repo documents were covered has no ``repodoc_versions`` list, and
+verify reports its repo-document blobs as missing rather than passing it.
 """
 
 from __future__ import annotations
@@ -43,6 +50,8 @@ class Snapshot:
         return {
             "snapshot": str(self.path),
             "items": self.manifest.get("item_count", 0),
+            "repodocs": self.manifest.get("repodoc_count", 0),
+            "repodoc_versions": self.manifest.get("repodoc_version_count", 0),
             "blobs_copied": self.blobs_copied,
             "blobs_total": self.blobs_total,
             "pruned": self.pruned,
@@ -100,6 +109,48 @@ def _read_items(db: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _tables(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _read_repodocs(db: Path) -> tuple[int, list[dict]]:
+    """``(doc count, versions)``; ``(0, [])`` for a database without repo documents."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        if "repodoc_versions" not in _tables(conn):
+            return 0, []
+        docs = conn.execute("SELECT count(*) FROM repodocs").fetchone()[0]
+        rows = conn.execute(
+            "SELECT id, doc_id, sha256, visibility, size FROM repodoc_versions ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    return docs, [dict(r) for r in rows]
+
+
+def _referenced_blobs(db: Path) -> dict[str, str]:
+    """``{sha256: table}`` for every blob a table with a ``sha256`` column names (not feed)."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    out: dict[str, str] = {}
+    try:
+        for name in _tables(conn):
+            if name == "feed":
+                continue
+            cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{name}")')}  # nosec B608
+            if "sha256" not in cols:
+                continue
+            sql = f'SELECT DISTINCT sha256 FROM "{name}" WHERE sha256 IS NOT NULL'  # nosec B608
+            for (sha,) in conn.execute(sql):
+                out.setdefault(sha, name)
+    finally:
+        conn.close()
+    return out
+
+
 def list_snapshots(root: str | os.PathLike[str]) -> list[Path]:
     snaps = Path(root).expanduser() / "snapshots"
     if not snaps.is_dir():
@@ -138,9 +189,11 @@ def run_backup(
     try:
         _backup_db(src / "library.db", snap / "library.db")
         items = _read_items(snap / "library.db")
+        doc_count, versions = _read_repodocs(snap / "library.db")
+        blobs = _referenced_blobs(snap / "library.db")
         copied = 0
-        for it in items:
-            copied += _copy_blob(src, root, it["sha256"])
+        for sha in sorted(blobs):
+            copied += _copy_blob(src, root, sha)
         counts: dict[str, int] = {}
         for it in items:
             counts[it["visibility"]] = counts.get(it["visibility"], 0) + 1
@@ -150,6 +203,9 @@ def run_backup(
             "item_count": len(items),
             "visibility_counts": counts,
             "items": [{k: it[k] for k in ("id", "sha256", "visibility", "size")} for it in items],
+            "repodoc_count": doc_count,
+            "repodoc_version_count": len(versions),
+            "repodoc_versions": versions,
         }
         (snap / MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n")
     except BaseException:
@@ -159,7 +215,7 @@ def run_backup(
     for old in list_snapshots(root)[:-keep]:
         shutil.rmtree(old)
         pruned.append(old.name)
-    return Snapshot(snap, copied, len({i["sha256"] for i in items}), pruned, manifest)
+    return Snapshot(snap, copied, len(blobs), pruned, manifest)
 
 
 def _copy_blob(src: Path, root: Path, sha: str) -> int:
@@ -187,6 +243,16 @@ def _load_manifest(snapshot: Path) -> dict:
     return json.loads(mf.read_text())
 
 
+def _expected_blobs(db: Path, manifest: dict) -> dict[str, str]:
+    """``{sha256: label}``: blobs the manifest declares plus every one the database names."""
+    want = {sha: f"{table} row" for sha, table in _referenced_blobs(db).items()}
+    for v in manifest.get("repodoc_versions", []):
+        want[v["sha256"]] = f"repodoc version {v['id']}"
+    for i in manifest["items"]:
+        want[i["sha256"]] = f"item {i['id']}"
+    return want
+
+
 def _check(db: Path, blobs_root: Path, manifest: dict) -> list[str]:
     problems: list[str] = []
     want = {i["id"]: i for i in manifest["items"]}
@@ -197,17 +263,26 @@ def _check(db: Path, blobs_root: Path, manifest: dict) -> list[str]:
             problems.append(f"item {iid} present on only one side")
         elif (w["sha256"], w["visibility"]) != (g["sha256"], g["visibility"]):
             problems.append(f"item {iid} sha256/visibility differs from manifest")
-    for iid, w in want.items():
-        blob = _blob(blobs_root, w["sha256"])
+    if "repodoc_versions" in manifest:
+        wv = {v["id"]: v for v in manifest["repodoc_versions"]}
+        gv = {v["id"]: v for v in _read_repodocs(db)[1]}
+        for vid in sorted(wv.keys() | gv.keys()):
+            w, g = wv.get(vid), gv.get(vid)
+            if w is None or g is None:
+                problems.append(f"repodoc version {vid} present on only one side")
+            elif (w["sha256"], w["visibility"]) != (g["sha256"], g["visibility"]):
+                problems.append(f"repodoc version {vid} sha256/visibility differs from manifest")
+    for sha, label in sorted(_expected_blobs(db, manifest).items(), key=lambda kv: kv[1]):
+        blob = _blob(blobs_root, sha)
         if not blob.is_file():
-            problems.append(f"item {iid}: blob {w['sha256']} missing")
-        elif _sha256_file(blob) != w["sha256"]:
-            problems.append(f"item {iid}: blob {w['sha256']} fails sha256 check")
+            problems.append(f"{label}: blob {sha} missing")
+        elif _sha256_file(blob) != sha:
+            problems.append(f"{label}: blob {sha} fails sha256 check")
     return problems
 
 
 def verify(snapshot: str | os.PathLike[str]) -> Report:
-    """Check a snapshot's database against its manifest and every blob's sha256."""
+    """Check a snapshot's database against its manifest and every referenced blob's sha256."""
     snap = Path(snapshot).expanduser()
     manifest = _load_manifest(snap)
     problems = _check(snap / "library.db", snap.parent.parent, manifest)
@@ -227,10 +302,10 @@ def restore(snapshot: str | os.PathLike[str], target: str | os.PathLike[str]) ->
     if pre:
         raise BackupError("snapshot failed verification: " + "; ".join(pre))
     _backup_db(snap / "library.db", out / "library.db")
-    for it in manifest["items"]:
-        dst = _blob(out, it["sha256"])
+    for sha in sorted(_expected_blobs(snap / "library.db", manifest)):
+        dst = _blob(out, sha)
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(_blob(root, it["sha256"]), dst)
+        shutil.copyfile(_blob(root, sha), dst)
     problems = _check(out / "library.db", out, manifest)
     return Report(not problems, manifest["item_count"], problems, str(out))
 

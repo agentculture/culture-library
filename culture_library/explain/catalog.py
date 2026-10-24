@@ -169,9 +169,9 @@ Back up the library to a second location and prove it restores.
 
 - `backup run [--data-dir D] [--to B] [--keep N]` — copy a consistent SQLite snapshot
   (online backup API, safe while the server writes) to `B/snapshots/<UTC stamp>/` with a
-  `manifest.json` (ids, sha256, visibility, counts), and copy only missing blobs into
-  `B/files/`. Keeps the last N snapshots (default 7). `B` defaults to
-  `CULTURE_LIBRARY_BACKUP_DIR`.
+  `manifest.json` (item and repo-document ids, sha256, visibility, counts), and copy only
+  missing blobs (items' and repo documents') into `B/files/`. Keeps the last N snapshots
+  (default 7). `B` defaults to `CULTURE_LIBRARY_BACKUP_DIR`.
 - `backup verify <snapshot>` — check the database against the manifest and re-hash every blob.
 - `backup restore --from <snapshot> --to <dir>` — restore into an empty directory (a
   non-empty one is refused) and verify ids, sha256 and visibility.
