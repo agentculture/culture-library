@@ -109,11 +109,11 @@ def basic_to_bearer(request: Request) -> None:
     if scheme.lower() != "basic":
         return
     try:
-        _, _, password = base64.b64decode(rest.strip(), validate=True).decode().partition(":")
+        _, _, supplied_key = base64.b64decode(rest.strip(), validate=True).decode().partition(":")
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return  # left as Basic: current_principal answers 401
     headers = [(k, v) for k, v in request.scope["headers"] if k != b"authorization"]
-    headers.append((b"authorization", f"Bearer {password}".encode()))
+    headers.append((b"authorization", f"Bearer {supplied_key}".encode()))
     request.scope["headers"] = headers
     request.__dict__.pop("_headers", None)  # Starlette caches the parsed header view
 
