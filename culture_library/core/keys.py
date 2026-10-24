@@ -8,7 +8,9 @@ key; its own ``api_keys`` table, created idempotently by each function here on f
 tests/core/test_store.py pins a bare Store to having no ``api_keys`` table); the
 :class:`ApiKey` record and :class:`AuthError` live here (models.py and errors.py stay
 key-free); module functions instead of a ``KeyService`` class;
-:func:`revoke` returns the revoked key.
+:func:`revoke` returns the revoked key; :func:`authenticate` is a read (it never takes the
+write lock: a missing table means no key matches) and stamps ``last_used`` best-effort, at
+most once a minute per key.
 
 Raw key format: ``clk_<key_id>_<secret>`` where ``key_id`` is 8 hex characters (the public,
 loggable handle) and ``secret`` is 32 random bytes, url-safe base64. The raw key is returned
@@ -30,8 +32,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import sqlite3
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 
 from .errors import CoreError, NotFoundError, ValidationError
 from .models import KINDS
@@ -39,6 +43,8 @@ from .store import Store, now
 
 PREFIX = "clk"
 SCOPES = ("read", "write", "admin")
+LAST_USED_INTERVAL_S = 60
+LAST_USED_BUSY_MS = 100
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -181,17 +187,57 @@ def mint(
     return _row(row), raw
 
 
+def _stamp_last_used(store: Store, row_id: int, stamp: str, cutoff: str) -> bool:
+    """Best-effort ``last_used = stamp`` unless it was stamped since ``cutoff``.
+
+    A separate, short autocommit write that waits at most :data:`LAST_USED_BUSY_MS` for the
+    write lock and gives up (returns False) if the database is busy: authentication never
+    waits on, or fails because of, a writer. The ``WHERE`` keeps it at most once per
+    :data:`LAST_USED_INTERVAL_S` per key even across processes.
+    """
+    try:
+        conn = sqlite3.connect(
+            store.db_path, timeout=LAST_USED_BUSY_MS / 1000, isolation_level=None
+        )
+        try:
+            conn.execute(f"PRAGMA busy_timeout = {LAST_USED_BUSY_MS}")
+            cur = conn.execute(
+                "UPDATE api_keys SET last_used = ?"
+                " WHERE id = ? AND (last_used IS NULL OR last_used < ?)",
+                (stamp, row_id, cutoff),
+            )
+            return cur.rowcount == 1
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
 def authenticate(store: Store, raw: str) -> ApiKey:
-    """Return the live key for ``raw`` (and stamp ``last_used``) or raise :class:`AuthError`."""
+    """Return the live key for ``raw`` or raise :class:`AuthError`.
+
+    The key is looked up on a reader connection (no write lock). ``last_used`` is then
+    stamped best-effort, at most once per :data:`LAST_USED_INTERVAL_S` per key, by
+    :func:`_stamp_last_used`; a busy database skips the stamp, never the authentication.
+    """
     key_id = parse_key(raw)
-    with store.connect() as c:
-        c.execute(_DDL)
-        row = c.execute("SELECT * FROM api_keys WHERE key_id = ?", (key_id,)).fetchone()
-        if row is None or row["revoked_at"] or not verify(raw, row["key_hash"]):
-            raise AuthError("invalid key")
-        c.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (now(), row["id"]))
-        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (row["id"],)).fetchone()
-    return _row(row)
+    try:
+        with store.reader() as c:
+            row = c.execute("SELECT * FROM api_keys WHERE key_id = ?", (key_id,)).fetchone()
+    except sqlite3.OperationalError as exc:  # no api_keys table yet: no key can match
+        if "no such table" in str(exc):
+            raise AuthError("invalid key") from None
+        raise
+    if row is None or row["revoked_at"] or not verify(raw, row["key_hash"]):
+        raise AuthError("invalid key")
+    key = _row(row)
+    when = datetime.now(UTC)
+    cutoff = (when - timedelta(seconds=LAST_USED_INTERVAL_S)).isoformat(timespec="seconds")
+    if key.last_used is None or key.last_used < cutoff:
+        stamp = when.isoformat(timespec="seconds")
+        if _stamp_last_used(store, key.id, stamp, cutoff):
+            key = replace(key, last_used=stamp)
+    return key
 
 
 def revoke(store: Store, api_key_id: int) -> ApiKey:
