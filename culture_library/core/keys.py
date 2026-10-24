@@ -1,0 +1,230 @@
+"""API keys with scopes and an optional kind list. Only sha256 hashes + a key id are stored.
+
+Provenance: cited (cite-don't-import) from agentculture/xteink @ ea2f643 (branch feat/issue-1),
+path xteink/core/keys.py. This copy is owned here. Modified: ``clk`` prefix; scopes
+(``read``/``write``/``admin``), an optional kind allow-list and a ``private`` flag stored per
+key; its own ``api_keys`` table, created idempotently by each function here on first use
+(xteink kept the table in store.py; :func:`register_schema` is deliberately not used, because
+tests/core/test_store.py pins a bare Store to having no ``api_keys`` table); the
+:class:`ApiKey` record and :class:`AuthError` live here (models.py and errors.py stay
+key-free); module functions instead of a ``KeyService`` class;
+:func:`revoke` returns the revoked key.
+
+Raw key format: ``clk_<key_id>_<secret>`` where ``key_id`` is 8 hex characters (the public,
+loggable handle) and ``secret`` is 32 random bytes, url-safe base64. The raw key is returned
+exactly once, by :func:`mint`; the database keeps ``sha256(raw)`` only.
+
+Scope semantics (enforced by ``culture_library.server.auth.check``):
+
+* ``read``  - read the catalog.
+* ``write`` - add/change/delete items; implies ``read``. With ``kinds`` set, writes are
+  limited to those item kinds.
+* ``admin`` - everything, including ``/api/keys``; implies ``read`` and ``write``.
+
+``private`` (may see private-visibility items) is true for admin keys and for keys minted
+with ``private=True``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import secrets
+from collections.abc import Iterable
+from dataclasses import dataclass
+
+from .errors import CoreError, NotFoundError, ValidationError
+from .models import KINDS
+from .store import Store, now
+
+PREFIX = "clk"
+SCOPES = ("read", "write", "admin")
+
+_DDL = """
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    key_id TEXT NOT NULL UNIQUE,
+    key_hash TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    kinds TEXT,
+    private INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    last_used TEXT
+);
+"""
+
+
+class AuthError(CoreError):
+    """A key is malformed, unknown, revoked, or does not match its hash."""
+
+
+@dataclass(frozen=True)
+class ApiKey:
+    """A stored key, without its hash. ``kinds`` is ``None`` for "any kind"."""
+
+    id: int
+    name: str
+    key_id: str
+    scopes: tuple[str, ...]
+    kinds: tuple[str, ...] | None
+    private: bool
+    created_at: str
+    revoked_at: str | None = None
+    last_used: str | None = None
+
+    def effective_scopes(self) -> frozenset[str]:
+        """The scopes with the hierarchy applied (admin > write > read)."""
+        out = set(self.scopes)
+        if "admin" in out:
+            out |= {"write", "read"}
+        if "write" in out:
+            out.add("read")
+        return frozenset(out)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "key_id": self.key_id,
+            "scopes": list(self.scopes),
+            "kinds": list(self.kinds) if self.kinds is not None else None,
+            "private": self.private,
+            "created_at": self.created_at,
+            "revoked_at": self.revoked_at,
+            "last_used": self.last_used,
+        }
+
+
+def generate_key(prefix: str = PREFIX) -> tuple[str, str, str]:
+    """Return ``(raw_key, key_id, key_hash)``."""
+    key_id = secrets.token_hex(4)
+    raw = f"{prefix}_{key_id}_{secrets.token_urlsafe(32)}"
+    return raw, key_id, hash_key(raw)
+
+
+def hash_key(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def parse_key(raw: str, prefix: str = PREFIX) -> str:
+    """Return the key_id from a raw key or raise :class:`AuthError`."""
+    parts = raw.split("_", 2) if isinstance(raw, str) else []
+    if len(parts) != 3 or parts[0] != prefix or not parts[1] or not parts[2]:
+        raise AuthError("invalid key")
+    return parts[1]
+
+
+def verify(raw: str, stored_hash: str) -> bool:
+    return hmac.compare_digest(hash_key(raw), stored_hash)
+
+
+def _ordered(values: Iterable[str], allowed: tuple[str, ...], what: str) -> tuple[str, ...]:
+    got = set(values)
+    unknown = sorted(got - set(allowed))
+    if unknown:
+        raise ValidationError(f"unknown {what}: {', '.join(unknown)}; use {', '.join(allowed)}")
+    return tuple(v for v in allowed if v in got)
+
+
+def _row(r) -> ApiKey:
+    return ApiKey(
+        id=r["id"],
+        name=r["name"],
+        key_id=r["key_id"],
+        scopes=tuple(s for s in r["scopes"].split(",") if s),
+        kinds=tuple(k for k in r["kinds"].split(",") if k) if r["kinds"] is not None else None,
+        private=bool(r["private"]) or "admin" in r["scopes"].split(","),
+        created_at=r["created_at"],
+        revoked_at=r["revoked_at"],
+        last_used=r["last_used"],
+    )
+
+
+def mint(
+    store: Store,
+    name: str,
+    scopes: Iterable[str],
+    *,
+    kinds: Iterable[str] | None = None,
+    private: bool = False,
+) -> tuple[ApiKey, str]:
+    """Create a key; return ``(ApiKey, raw_key)``. The raw key is never retrievable again."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValidationError("key name is required")
+    scope_t = _ordered(scopes, SCOPES, "scope")
+    if not scope_t:
+        raise ValidationError(f"a key needs at least one scope: {', '.join(SCOPES)}")
+    kinds_t = None
+    if kinds is not None:
+        kinds_t = _ordered(kinds, KINDS, "kind")
+        if not kinds_t:
+            raise ValidationError("kinds must name at least one kind (omit it for any kind)")
+    raw, key_id, key_hash = generate_key()
+    with store.connect() as c:
+        c.execute(_DDL)
+        cur = c.execute(
+            "INSERT INTO api_keys (name, key_id, key_hash, scopes, kinds, private, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                name.strip(),
+                key_id,
+                key_hash,
+                ",".join(scope_t),
+                ",".join(kinds_t) if kinds_t is not None else None,
+                int(bool(private)),
+                now(),
+            ),
+        )
+        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row(row), raw
+
+
+def authenticate(store: Store, raw: str) -> ApiKey:
+    """Return the live key for ``raw`` (and stamp ``last_used``) or raise :class:`AuthError`."""
+    key_id = parse_key(raw)
+    with store.connect() as c:
+        c.execute(_DDL)
+        row = c.execute("SELECT * FROM api_keys WHERE key_id = ?", (key_id,)).fetchone()
+        if row is None or row["revoked_at"] or not verify(raw, row["key_hash"]):
+            raise AuthError("invalid key")
+        c.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (now(), row["id"]))
+        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (row["id"],)).fetchone()
+    return _row(row)
+
+
+def revoke(store: Store, api_key_id: int) -> ApiKey:
+    """Revoke a key by row id (idempotent for an already-revoked key)."""
+    with store.connect() as c:
+        c.execute(_DDL)
+        c.execute(
+            "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
+            (now(), api_key_id),
+        )
+        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (api_key_id,)).fetchone()
+    if row is None:
+        raise NotFoundError(f"api key {api_key_id} not found")
+    return _row(row)
+
+
+def list_keys(store: Store) -> list[ApiKey]:
+    with store.connect() as c:
+        c.execute(_DDL)
+        return [_row(r) for r in c.execute("SELECT * FROM api_keys ORDER BY id")]
+
+
+__all__ = [
+    "PREFIX",
+    "SCOPES",
+    "ApiKey",
+    "AuthError",
+    "authenticate",
+    "generate_key",
+    "hash_key",
+    "list_keys",
+    "mint",
+    "parse_key",
+    "revoke",
+    "verify",
+]
