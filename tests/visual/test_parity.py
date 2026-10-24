@@ -1,7 +1,7 @@
 """Visual parity: each of the 30 reference views, rendered from fixture data, within 1%.
 
-Obligation o1 on claim c32 (plan task t16). The views listed in ``views.DEVIATED`` (deviation d3 and the
-phone send-menu fix) are compared with ``docs/design/reference-candidates/`` when the operator
+Obligation o1 on claim c32 (plan task t16). The views in ``views.DEVIATED`` (deviation d3 and the phone
+send-menu fix) are compared with ``docs/design/reference-candidates/`` when the operator
 has approved candidates there; ``CULTURE_LIBRARY_VISUAL_CANDIDATES=1`` (re)writes them.
 Each run prints a per-view diff table; a failing view leaves its actual and diff images in
 the output directory (``CULTURE_LIBRARY_VISUAL_OUT`` or a temp dir) and names the paths.
