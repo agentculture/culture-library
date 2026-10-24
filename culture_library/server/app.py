@@ -46,10 +46,31 @@ def _discover_routers() -> list[APIRouter]:
     return routers
 
 
+#: Paths whose responses carry data and must never be stored by a browser or Cloudflare.
+_NO_STORE_PREFIXES = ("/api", "/opds", "/dav", "/mcp")
+NO_STORE = "no-store, private"
+#: The site and its static files: cache-able only privately, revalidated on every load, so a
+#: pushed change shows up at once and Cloudflare (which skips ``private``) never serves it stale.
+REVALIDATE = "private, no-cache"
+
+
+def cache_policy(path: str) -> str:
+    """The ``Cache-Control`` value for a response to ``path``."""
+    return NO_STORE if path.startswith(_NO_STORE_PREFIXES) else REVALIDATE
+
+
 def create_app(config: ServerConfig | None = None) -> FastAPI:
     """Build the app; ``GET /api/health`` plus every auto-discovered router."""
     app = FastAPI(title="culture-library", version=__version__)
     app.state.config = config or ServerConfig()
+
+    @app.middleware("http")
+    async def _no_stale_cache(request, call_next):  # noqa: ANN001, ANN202
+        response = await call_next(request)
+        response.headers["Cache-Control"] = cache_policy(request.url.path)
+        response.headers.setdefault("Vary", "Cookie, Authorization, Cf-Access-Jwt-Assertion")
+        return response
+
     app.include_router(health_router)
     for router in _discover_routers():
         app.include_router(router)
@@ -62,4 +83,4 @@ def serve(config: ServerConfig) -> None:  # pragma: no cover - blocking network 
     uvicorn.run(create_app(config), host=config.host, port=config.port)
 
 
-__all__ = ["API_VERSION", "create_app", "serve"]
+__all__ = ["API_VERSION", "NO_STORE", "REVALIDATE", "cache_policy", "create_app", "serve"]
