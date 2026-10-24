@@ -164,35 +164,51 @@ store rebuilds the `items` table once, preserving ids and the id sequence. It ve
 the row counts and refuses to open (rolling back) if they differ. Follow these steps
 for any such release.
 
-1. Take a backup and verify it before deploying (commands as in
-   [backup.md](backup.md); run inside the container, writing outside `/data`):
+1. Keep the running image for rollback, then take a backup with it and verify it.
+   The rebuild in step 3 overwrites the `culture-library:local` tag, and the container
+   mounts only the data volume, so back up to a host directory using the *old* image
+   (no migration can run during the backup). The image runs as uid 10001, so the
+   empty host directory must be writable for it during the run:
 
    ```bash
-   docker compose -f deploy/compose.yaml exec library \
-     culture-library backup run --to <backup-dir>
-   docker compose -f deploy/compose.yaml exec library \
-     culture-library backup verify <backup-dir>/snapshots/<UTC stamp>
+   docker tag culture-library:local culture-library:<old-version>
+   B=~/backups/culture-library-pre-<new-version>; mkdir -p "$B"; chmod o+w "$B"
+   docker run --rm -v culture-library_culture-library-data:/data -v "$B":/backup \
+     --entrypoint culture-library culture-library:<old-version> \
+     backup run --data-dir /data --to /backup
+   chmod o-w "$B"
+   docker run --rm -v "$B":/backup:ro --entrypoint culture-library \
+     culture-library:<old-version> backup verify /backup/snapshots/<UTC stamp>
    ```
 
-2. Record the row count and highest id before the upgrade:
+2. Record the row count, highest id and id sequence before the upgrade:
 
    ```bash
-   docker compose -f deploy/compose.yaml exec library \
-     python3 -c "import sqlite3; print(sqlite3.connect('/data/library.db').execute('SELECT count(*), max(id) FROM items').fetchone())"
+   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+     "import sqlite3; c = sqlite3.connect('file:/data/library.db?mode=ro', uri=True); \
+   print(c.execute('SELECT count(*), max(id) FROM items').fetchone(), \
+   c.execute(\"SELECT seq FROM sqlite_sequence WHERE name = 'items'\").fetchone())"
    ```
 
-3. Deploy:
+3. Build the new image and recreate only `library` and `mcp` (cloudflared keeps its
+   tunnel). Pass the same environment the stack was started with; the tunnel token
+   comes from `grant` and is never printed:
 
    ```bash
    git checkout <new-tag-or-commit>
-   docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
+   docker compose -p culture-library -f deploy/compose.yaml build library
+   COMPOSE_PROJECT_NAME=culture-library \
+   CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN=<team domain> CULTURE_LIBRARY_ACCESS_AUD=<aud> \
+   CULTURE_LIBRARY_SEND_TARGETS='<send targets JSON>' \
+   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+     docker compose -f deploy/compose.yaml --profile remote up -d --no-deps library mcp
    ```
 
 4. Check the container logs for the one-line migration diagnostic, which the store
    writes to stderr once, on success:
 
    ```bash
-   docker compose -f deploy/compose.yaml logs library | grep -i migrat
+   docker compose -p culture-library -f deploy/compose.yaml logs library | grep -i migrat
    ```
 
    If the container fails to start with a row-count mismatch, the store rolled back
@@ -204,7 +220,7 @@ for any such release.
 
 **Rollback is restoring the pre-upgrade snapshot**, not redeploying an older image
 over the migrated database: stop the stack, restore the snapshot from step 1 with the
-restore steps in [backup.md](backup.md), then start the previous version.
+restore steps in [backup.md](backup.md), then start the image tagged in step 1.
 
 Running an older image on a database that holds `todo` items is unsupported. The old
 `feed.append` rejects unknown kinds, so events for those items fail. If todo items have
