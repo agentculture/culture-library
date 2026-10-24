@@ -35,6 +35,9 @@ Commands
   culture-library migrate overview   Describe the migrate noun.
   culture-library keys mint          Mint an API key (shown once).
   culture-library keys overview      Describe the keys noun.
+  culture-library backup run         Snapshot DB + files to a second location.
+  culture-library backup restore     Restore a snapshot into an empty dir (verified).
+  culture-library backup overview    Describe the backup noun.
 
 Machine-readable output
 -----------------------
@@ -72,6 +75,9 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["migrate", "overview"], "summary": "Describe the migrate noun."},
             {"path": ["keys", "mint"], "summary": "Mint an API key (shown once)."},
             {"path": ["keys", "overview"], "summary": "Describe the keys noun."},
+            {"path": ["backup", "run"], "summary": "Snapshot DB + files to a second location."},
+            {"path": ["backup", "restore"], "summary": "Restore a snapshot (verified)."},
+            {"path": ["backup", "overview"], "summary": "Describe the backup noun."},
         ],
         "exit_codes": {
             "0": "success",

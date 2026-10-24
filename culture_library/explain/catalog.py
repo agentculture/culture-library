@@ -162,6 +162,23 @@ One-off migrations into the catalog.
 - `culture-library migrate overview` — describe this noun.
 """
 
+_BACKUP = """\
+# culture-library backup
+
+Back up the library to a second location and prove it restores.
+
+- `backup run [--data-dir D] [--to B] [--keep N]` — copy a consistent SQLite snapshot
+  (online backup API, safe while the server writes) to `B/snapshots/<UTC stamp>/` with a
+  `manifest.json` (ids, sha256, visibility, counts), and copy only missing blobs into
+  `B/files/`. Keeps the last N snapshots (default 7). `B` defaults to
+  `CULTURE_LIBRARY_BACKUP_DIR`.
+- `backup verify <snapshot>` — check the database against the manifest and re-hash every blob.
+- `backup restore --from <snapshot> --to <dir>` — restore into an empty directory (a
+  non-empty one is refused) and verify ids, sha256 and visibility.
+- `backup schedule --print [--kind systemd|cron]` — print a daily schedule; installs nothing.
+- `backup overview` — describe this noun.
+"""
+
 _CLI = """\
 # culture-library cli
 
@@ -183,6 +200,12 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("explain",): _EXPLAIN,
     ("overview",): _OVERVIEW,
     ("doctor",): _DOCTOR,
+    ("backup",): _BACKUP,
+    ("backup", "run"): _BACKUP,
+    ("backup", "verify"): _BACKUP,
+    ("backup", "restore"): _BACKUP,
+    ("backup", "schedule"): _BACKUP,
+    ("backup", "overview"): _BACKUP,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
     ("server",): _SERVER,
