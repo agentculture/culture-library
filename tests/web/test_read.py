@@ -289,3 +289,11 @@ def test_text_of_a_stored_corrupt_epub_degrades_not_500(site: Site, how: str) ->
     assert r.json()["reason"] == "corrupt_archive" and r.json()["text"] == ""
     ex = site.c.get("/api/excerpts", params={"items": str(item.id)})
     assert ex.status_code == 200 and ex.json()["items"] == {str(item.id): ""}
+
+
+@pytest.mark.parametrize("raw", ["²", "1,²", "١٢", "٣"])
+def test_excerpts_refuse_non_ascii_digits(site: Site, raw: str) -> None:
+    for param in ("items", "docs"):
+        r = site.c.get("/api/excerpts", params={param: raw})
+        assert r.status_code == 400, r.text
+        assert r.json()["code"] == "invalid_request"

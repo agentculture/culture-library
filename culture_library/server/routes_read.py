@@ -313,7 +313,8 @@ def _ids(raw: str | None, what: str) -> list[int]:
     parts = [p.strip() for p in raw.split(",") if p.strip()]
     if len(parts) > MAX_EXCERPT_IDS:
         raise _error(400, f"at most {MAX_EXCERPT_IDS} {what} ids per request", "invalid_request")
-    if not all(p.isdigit() for p in parts):
+    # ASCII only: str.isdigit() also accepts e.g. '²', which int() rejects (a 500)
+    if not all(p.isascii() and p.isdigit() for p in parts):
         raise _error(400, f"{what} must be a comma-separated list of ids", "invalid_request")
     return list(dict.fromkeys(int(p) for p in parts))
 
