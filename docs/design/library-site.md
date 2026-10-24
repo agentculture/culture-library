@@ -13,11 +13,12 @@ The site's visual and interaction design. The operator approved it on
   make that testable:
   - [`prototype.html`](prototype.html) is the prototype's source, with
     `/*DATA*/` where the live data was embedded.
-  - [`reference/`](reference/) holds 22 screenshots of it: desktop
+  - [`reference/`](reference/) holds 30 screenshots of it: desktop
     1680×1000 and phone 400×860, in light and dark. They cover home, the
-    newspaper, spec and frame readers, the hidden list, the list drawer, site
-    state and upload.
-- **Obligations o1–o6 on claim c32** in the devague frame tie the build to
+    newspaper, spec and frame readers, the hidden list, the list drawer, the
+    send menu and the sent state, site state and upload.
+  - The operator approved these screenshots on 2026-10-24.
+- **Obligations o1–o7 on claim c32** in the devague frame tie the build to
   these files.
 
 ## Look
@@ -88,8 +89,10 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     day. Search snippets appear under matching rows.
   - The pane collapses and expands with *Hide list* / *Show list*. That state
     is remembered on desktop.
-  - The reader toolbar has the pane toggle, *All cards* (back to home), and
-    previous/next.
+  - The reader toolbar has, in order: the pane toggle, *All cards* (back to
+    home), *Send to device*, and previous/next.
+  - At phone width, *All cards* and *Send to device* show only their icons,
+    so the toolbar fits on one row.
   - On phones (≤ 900px) the pane is a drawer over a scrim, closed by default.
     It closes on a tap outside or on Escape.
   - The reading column is 76ch, or 96ch from 1,500px up.
@@ -120,6 +123,17 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     `POST /api/library` with `file`, `kind` and `visibility`.
   - Agents use the MCP tool `push_file`.
   - Errors name the problem and how to fix it.
+- **Send to device** opens a menu of the send targets in the library's config.
+  - Each target shows its name and type. Disabled targets are greyed out, for
+    example *reTerminal Sticky, not enabled yet*.
+  - A footer says that sending publishes an event and culture-rules delivers
+    it, and that agents use the MCP tool `send_to_device`.
+  - Choosing a target publishes `library.item.send_requested`. The page then
+    shows a "Sent to …" toast and a line in the reader: *Sent to x3-ori at
+    14:05. culture-rules takes it from here.*
+  - The page says nothing about delivery, which happens outside this repo.
+  - The button is disabled for items that are not in the library yet.
+  - Escape or a click outside closes the menu.
 - **Not-yet-ingested items** are labeled *Arriving*. Private items are labeled
   *Only me*.
 - **Per-browser state** (theme, last read item, pane state, reading position)

@@ -241,6 +241,16 @@ dialog::backdrop { background: var(--scrim); }
 .dlg .fine { font-size: 13px; color: var(--muted); margin: 0; }
 .dlg .err { color: var(--critical); font-size: 14px; margin: 0; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sendwrap { position: relative; }
+.menu { position: absolute; z-index: 25; top: calc(100% + 6px); left: 0; min-width: 280px; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 6px; display: grid; gap: 2px; }
+.menu button { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 10px; align-items: center; text-align: left; border: 0; background: transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.menu button:hover:not(:disabled) { background: var(--surface-2); }
+.menu button:disabled { cursor: not-allowed; opacity: .55; }
+.menu .mt { font-weight: 700; }
+.menu .ms { grid-column: 2; font-size: 12.5px; color: var(--muted); }
+.menu .mfoot { font-size: 12.5px; color: var(--muted); padding: 6px 10px 4px; border-top: 1px solid var(--rule); margin-top: 4px; }
+.sendline { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 700; }
+.toast { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: var(--r-pill); box-shadow: var(--shadow); font-weight: 700; font-size: 14px; max-width: calc(100vw - 32px); }
 .foot { color: var(--muted); font-size: 13px; padding-bottom: 40px; }
 @media (prefers-reduced-motion: reduce) { .spine, .pane { transition: none; } .spine:hover { transform: none; } }
 </style>
@@ -307,10 +317,17 @@ dialog::backdrop { background: var(--scrim); }
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.6"/></svg>
             <span id="pane-lbl">Hide list</span>
           </button>
-          <button class="btn" data-home>
+          <button class="btn" data-home aria-label="All cards">
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="9" y="2" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="2" y="9" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="9" y="9" width="5" height="5" rx="1.2" fill="currentColor"/></svg>
-            All cards
+            <span class="lbl">All cards</span>
           </button>
+          <div class="sendwrap">
+            <button class="btn" id="send-btn" aria-label="Send to device" aria-haspopup="menu" aria-expanded="false" aria-controls="send-menu">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="1.6" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M8 4.5v5M6 7.5l2 2 2-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="lbl">Send to device</span>
+            </button>
+            <div class="menu" id="send-menu" role="menu" hidden></div>
+          </div>
           <span class="sp"></span>
           <button class="btn icon" id="prev" aria-label="Previous item"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
           <button class="btn icon" id="next" aria-label="Next item"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
@@ -354,6 +371,7 @@ dialog::backdrop { background: var(--scrim); }
   </form>
 </dialog>
 <div class="tip" id="tip" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
@@ -575,6 +593,8 @@ function openItem(key, keepScroll) {
   current = key; store.set('last', key);
   const r = document.getElementById('reader');
   r.innerHTML = key === 'paper' ? readPaper() : key === 'spec' ? readSpec() : key === 'frame' ? readFrame() : i.local ? readLocal(i) : readOther(i);
+  if (sends[key]) { const h = r.querySelector('.reader-head'); if (h) h.insertAdjacentHTML('afterend', `<div style="margin:-2px 0 10px">${sendLine(key)}</div>`); }
+  paintSendBtn();
   const wasRead = !document.getElementById('view-read').hidden;
   show('read'); drawRows();
   if (!wasRead) { if (narrow()) setPane(false); else setPane(store.get('pane') !== 'closed'); }
@@ -734,6 +754,43 @@ document.getElementById('up-form').addEventListener('submit', async e => {
   items.push(it); go.textContent = 'Add to library'; dlg.close();
   drawShelf(); openItem(it.key);
 });
+
+/* ---------- send to device ---------- */
+const TARGETS = [
+  { id: 'x3-ori', label: 'x3-ori', type: 'Xteink X3 reader', ok: true, note: 'Enabled' },
+  { id: 'sticky', label: 'reTerminal Sticky', type: 'e-paper board', ok: false, note: 'Not enabled yet' },
+];
+const sends = {};
+const sendBtn = document.getElementById('send-btn'), sendMenu = document.getElementById('send-menu');
+const DEV = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="4" y="1.5" width="10" height="15" rx="2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M7 13.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function canSend(i) { return i && (i.live || i.local); }
+function paintSendBtn() {
+  const i = byKey(current); sendBtn.disabled = !canSend(i);
+  sendBtn.title = canSend(i) ? '' : 'Available once this item is in the library';
+}
+function openSendMenu() {
+  sendMenu.innerHTML = TARGETS.map(t => `<button role="menuitem" data-send="${t.id}" ${t.ok ? '' : 'disabled'}>${DEV}<span class="mt">${esc(t.label)}</span><span class="ms">${esc(t.type)}. ${esc(t.note)}</span></button>`).join('') +
+    '<div class="mfoot">Sending publishes an event. culture-rules picks it up and delivers it. Agents use the MCP tool send_to_device.</div>';
+  sendMenu.hidden = false; sendBtn.setAttribute('aria-expanded', 'true');
+  const first = sendMenu.querySelector('button:not(:disabled)'); if (first) first.focus();
+}
+function closeSendMenu() { sendMenu.hidden = true; sendBtn.setAttribute('aria-expanded', 'false'); }
+let toastT;
+function toast(msg) { const el = document.getElementById('toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 3600); }
+function sendLine(key) {
+  const s = sends[key]; if (!s) return '';
+  return `<span class="sendline">${DEV}Sent to ${esc(s.target)} at ${s.at}. culture-rules takes it from here.</span>`;
+}
+sendBtn.addEventListener('click', e => { e.stopPropagation(); sendMenu.hidden ? openSendMenu() : closeSendMenu(); });
+sendMenu.addEventListener('click', e => {
+  const b = e.target.closest('[data-send]'); if (!b || b.disabled) return;
+  const t = TARGETS.find(x => x.id === b.dataset.send), i = byKey(current);
+  sends[current] = { target: t.label, at: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) };
+  closeSendMenu(); openItem(current, true);
+  toast(`Sent to ${t.label}.`);
+});
+document.addEventListener('click', e => { if (!sendMenu.hidden && !e.target.closest('.sendwrap')) closeSendMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sendMenu.hidden) { closeSendMenu(); sendBtn.focus(); } });
 
 /* ---------- events ---------- */
 document.addEventListener('click', e => {

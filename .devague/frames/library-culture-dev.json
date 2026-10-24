@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-23T23:06:01Z",
-  "updated": "2026-10-23T23:39:52Z",
+  "updated": "2026-10-24T00:01:24Z",
   "claims": [
     {
       "id": "c1",
@@ -371,7 +371,22 @@
           "instruction": ""
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q10",
+          "text": "c16 and h14 say schema_version \u2264 5; the corpus has v6 (this frame too). Amend c16/h14 to 'versions 1\u20136 and unversioned', or keep c16 and let c supersede it?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        },
+        {
+          "id": "q11",
+          "text": "contradiction with c?",
+          "resolved": false,
+          "blocking": true,
+          "resolution": ""
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -635,6 +650,406 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Migration preserves xteink item ids, not only sha256 (amends c9): xteink's queue rows reference items 1\u201320 by item_id with ON DELETE CASCADE, culture-rules records the pushed item_id per newspaper date in its own store, and Gwen reconciles by (id, sha256); ids are never reused afterwards (AUTOINCREMENT)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "After migration, every xteink queue row and every culture-rules newspaper record resolves to the same item (same id, same sha256) in the library; a test inserts after migration and gets an id above the old maximum",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Pullers can see deletions and changes: the library exposes a change feed (or since-cursor on GET /api/library) carrying created/updated/deleted events with item id and sha256, so xteink's mirror mode, Gwen's index reconcile (embodiment c33) and culture-rules re-pull without rescanning the catalog",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "A test deletes and replaces items and a client reading the feed from a saved cursor sees exactly those events in order, with no full-catalog scan",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "The store tolerates concurrent writers: SQLite in WAL mode with a busy timeout (xteink runs journal_mode=delete, timeout 30 s) and one write path, because culture-rules pushes, Gwen's diary writes, human uploads and bulk repo-record pushes (~3,000 files) land at the same time",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "A load test runs a bulk push of 3,000 repo records, 10 diary writes and an upload at once with zero 'database is locked' errors",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "The frame/plan renderer covers schema_version 1 through 6 and files with no schema_version (corrects c16/h14 which say \u2264 5): ~/git holds 1,230 frame/plan JSON files at versions 1\u20136 (148 frames at v6, this frame included) and 3 without a version; a corpus test renders every one",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "A corpus test renders all 1,230 frame/plan files from ~/git without error, including versions 1\u20136 and the unversioned ones",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Repo identity and 'current version' survive clones and remote-less repos: identity is the normalized remote URL (5 folders clone agentculture/lobes-cli, 2 clone culture-guide), a repo with no remote (transformer) gets a host:path identity, and 'current' is the newest commit on the default branch \u2014 a push from a stale clone or feature branch adds history but never rolls current back",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "Pushing the same repo file from a clone at an older commit leaves 'current' unchanged and adds a history entry; transformer's files get a stable identity",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "Ingested and uploaded content is untrusted: the site reader renders extracted text (or an allowlisted, sanitized subset) and never the EPUB/HTML as markup or script, under a CSP with no inline script from content; xteink's ingest caps (50 MiB, zip-bomb member/byte limits, 60 s conversion timeout) are kept",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "A test uploads an EPUB containing script, event handlers and a javascript: link; the reader shows its text and runs nothing, and the CSP blocks inline script",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "Hebrew and mixed-direction text render correctly: dir=auto on titles, cards, list rows, search snippets and reader paragraphs, logical CSS properties in the site styles, because culture-rules runs a Hebrew STT lane (stt-he, 0.24.0) and embodiment's specs already require dir=auto",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "A Hebrew transcript and a mixed Hebrew/English title render right-to-left in cards, rows, snippets and reader, checked in the Playwright run",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "Backups with a tested restore: the library becomes the only copy of Gwen's diary and the long-term home of everything else, and xteink has no library backup today (only 'device backup' of reader firmware); the DB and content files are backed up on a schedule to a second location, and a restore drill is run before ebooks.culture.dev is torn down",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "A restore drill from the latest backup onto a clean host reproduces the catalog (ids, sha256, visibility) and passes before teardown",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "Ingest never waits on indexing: an upload or push is accepted and stored even when the embedding service (lobes gateway) is down, indexing runs behind it with retries, and index lag, failures and per-source last push are shown on the site state page and an API status endpoint",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "With the gateway stopped, an upload returns 201 and appears in title search; full-text/semantic search catches up after the gateway returns, and the lag is visible meanwhile",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "boundary",
+      "text": "ebooks.culture.dev is torn down only after: xteink devices sync from the library, culture-rules has pushed 7 consecutive newspapers to library.culture.dev, and the c9 migration report is 17/17; teardown runs cultureflare remote-login teardown dry-run first, then --apply",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "The teardown is not run until the three conditions are recorded as evidence, and the dry-run output is reviewed first",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Missing visibility fails closed: an item pushed without an explicit visibility is private, so a culture-rules rule that forgets the field (e.g. for one of the 17 private repos) cannot publish it",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "A push with no visibility field is invisible to a shared-scope key; a test pins it",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "decision",
+      "text": "Machine clients (culture-rules, Gwen, xteink) reach the library on spark's loopback/LAN address with API keys; only humans use library.culture.dev behind Cloudflare Access (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c45",
+      "kind": "decision",
+      "text": "Gwen may edit and delete her own diary entries through MCP and the API; every deletion (any kind) archives first and is purged after 30 days, restorable until then (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c46",
+      "kind": "decision",
+      "text": "The library serves OPDS and WebDAV for reading apps, alongside the HTTP API, MCP and the site (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c47",
+      "kind": "decision",
+      "text": "Send to my device: from the site, the API and MCP, the operator (and agents) can send a library item to a personal device \u2014 Xteink readers today (via xteink's device queue), reTerminal later; culture-rules performs the delivery (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Send to device ends at an event: POST /api/library/{id}/send {target}, the MCP tool send_to_device and the reader's 'Send to device' button each publish library.item.send_requested through events-cli carrying the item reference (id, sha256, kind, title, format, size, a content URL on the local address) plus target and requester, and return 202; the library makes no call to any device or device service",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "An end-to-end test sends an EPUB from the site to x3-ori: one send request, one event, one xteink queue entry, and the request turns delivered after the reader's next sync; the library itself makes no call to xteink",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h38",
+          "text": "A test presses Send, calls the API and the MCP tool: each publishes exactly one library.item.send_requested event with the item reference and returns 202; a grep finds no HTTP client call from the library to xteink or reterminal",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The library records a send request (item id, target, requester, time, status queued/delivered/failed with reason) via POST /api/library/{id}/send, the MCP tool send_to_device and a 'Send to device' button in the reader and on cards, and publishes library.item.send_requested through events-cli; a culture-rules rule consumes it and calls xteink's queue (POST /api/devices/{id}/queue) \u2014 moving the queue step out of library.push \u2014 then reports the outcome back to the send request",
+          "kind": "requirement",
+          "reason": "operator 2026-10-24: library ownership ends at the event; culture-rules owns delivery"
+        }
+      ]
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "Rules can fetch what they deliver: any rule holding a read-scoped key can GET the item's metadata and bytes (GET /api/library/{id}, GET /api/library/{id}/file) by the reference in the event, so culture-rules can pass either the content or the reference on to another service",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "A grep/schema test finds no device key, token or xteink device id stored in the library; disabling a target hides it from the send menu",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h39",
+          "text": "A rule with a read-scoped key fetches metadata and bytes for the referenced id and gets identical bytes (sha256 matches the event)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Send targets are named destinations in the library (label, type xteink|reterminal, enabled) holding no device keys or credentials; culture-rules maps each target to the real device (xteink device id, reTerminal board panel) in its own variables and grants, so c5's boundary (no device keys, queue or firmware in the library) holds",
+          "kind": "requirement",
+          "reason": "operator 2026-10-24: library ownership ends at the event; culture-rules owns delivery"
+        }
+      ]
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "Send targets are a plain list of names in the library's config (label, enabled) used only to fill the menu and the event's target field; the library stores no device ids, keys or delivery mapping",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h36",
+          "text": "The reTerminal target appears as unavailable in the menu and the API refuses sends to it with a clear code until a rule is enabled",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h40",
+          "text": "Changing the target list in config changes the menu and the event's target field; no device identifier appears in the library's database",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "reTerminal is a planned target type: shown as 'coming later' until a culture-rules rule exists; delivery will use reterminal-cli's board API (POST /v1/panels/{id}/pdf for PDFs, /v1/push for cards/text), so the target model must not assume EPUB-only devices",
+          "kind": "requirement",
+          "reason": "operator 2026-10-24: library ownership ends at the event; culture-rules owns delivery"
+        }
+      ]
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "The site confirms only what the library did: a toast and a 'Sent to <target> at <time>' line once the event is published, an error with a retry when publishing fails, and nothing about delivery, which happens outside this repo",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h37",
+          "text": "A failed delivery shows its reason and a working retry; a double send creates one queue entry; a Playwright check covers toast, status line and retry",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h41",
+          "text": "With the event broker down, Send shows an error and a working retry; with it up, the toast and the sent line appear; no delivered/failed delivery state exists in the library",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The site shows send status where you sent from: a toast on send, a 'Sent to x3-ori, delivered 05:12' line in the reader, and a failure with its reason and a retry; sending the same item to the same target twice is idempotent (xteink already returns the existing queue entry)",
+          "kind": "requirement",
+          "reason": "operator 2026-10-24: library ownership ends at the event; culture-rules owns delivery"
+        }
+      ]
+    },
+    {
+      "id": "c52",
+      "kind": "boundary",
+      "text": "Once the send event is published, delivery is beyond culture-library: culture-rules rules decide what to do with it (xteink's queue today, reTerminal later) and own any delivery status (operator, 2026-10-24)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h42",
+          "text": "The plan has no culture-library task that delivers to a device, maps targets to devices, or tracks delivery status; those land as issues on culture-rules (c10)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -650,6 +1065,15 @@
     {
       "id": "v2",
       "text": "Transcript EPUB format is unseen (embodiment v3; no transcript in the 2026-10-24 catalog) \u2014 whether segment start/end/speaker survive decides if the library reader can jump to a moment like pocketchat does",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "The 50 MiB upload cap is xteink's e-reader limit; large PDFs and scanned books may exceed it, and no size distribution of the operator's PDFs was measured",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -814,9 +1238,173 @@
       "seeds": [
         "c14"
       ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / cheap-probe lens",
+      "finding": "Probed live: library.db schema + pragma + queue ids, culture-rules push gate, frame schema versions across ~/git, remote dedup, xteink backups, stt-he lane. Not probed: Access behaviour for headless clients, embedding cost for 2,949 records + book bodies, PDF sizes",
+      "seeds": []
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / migration lens: xteink library.db queue + culture-rules newspaper_issue.py _library_item",
+      "finding": "queue.item_id FK ON DELETE CASCADE to items(id), 17 rows referencing ids 1\u201320; culture-rules keeps library.item_id per date and gates re-push on it",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / adjacent-systems lens: xteink mirror flag + embodiment c33 reconcile",
+      "finding": "two pullers already need deletion signals (xteink mirror deletes on device; Gwen purges deleted items' chunks); a list-only API forces full rescans",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / concurrency lens: xteink core/store.py + live library.db pragma",
+      "finding": "journal_mode is delete, connect timeout 30 s; fine for one daily push, not for bulk repo pushes beside diary writes",
+      "seeds": [
+        "c35"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / counter-evidence lens: schema_version across ~/git/*/.devague/{frames,plans}",
+      "finding": "1,230 JSON files, all parse; versions 1\u20136 and none; devague docs/spec-contract.md still says current is 5",
+      "seeds": [
+        "c36"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / overlooked-actors lens: ~/git remotes",
+      "finding": "about 72 distinct remotes behind 76 folders; 288 files are byte-identical across clone folders; transformer has no remote",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / security lens: newspaper EPUBs + upload dialog + xteink ingest caps",
+      "finding": "newspapers carry web-sourced text and uploads are arbitrary zips; the prototype escapes text, the real reader must too",
+      "seeds": [
+        "c38"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / overlooked-actors lens: culture-rules stt-he lane + embodiment gwen-remembers-recordings spec l.56-57",
+      "finding": "Hebrew transcripts are coming; docs/design/library-site.md and the prototype set no text direction",
+      "seeds": [
+        "c39"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / recovery lens: xteink README + delivery doc",
+      "finding": "no backup or restore exists for library.db or files/; 'device backup' covers reader firmware only",
+      "seeds": [
+        "c40"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / observability lens: q5 decision + pocketsync 0.11.1 self-healing enrichment",
+      "finding": "semantic search adds a dependency on the lobes gateway; pocketsync needed retrying enrichment for the same reason",
+      "seeds": [
+        "c41"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / reversibility lens: cultureflare remote-login teardown + c25",
+      "finding": "teardown deletes tunnel, DNS and Access app; it is the one hard-to-undo step of the move",
+      "seeds": [
+        "c42"
+      ]
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / security lens: c15 + gh repo list agentculture (17 PRIVATE)",
+      "finding": "c15 maps repo visibility but not a push that omits it",
+      "seeds": [
+        "c43"
+      ]
+    },
+    {
+      "id": "s30",
+      "surface": "challenge pass / adjacent-systems lens: xteink#3 split list + ebooks-cli README",
+      "finding": "OPDS/WebDAV were promised by the issue and the superseded repo but are absent from the spec; routed to a question",
+      "seeds": []
+    },
+    {
+      "id": "s31",
+      "surface": "xteink devices table + queue API (feat/issue-1)",
+      "finding": "one active reader, x3-ori (id 3, last seen 2026-10-23 03:30); queue add is idempotent per (device_id, item_id) and stays in xteink",
+      "seeds": [
+        "c48"
+      ]
+    },
+    {
+      "id": "s32",
+      "surface": "culture-rules event triggers (runner.py open_event_source, events-cli; pocket-transcribe rule trigger kind event)",
+      "finding": "rules already start from named events published through events-cli/MQTT, so library.item.send_requested fits without a new trigger kind",
+      "seeds": [
+        "c48"
+      ]
+    },
+    {
+      "id": "s33",
+      "surface": "reterminal-cli docs/delivery-map.md (board push + paginated PDF)",
+      "finding": "reTerminal Sticky accepts POST /v1/panels/{id}/pdf (rasterized, touch page-turn, live 2026-08-12) and /v1/push cards/text \u2014 a future send target, not EPUB",
+      "seeds": [
+        "c50"
+      ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "Repo counts in c13/c27 and the prototype (~75 / 76 repos) counted ~/git folders, not repos: 5 folders are clones of agentculture/lobes-cli, 2 of culture-guide, and transformer has no remote \u2014 distinct remotes are ~72",
+      "skipped_check": "dedup folders by git remote URL before counting",
+      "refs": [
+        "c13",
+        "c27",
+        "docs/design/reference/*-state.png"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "provenance-missing",
+      "what": "c16/h14 state frame schema_version 5 from devague docs/spec-contract.md without checking the corpus: this frame is schema 6 and ~/git holds frames at versions 1\u20136 (148 at v6) plus 3 files with no version",
+      "skipped_check": "read schema_version across ~/git/*/.devague before writing c16",
+      "refs": [
+        "c16",
+        "h14"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "provenance-missing",
+      "what": "My script captured claim ids with a pattern that matched the 'c' in 'captured', so 11 scope entries were refused and interrogate c16 recorded a malformed blocking q11 ('contradiction with c?') and a q10 ending in 'let c supersede'; the intended target is c36",
+      "skipped_check": "check the captured id before passing it to --seeds/--contradicts",
+      "refs": [
+        "c16",
+        "q10",
+        "q11",
+        "c36"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
@@ -868,6 +1456,15 @@
       "claim_id": "c32",
       "seam": "site state page",
       "behavior": "Tiles, status rows (icon + label) and the chart grid match the reference; every chart has a hover tooltip, a Table toggle and a source line; kind colors pass scripts/validate_palette.js on both surfaces; numbers come from the live library, not hard-coded",
+      "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c32",
+      "seam": "send to device views vs docs/design/reference/*-send-menu.png, *-sent.png",
+      "behavior": "The reader toolbar's Send to device button (icon-only at phone width) opens the target menu (enabled x3-ori, disabled reTerminal Sticky, the footer about events and send_to_device), and after sending shows the 'Sent to <target> at <time>. culture-rules takes it from here.' line and the toast, matching the 8 send reference views (desktop and phone, light and dark) under the same visual test as o1",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
       "status": "proposed"
