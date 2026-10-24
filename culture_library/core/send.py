@@ -4,9 +4,11 @@ The library's responsibility ends at the event (boundary c52). It publishes the 
 serves the content; culture-rules delivers it to a device and owns delivery status. This
 module never calls a device or a device service and stores no device id or key.
 
-Targets are a plain list of ``{"label", "enabled"}`` read from, in order of precedence,
-the ``CULTURE_LIBRARY_SEND_TARGETS`` env var (a JSON list) or ``<data dir>/targets.json``.
-Any other field in an entry (e.g. a stray device id) is dropped on load.
+Targets are a plain list of ``{"label", "type", "enabled"}`` read from, in order of
+precedence, the ``CULTURE_LIBRARY_SEND_TARGETS`` env var (a JSON list) or
+``<data dir>/targets.json``. ``type`` is an optional free-text description for people (e.g.
+"Xteink X3 reader", decider 0.83), never an id; it defaults to ``""``. Any other field in an
+entry (e.g. a stray device id) is dropped on load.
 
 Publishing follows pocketsync: the ``events_cli`` Python API when importable, else the
 ``events`` console executable of events-cli by subprocess (fixed argv, no shell, timeout),
@@ -55,9 +57,10 @@ class TargetRefused(ValidationError):
 class Target:
     label: str
     enabled: bool
+    type: str = ""  # free-text description shown to people; label-only, never an id
 
     def as_dict(self) -> dict[str, Any]:
-        return {"label": self.label, "enabled": self.enabled}
+        return {"label": self.label, "type": self.type, "enabled": self.enabled}
 
 
 def load_targets(data_dir: str | os.PathLike[str] | None = None) -> list[Target]:
@@ -75,13 +78,16 @@ def load_targets(data_dir: str | os.PathLike[str] | None = None) -> list[Target]
     except ValueError as exc:
         raise SendConfigError(f"{source} is not valid JSON") from exc
     if not isinstance(entries, list):
-        raise SendConfigError(f"{source} must be a JSON list of {{label, enabled}}")
+        raise SendConfigError(f"{source} must be a JSON list of {{label, type, enabled}}")
     targets: list[Target] = []
     for entry in entries:
         label = entry.get("label") if isinstance(entry, dict) else None
         if not isinstance(label, str) or not label.strip():
             raise SendConfigError(f"{source}: every target needs a non-empty label")
-        targets.append(Target(label.strip(), bool(entry.get("enabled", True))))
+        kind = entry.get("type", "")
+        if not isinstance(kind, str):
+            raise SendConfigError(f"{source}: a target's type must be text")
+        targets.append(Target(label.strip(), bool(entry.get("enabled", True)), kind.strip()))
     return targets
 
 

@@ -12,6 +12,11 @@ const sendBtn = $('send-btn'), sendMenu = $('send-menu');
 let targets = null, busy = false;
 
 const canSend = i => Boolean(i && i.src === 'item' && i.live);
+/* The prototype's "<type>. Enabled" / "<type>. Not enabled yet"; type is optional free text. */
+const targetNote = t => {
+  const status = t.enabled ? 'Enabled' : 'Not enabled yet';
+  return t.type ? `${t.type}. ${status}` : status;
+};
 export function paintSendBtn(i) {
   sendBtn.disabled = !canSend(i);
   sendBtn.title = canSend(i) ? '' : 'Available once this item is in the library';
@@ -31,7 +36,7 @@ async function openSendMenu() {
   if (sendMenu.hidden) return;
   fill(sendMenu,
     list.map(t => h('button', { role: 'menuitem', 'data-send': t.label, disabled: !t.enabled },
-      icon(SVG.dev), h('span', { class: 'mt' }, t.label), h('span', { class: 'ms' }, t.enabled ? 'Enabled' : 'Not enabled yet'))),
+      icon(SVG.dev), h('span', { class: 'mt' }, t.label), h('span', { class: 'ms' }, targetNote(t)))),
     list.length ? null : h('div', { class: 'ms' }, 'No send targets are configured for this library.'),
     h('div', { class: 'mfoot' }, 'Sending publishes an event. culture-rules picks it up and delivers it. Agents use the MCP tool send_to_device.'));
   const first = sendMenu.querySelector('button:not(:disabled)'); if (first) first.focus();
