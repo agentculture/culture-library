@@ -559,3 +559,14 @@ def test_add_retries_when_item_vanishes_before_the_follow_up(tmp_path, monkeypat
     again, created = library.add(store, b"gone", "g.txt")
     assert seen == [item.id, item.id]  # retried once, outside the first transaction
     assert created is False and again.id == item.id
+
+
+@pytest.mark.parametrize("how", ["crc", "method", "encrypted", "deflate", "mimetype_crc"])
+def test_upload_corrupt_epub_is_a_400_refusal(api, how):
+    from culture_library.core.ingest import read_refusals
+    from tests.core.test_ingest import corrupt_epub
+
+    r = api.upload(corrupt_epub(how), "bad.epub")
+    assert r.status_code == 400, r.text
+    assert r.json() == {"detail": r.json()["detail"], "code": "corrupt_archive"}
+    assert read_refusals(api.store)[-1]["code"] == "corrupt_archive"

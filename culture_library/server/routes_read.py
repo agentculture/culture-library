@@ -149,7 +149,8 @@ def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMI
     """``[{heading, paragraphs}]`` for an EPUB, one or more per chapter file, nav/toc skipped.
 
     Uses ingest's EPUB opener and capped member reader, so the zip-bomb limits that guard
-    ingest guard this too.
+    ingest guard this too, and a damaged member raises ``ValidationError``
+    (``corrupt_archive``) rather than a zipfile/zlib exception.
     """
     zf = ingest._open_epub(data, limits)  # noqa: SLF001 - same caps as ingest
     if zf is None:

@@ -276,3 +276,16 @@ def test_epub_excerpt_skips_nav_and_masthead(site: Site) -> None:
     assert got["items"][str(item["id"])] == (
         "Jetson optimization, Isaac ROS. Models | Jetson AI Lab: benchmarks."
     )
+
+
+@pytest.mark.parametrize("how", ["crc", "method", "encrypted", "deflate"])
+def test_text_of_a_stored_corrupt_epub_degrades_not_500(site: Site, how: str) -> None:
+    from tests.core.test_ingest import corrupt_epub
+
+    # stored by a path that bypasses ingest (e.g. a migration), so the bytes were never checked
+    item = site.store.add_item(corrupt_epub(how), kind="book", title="Bad", format="epub").item
+    r = site.c.get(f"/api/library/{item.id}/text")
+    assert r.status_code == 200, r.text
+    assert r.json()["reason"] == "corrupt_archive" and r.json()["text"] == ""
+    ex = site.c.get("/api/excerpts", params={"items": str(item.id)})
+    assert ex.status_code == 200 and ex.json()["items"] == {str(item.id): ""}
