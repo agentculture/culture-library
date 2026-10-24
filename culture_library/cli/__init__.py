@@ -62,11 +62,15 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from culture_library.cli._commands import backup as _backup_cmd
     from culture_library.cli._commands import cli as _cli_group
     from culture_library.cli._commands import doctor as _doctor_cmd
     from culture_library.cli._commands import explain as _explain_cmd
+    from culture_library.cli._commands import keys as _keys_cmd
     from culture_library.cli._commands import learn as _learn_cmd
+    from culture_library.cli._commands import migrate as _migrate_cmd
     from culture_library.cli._commands import overview as _overview_cmd
+    from culture_library.cli._commands import server as _server_cmd
     from culture_library.cli._commands import whoami as _whoami_cmd
 
     parser = _CliArgumentParser(
@@ -88,6 +92,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
+    _server_cmd.register(sub)
+    _migrate_cmd.register(sub)
+    _keys_cmd.register(sub)
+    _backup_cmd.register(sub)
     # Register your own noun groups here:
     #   from culture_library.cli._commands import my_noun as _my_noun_group
     #   _my_noun_group.register(sub)

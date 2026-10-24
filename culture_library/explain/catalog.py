@@ -26,6 +26,8 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 - `culture-library overview` — descriptive snapshot of the agent.
 - `culture-library doctor` — check the agent-identity invariants.
 - `culture-library cli overview` — describe the CLI surface.
+- `culture-library server serve` — run the HTTP server (`[server]` extra).
+- `culture-library migrate from-xteink` — copy an xteink library in.
 
 ## Exit-code policy
 
@@ -109,6 +111,74 @@ reported by the informational harness-prompts check and never substituted.
     culture-library doctor --json
 """
 
+_SERVER = """\
+# culture-library server
+
+Runs the library HTTP server. Requires the optional `[server]` extra
+(`pip install 'culture-library[server]'`); the base CLI has zero runtime
+dependencies and works without it.
+
+## Verbs
+
+- `culture-library server serve [--host H] [--port N]` — start the server
+  (default 127.0.0.1:8796). `GET /api/health` reports status.
+- `culture-library server overview` — describe this noun.
+
+If the extra is missing, `serve` exits 2 with a hint to install
+`culture-library[server]`.
+"""
+
+_KEYS = """\
+# culture-library keys
+
+Mint, list and revoke API keys on this host. The first admin key comes from here,
+because the `/api/keys` routes need an admin key.
+
+- `keys mint --name N --scope read|write|admin [--kind K] [--private]` prints the key once;
+  only a hash is stored.
+- `keys list` shows scopes, kinds and status, never the secret.
+- `keys revoke --id N` revokes a key.
+
+Scopes: read; write implies read; admin implies both. `--kind` limits writes to those
+kinds; `--private` lets the key see private items.
+"""
+
+_MIGRATE = """\
+# culture-library migrate
+
+One-off migrations into the catalog.
+
+## Verbs
+
+- `culture-library migrate from-xteink --data-dir <xteink-dir> [--dest D] [--apply]
+  [--visibility private|public]` — read the xteink `library.db` (opened read-only,
+  never written) and copy items with the same id, sha256 and created_at. Titles
+  starting `Daily newspaper` become `newspaper`, kind `book` stays `book`, the rest
+  become `document`. Dry run unless `--apply`; items are `private` unless
+  `--visibility public`. Re-runs report existing items as unchanged; a clashing id
+  or sha256 is an error (exit 1), never an overwrite. A `--data-dir` without
+  `library.db` is refused with a hint. The destination is `--dest`, else
+  `CULTURE_LIBRARY_DATA_DIR`.
+- `culture-library migrate overview` — describe this noun.
+"""
+
+_BACKUP = """\
+# culture-library backup
+
+Back up the library to a second location and prove it restores.
+
+- `backup run [--data-dir D] [--to B] [--keep N]` — copy a consistent SQLite snapshot
+  (online backup API, safe while the server writes) to `B/snapshots/<UTC stamp>/` with a
+  `manifest.json` (item and repo-document ids, sha256, visibility, counts), and copy only
+  missing blobs (items' and repo documents') into `B/files/`. Keeps the last N snapshots
+  (default 7). `B` defaults to `CULTURE_LIBRARY_BACKUP_DIR`.
+- `backup verify <snapshot>` — check the database against the manifest and re-hash every blob.
+- `backup restore --from <snapshot> --to <dir>` — restore into an empty directory (a
+  non-empty one is refused) and verify ids, sha256 and visibility.
+- `backup schedule --print [--kind systemd|cron]` — print a daily schedule; installs nothing.
+- `backup overview` — describe this noun.
+"""
+
 _CLI = """\
 # culture-library cli
 
@@ -130,6 +200,23 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("explain",): _EXPLAIN,
     ("overview",): _OVERVIEW,
     ("doctor",): _DOCTOR,
+    ("backup",): _BACKUP,
+    ("backup", "run"): _BACKUP,
+    ("backup", "verify"): _BACKUP,
+    ("backup", "restore"): _BACKUP,
+    ("backup", "schedule"): _BACKUP,
+    ("backup", "overview"): _BACKUP,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
+    ("server",): _SERVER,
+    ("server", "serve"): _SERVER,
+    ("server", "overview"): _SERVER,
+    ("migrate",): _MIGRATE,
+    ("migrate", "from-xteink"): _MIGRATE,
+    ("migrate", "overview"): _MIGRATE,
+    ("keys",): _KEYS,
+    ("keys", "mint"): _KEYS,
+    ("keys", "list"): _KEYS,
+    ("keys", "revoke"): _KEYS,
+    ("keys", "overview"): _KEYS,
 }

@@ -8,11 +8,21 @@ canonical skill kit.
 
 ## Status
 
-**Early scaffold.** This repo was created from
-[`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
-and currently ships only the sibling-pattern baseline described below. The
-library itself — ingesting media, indexing, search, and serving at
-library.culture.dev — is [planned](#roadmap) and not yet implemented.
+**Built, not yet deployed.** The library is in `culture_library/`. It has:
+
+- a storage and ingest core;
+- an HTTP API compatible with xteink's;
+- search;
+- repo documents;
+- send to device;
+- OPDS and WebDAV;
+- an MCP server for agents;
+- the site.
+
+It was specified and built with devague: spec in `docs/specs/`, plan in
+`docs/plans/`, the run's record in `docs/deliveries/`. Deploy files are in
+`deploy/`, and runbooks in `docs/operations/`. Deploying and provisioning
+library.culture.dev are still to do (see [Roadmap](#roadmap)).
 
 ## What's here today
 

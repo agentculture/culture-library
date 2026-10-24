@@ -1,0 +1,115 @@
+# culture-library stack on spark.  Fresh clone:
+#   cp deploy/.env.example deploy/.env
+#   docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
+#
+# Services
+#   library      server :8796 (site + API); machine clients use this with API keys
+#   mcp          MCP streamable-http :8797, LAN/loopback only, talks to library over the network
+#   cloudflared  ONLY with `--profile remote` (needs TUNNEL_TOKEN); fronts library.culture.dev
+#
+# Remote access: cloudflared runs inside this compose network, so the Cloudflare ingress
+# target (configured separately with cultureflare; this stack never touches Cloudflare)
+# must use the service name:   library.culture.dev -> http://library:8796
+# (http://127.0.0.1:... would point at the cloudflared container itself.)
+# The MCP port is never given to the tunnel.
+
+x-image: &image ${LIBRARY_IMAGE:-culture-library:local}
+
+services:
+  library:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: *image
+    command: ["culture-library", "server", "serve", "--host", "0.0.0.0", "--port", "8796"]
+    restart: unless-stopped
+    environment:
+      CULTURE_LIBRARY_DATA_DIR: /data
+      # Cloudflare Access verification for the web UI. Set both or neither.
+      CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN: ${CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN:-}
+      CULTURE_LIBRARY_ACCESS_AUD: ${CULTURE_LIBRARY_ACCESS_AUD:-}
+      CULTURE_LIBRARY_PURGE_INTERVAL_S: ${CULTURE_LIBRARY_PURGE_INTERVAL_S:-}
+      CULTURE_LIBRARY_SEND_TARGETS: ${CULTURE_LIBRARY_SEND_TARGETS:-}
+      CULTURE_LIBRARY_LOCAL_URL: ${CULTURE_LIBRARY_LOCAL_URL:-}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
+      LOBES_GATEWAY_URL: ${LOBES_GATEWAY_URL:-}
+      LOBES_EMBED_MODEL: ${LOBES_EMBED_MODEL:-}
+      # MQTT broker for send-to-device events (events-cli). The broker must be reachable from
+      # the container, e.g. a host address it listens on, not the host's 127.0.0.1.
+      EVENTS_BROKER_HOST: ${EVENTS_BROKER_HOST:-}
+      EVENTS_BROKER_PORT: ${EVENTS_BROKER_PORT:-}
+    volumes:
+      # Named volume by default; set LIBRARY_DATA=/host/dir in .env for a bind mount.
+      - ${LIBRARY_DATA:-culture-library-data}:/data
+    ports:
+      - "${LIBRARY_PUBLISH_BIND:-127.0.0.1}:${LIBRARY_PUBLISH_PORT:-8796}:8796"
+    healthcheck:
+      # GET /api/health -> 200 without auth
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8796/api/health', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  mcp:
+    image: *image
+    command:
+      - python
+      - -m
+      - culture_library.mcp
+      - --transport
+      - streamable-http
+      - --bind
+      - 0.0.0.0
+      - --port
+      - "8797"
+      # Wildcard bind is needed inside the container; reachability is limited by the
+      # published port below (loopback by default) and by never routing it via the tunnel.
+      - --allow-any-interface
+    restart: unless-stopped
+    depends_on:
+      library:
+        condition: service_healthy
+    environment:
+      CULTURE_LIBRARY_URL: http://library:8796
+      # No server-side key: every MCP client sends its own `Authorization: Bearer clk_...`.
+    ports:
+      - "${LIBRARY_PUBLISH_BIND:-127.0.0.1}:${LIBRARY_PUBLISH_MCP_PORT:-8797}:8797"
+    healthcheck:
+      # TCP accept on the MCP port (the endpoint itself needs an MCP handshake).
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8797), timeout=3).close()"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # One tunnel for library.culture.dev (cultureflare replaces a tunnel's whole ingress,
+  # so do not reuse this tunnel for another hostname). Token comes from the environment.
+  cloudflared:
+    profiles: [remote]
+    image: cloudflare/cloudflared:2025.9.1
+    command: tunnel --no-autoupdate run
+    restart: unless-stopped
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      TUNNEL_METRICS: 127.0.0.1:20241
+    depends_on:
+      library:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  culture-library-data:

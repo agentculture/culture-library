@@ -1,0 +1,1167 @@
+{
+  "plan_slug": "library-culture-dev",
+  "schema_version": 2,
+  "created": "2026-10-24T00:27:07Z",
+  "updated": "2026-10-24T06:57:54Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "The lobes gateway embedder client lives in culture_library/gateway.py (outside core/); core/search.py and core/indexer.py take the embedder as an injected callable",
+      "task_ref": "t7",
+      "reason": "tests/core/test_store.py::test_core_source_has_no_network_imports keeps culture_library/core network-free; the acceptance criteria are met with the client injected",
+      "affects": [
+        "c41"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "Add a 'keys' CLI noun (mint, list, revoke, overview) outside any plan task",
+      "task_ref": "t5",
+      "reason": "t5 could not add a CLI verb (cli/__init__.py was owned by t9 that wave), but the first admin key must come from the host for /api/keys and deploy (t18) to work",
+      "affects": [
+        "t18",
+        "c6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Drop the prototype's 'arriving' spines and 'N arriving' count from the site design; update docs/design/library-site.md and re-approve the affected reference screenshots (home views, and site-state views whose figures now come from /api/status)",
+      "task_ref": "t15",
+      "reason": "the library has no source for not-yet-ingested content (other systems push when they choose); operator chose 'drop and re-approve' on 2026-10-24 after the decider leaned the same way (0.57)",
+      "affects": [
+        "t16",
+        "c32"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Integration fixes outside the planned tasks: indexer extracts body text with ingest.extract_text and fills FTS without the embedding gateway; an item's uploader key can read/edit its own private items (decider 0.74); send targets accept an optional display type label (decider 0.83); /api/feed gains ?item_id=; mcp SDK added to the dev group so MCP SDK tests run in CI",
+      "task_ref": "t7",
+      "reason": "wave-4 reports showed full-text search could not reach EPUB/PDF bodies without the gateway (blocks c30's full-text signal), diary keys could not see their own private entries, and the site could not show target types; the decider settled the two design questions",
+      "affects": [
+        "t10",
+        "t11",
+        "t13",
+        "t15",
+        "c24",
+        "c30"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Re-approve more reference views than d3's six: upload x4, phone-list-drawer x2, spec x2 and frame x2 (prototype-only 'Arriving' chips/labels, preview-only upload text, truncated 'of 15'), plus send-menu views if the \u2264720px send-menu fix changes them (the reference overflows sideways, contradicting library-site.md)",
+      "task_ref": "t16",
+      "reason": "t16's pixel comparison showed these views carry prototype-only content the real site cannot reproduce, and the reference send menu breaks the no-sideways-scroll contract",
+      "affects": [
+        "c32",
+        "t15"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t21's three remaining success signals are deferred outside this repo: o45 (next newspaper, 0 manual steps) to culture-rules#86 and o47 (Gwen citations and diary) to embodiment#97, both in progress per the operator; o46 (Access wall) waits for the operator to run cultureflare remote-login setup --apply (the stack is already running on spark with 51/51 items migrated)",
+      "task_ref": "t21",
+      "reason": "the operator said culture-rules and embodiment changes are in progress elsewhere; the cultureflare --apply was refused by the session's permission classifier and is the operator's to run",
+      "affects": [
+        "c30",
+        "c31"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 52
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o8",
+      "test_ref": "tests/contract/test_culture_rules_push.py",
+      "behavior_text": "culture-rules' exact multipart bytes and real LibraryPushPort._push get 201 then 200 created:false; error codes match what _error_code reads",
+      "contract_text": "library.culture.dev keeps xteink's /api/library contract as a compatible subset",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 6 passed, 1 warning in 0.60s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o9",
+      "test_ref": "tests/core/test_ingest.py",
+      "behavior_text": "EPUB/PDF/Markdown/text/JSON stored byte-identical; audio refused with a code naming supported formats",
+      "contract_text": "kinds and formats widened; PDF and Markdown stored natively; no audio",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 35 passed in 0.88s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o10",
+      "test_ref": "tests/core/test_store.py::test_provenance_headers",
+      "behavior_text": "cited modules carry provenance headers naming xteink ea2f643",
+      "contract_text": "the library-generic half of xteink feat/issue-1 is cited",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 1 passed in 0.01s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o11",
+      "test_ref": "tests/contract/test_no_device_code.py",
+      "behavior_text": "no device keys, routes, queue or firmware code in culture_library/, and no device paths in OpenAPI",
+      "contract_text": "the e-reader side stays in xteink",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 4 passed in 0.13s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o12",
+      "test_ref": "tests/server/test_auth.py tests/core/test_keys.py",
+      "behavior_text": "read key 403 on writes and /api/keys; kind-limited write key 403 on other kinds",
+      "contract_text": "API keys gain scopes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 58 passed, 1 warning in 3.09s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o13",
+      "test_ref": "tests/server/test_library_api.py tests/server/test_uploader_visibility.py",
+      "behavior_text": "private items absent from list/search and 404 on get/file for non-private callers; uploader exception",
+      "contract_text": "items carry visibility; private items hidden",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 48 passed, 1 warning in 3.05s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o14",
+      "test_ref": "tests/test_deploy_files.py",
+      "behavior_text": "compose: named volume, restart policy, healthchecks, loopback-bound ports, cloudflared only under the remote profile; runbook has the cultureflare dry run",
+      "contract_text": "served by docker compose behind cultureflare Access",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 14 passed in 0.01s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o15",
+      "test_ref": "tests/migrate/test_xteink.py",
+      "behavior_text": "dry run changes nothing; apply copies 17 ids and sha256; idempotent; next id above 20",
+      "contract_text": "the 17 xteink items migrate with sha256 preserved",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 10 passed in 1.38s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o16",
+      "test_ref": "tests/migrate/test_xteink.py",
+      "behavior_text": "migrated items keep their xteink ids; sqlite_sequence hands out ids above the old maximum",
+      "contract_text": "migration preserves xteink item ids",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 10 passed in 1.28s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o17",
+      "test_ref": "tests/test_zero_deps.py",
+      "behavior_text": "every CLI module imports in a bare venv without the [server] extra; base dependencies empty",
+      "contract_text": "server deps only in an optional extra",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 4 passed in 0.11s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o18",
+      "test_ref": "tests/core/test_repodocs.py tests/server/test_routes_repodocs.py",
+      "behavior_text": "docs from 5 public repos pushed and read back with matching content",
+      "contract_text": "the library hosts each repo's devague record",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 69 passed, 1 warning in 1.98s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o19",
+      "test_ref": "tests/core/test_repodocs.py",
+      "behavior_text": "new commit adds a version; same commit is a no-op; history lists both",
+      "contract_text": "repo documents are mutable and versioned",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 59 passed in 0.84s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o20",
+      "test_ref": "tests/core/test_repodocs.py",
+      "behavior_text": "docs from private repos or pushed without visibility are private and hidden from shared keys",
+      "contract_text": "repo documents inherit their repo's visibility",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 59 passed in 0.78s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o21",
+      "test_ref": "tests/render/test_corpus.py",
+      "behavior_text": "renders every ~/git frame/plan (1,231 files, schema 1-6 and unversioned); schema 7 raw with a notice",
+      "contract_text": "frames and plans render as readable pages",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 25 passed in 0.28s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o22",
+      "test_ref": "tests/core/test_repodocs.py",
+      "behavior_text": "AST scan finds no git write, checkout or devague invocation in culture_library/",
+      "contract_text": "the library never writes back to repos",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 59 passed in 0.86s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o23",
+      "test_ref": "tests/core/test_repodocs.py",
+      "behavior_text": "same (remote, path, commit) from a clone and a worktree is one version",
+      "contract_text": "dedup by remote, path and commit",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 59 passed in 0.82s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o24",
+      "test_ref": "tests/core/test_repodocs.py",
+      "behavior_text": "remote URL forms collapse to one id; remote-less repos get host:path; stale clones never roll current back",
+      "contract_text": "repo identity survives clones and remote-less repos",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 59 passed in 0.80s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o25",
+      "test_ref": "tests/core/test_feed.py tests/server/test_feed_route.py",
+      "behavior_text": "a reader from a saved cursor sees exactly the events, with no items-table query",
+      "contract_text": "pullers can see deletions and changes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 14 passed, 1 warning in 0.78s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o26",
+      "test_ref": "tests/core/test_store.py::test_concurrent_writes_and_reads_no_lock_errors",
+      "behavior_text": "4 threads x 500 inserts plus readers: zero 'database is locked'",
+      "contract_text": "the store tolerates concurrent writers",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 1 passed in 2.54s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o27",
+      "test_ref": "tests/core/test_ingest.py tests/web/test_read.py tests/web/test_site.py tests/web/test_static_rules.py",
+      "behavior_text": "zip bomb refused; hostile EPUB text endpoint returns no markup; CSP header with no inline script",
+      "contract_text": "ingested and uploaded content is untrusted",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 69 passed, 1 warning in 2.01s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o28",
+      "test_ref": "tests/web/test_read.py tests/web/test_static_rules.py",
+      "behavior_text": "Hebrew fixture text comes back intact; every content element carries dir=auto; CSS has no physical left/right properties",
+      "contract_text": "Hebrew and mixed-direction text render correctly",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 27 passed, 1 warning in 1.04s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o29",
+      "test_ref": "tests/core/test_backup.py tests/test_cli_backup.py",
+      "behavior_text": "backup, verify and restore onto a clean dir reproduce ids, sha256 and visibility; restore refuses a non-empty target",
+      "contract_text": "backups with a tested restore",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 14 passed in 0.75s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o30",
+      "test_ref": "tests/core/test_search.py tests/server/test_status_search.py",
+      "behavior_text": "with the gateway down an item is stored and title-searchable; body full-text indexed without the gateway; catch-up later",
+      "contract_text": "ingest never waits on indexing",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 35 passed, 1 warning in 5.50s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o31",
+      "test_ref": "tests/test_teardown_gate.py",
+      "behavior_text": "gate lists the three conditions with evidence slots and the dry run before --apply",
+      "contract_text": "ebooks.culture.dev torn down only after the gate",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 2 passed in 0.00s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o32",
+      "test_ref": "tests/server/test_library_api.py::test_upload_without_visibility_is_private_and_public_is_honoured tests/core/test_store.py::test_insert_without_visibility_is_private",
+      "behavior_text": "uploads and repo docs without visibility are private",
+      "contract_text": "missing visibility fails closed",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 2 passed, 1 warning in 0.25s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o33",
+      "test_ref": "tests/core/test_send.py tests/server/test_send_route.py",
+      "behavior_text": "POST send returns 202 and publishes one library.item.send_requested event with the item reference; feed row after publish",
+      "contract_text": "send to device ends at an event",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 20 passed, 1 warning in 0.50s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o34",
+      "test_ref": "tests/core/test_send.py",
+      "behavior_text": "a read-scoped rule fetches the referenced bytes and their sha256 matches the event",
+      "contract_text": "rules can fetch what they deliver",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 14 passed in 0.01s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o35",
+      "test_ref": "tests/core/test_send.py tests/server/test_send_route.py",
+      "behavior_text": "targets load as {label, type, enabled}; other fields dropped; disabled/unknown refused",
+      "contract_text": "send targets are names in config",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 20 passed, 1 warning in 0.48s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o36",
+      "test_ref": "tests/web/test_static_rules.py tests/server/test_send_route.py",
+      "behavior_text": "send.js shows target type and status; 503 is retryable",
+      "contract_text": "the site confirms only what the library did",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 16 passed, 1 warning in 0.31s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o37",
+      "test_ref": "tests/core/test_send.py",
+      "behavior_text": "no HTTP call to xteink or reterminal anywhere in the package",
+      "contract_text": "delivery is beyond culture-library",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran at d821d76: 14 passed in 0.01s",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:43:33+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o2",
+      "test_ref": "tests/visual (token checks)",
+      "behavior_text": "stylesheet color and kind tokens equal docs/design/library-site.md in light, dark-by-attribute and dark-by-media, and match computed values",
+      "contract_text": "every color, radius and font token in the site stylesheet equals docs/design/library-site.md",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite ran at d821d76 with Chromium (Playwright, --font-render-hinting=slight): 52 passed in 73.24s (0:01:13)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:44:29+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o3",
+      "test_ref": "tests/visual (typography checks)",
+      "behavior_text": "every visible element computes to Lato at 300/400/700/900 after fonts load; only non-Lato glyphs (\u2713 \u2192 \u2248 \u25cb \u2265) and the monospace curl line fall back",
+      "contract_text": "only Lato is used, at weights 300/400/700/900",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite ran at d821d76 with Chromium (Playwright, --font-render-hinting=slight): 52 passed in 73.24s (0:01:13)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:44:29+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e33",
+      "obligation_ref": "o4",
+      "test_ref": "tests/visual (layout checks)",
+      "behavior_text": "scrollWidth equals viewport width at 400px on every phone view; pane hide/show; drawer at \u2264900px closes on scrim and Escape",
+      "contract_text": "layout and breakpoints as in library-site.md",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite ran at d821d76 with Chromium (Playwright, --font-render-hinting=slight): 52 passed in 73.24s (0:01:13)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:44:29+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e34",
+      "obligation_ref": "o5",
+      "test_ref": "tests/visual (persistence and interaction checks)",
+      "behavior_text": "theme, last-read (Continue reading), pane state and reading progress persist across reload; send, upload and search flows render",
+      "contract_text": "interactions as in library-site.md",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite ran at d821d76 with Chromium (Playwright, --font-render-hinting=slight): 52 passed in 73.24s (0:01:13)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:44:29+00:00",
+        "commit": "d821d76"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e35",
+      "obligation_ref": "o1",
+      "test_ref": "tests/visual/test_parity.py",
+      "behavior_text": "all 30 views (desktop 1680x1000 and phone 400x860, light and dark) render within 1% of docs/design/reference/; the 18 re-approved under d3/d5 included",
+      "contract_text": "the built site renders the reference views with the same layout, components, spacing, colors and type",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite: 52 passed at eef8a86 against the operator-approved references (Chromium, Playwright)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "eef8a86"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e36",
+      "obligation_ref": "o6",
+      "test_ref": "tests/visual/test_parity.py (desktop-*-state)",
+      "behavior_text": "site state tiles, status rows and chart grid match the re-approved references; figures come from /api/status",
+      "contract_text": "site state page matches the reference with live numbers",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite: 52 passed at eef8a86 against the operator-approved references (Chromium, Playwright)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "eef8a86"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 41
+    },
+    {
+      "id": "e37",
+      "obligation_ref": "o7",
+      "test_ref": "tests/visual/test_parity.py (*-send-menu, *-sent)",
+      "behavior_text": "send menu (x3-ori enabled, reTerminal Sticky disabled, events footer) and the sent line/toast match references in all four form/scheme combinations",
+      "contract_text": "send to device views match the references",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "visual suite: 52 passed at eef8a86 against the operator-approved references (Chromium, Playwright)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "eef8a86"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 42
+    },
+    {
+      "id": "e38",
+      "obligation_ref": "o38",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "book 11, newspaper 20, PDF 55, Markdown 56, transcript 57, diary 58 (MCP diary_write), spec/plan/devague-record repodocs 603/601/599",
+      "contract_text": "every content kind named in the announcement has a real item",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 43
+    },
+    {
+      "id": "e39",
+      "obligation_ref": "o39",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "GET / 200 with CSP; API list/file/search with a key; MCP stdio list_library/search/read_item; file pull bytes match sha256 for ids 20, 11, 55 (xteink itself not yet a client)",
+      "contract_text": "each named reader has a working path",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 44
+    },
+    {
+      "id": "e40",
+      "obligation_ref": "o40",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "xteink 51 items (spec said 17), 39 Pocket recordings, 1545 tracked .devague files in 68 repos by remote, library.culture.dev NXDOMAIN",
+      "contract_text": "before-state numbers re-measured, not copied",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 45
+    },
+    {
+      "id": "e41",
+      "obligation_ref": "o41",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "51/51 sha256 with --apply, re-run all 51 unchanged (the spec's 17/17 was stale)",
+      "contract_text": "all xteink items in the library with identical sha256",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 46
+    },
+    {
+      "id": "e42",
+      "obligation_ref": "o42",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "74 repos listed, 72 with devague records, 2269 documents",
+      "contract_text": "\u2265 70 repos' devague records are listed",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 47
+    },
+    {
+      "id": "e43",
+      "obligation_ref": "o43",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "'Embedl' over 20 runs: hit item 20, median 1.7 ms, max 40.4 ms; corpus 55 items + 2269 repodocs",
+      "contract_text": "a full-text query returns hits from a newspaper body in < 1 s",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 48
+    },
+    {
+      "id": "e44",
+      "obligation_ref": "o44",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md",
+      "behavior_text": "/api/health 200; /api/library 401 without key, 200 with a read key",
+      "contract_text": "an API call without a key gets 401",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against a scratch library server (port 18796) at 96cc83f, 2026-10-24; commands and outputs recorded in docs/evidence/t21-delivery-evidence.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T05:58:31+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 49
+    },
+    {
+      "id": "e45",
+      "obligation_ref": "o48",
+      "test_ref": "docs/evidence/t21-delivery-evidence.md (search over repodocs)",
+      "behavior_text": "GET /api/search?mode=fulltext&q=devague over a library holding 2269 repo documents returned 0 hits: the search index covers items only",
+      "contract_text": "one catalog ... with full-text and semantic search",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on spark against the scratch library at 96cc83f, 2026-10-24",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-24T05:58:50+00:00",
+        "commit": "96cc83f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 50
+    },
+    {
+      "id": "e46",
+      "obligation_ref": "o14",
+      "test_ref": "docs/evidence/t18-deploy-verification.md",
+      "behavior_text": "image built; library and mcp healthy 11.4 s after up -d and 6.1 s after restart; /api/health 200; /api/library 401 without a key; site served with CSP; ports bound to loopback; data survives recreate",
+      "contract_text": "served by a docker compose stack on spark, restarting unattended and healthy within 120 s",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "stack booted on spare ports under project culture-library-verify at 3644bc6 and probed with curl; torn down afterwards",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T06:40:49+00:00",
+        "commit": "3644bc6"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 51
+    },
+    {
+      "id": "e47",
+      "obligation_ref": "o46",
+      "test_ref": "curl -sD - https://library.culture.dev/ (anonymous)",
+      "behavior_text": "anonymous GET / and /static/app.js on library.culture.dev answer 302 to agentculture.cloudflareaccess.com/cdn-cgi/access/login/library.culture.dev; local /api/library without a key 401; responses carry Cache-Control no-store/private or private,no-cache",
+      "contract_text": "an anonymous request to library.culture.dev gets the Access wall while an API call without a key gets 401",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live stack on spark (compose project culture-library) behind tunnel library-culture-dev at e065399, cloudflared registered 4 connections; probed 2026-10-24",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T06:53:51+00:00",
+        "commit": "e065399"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 53
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "Duplicate bytes of a private item: a caller without private access gets an opaque 409 conflict (no id/metadata, never restores); the original uploader's key keeps the idempotent 200 for its own live item (decider 0.749 / 0.943, issue #3)",
+      "caused_by": [
+        "c7",
+        "c43"
+      ],
+      "evidence_refs": [
+        "e6",
+        "e1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "Cloudflare Access service tokens are refused (401); only people authenticate through Access (decider 0.80, issue #3)",
+      "caused_by": [
+        "c8",
+        "c44"
+      ],
+      "evidence_refs": [
+        "e5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "removed",
+      "behavior_text": "No faded 'arriving' spines or 'N arriving' count and no prototype-only 'Arriving' chips; site state shows live figures only",
+      "caused_by": [
+        "d3",
+        "c32"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "OPDS 1.2 (/opds) and read-only WebDAV (/dav/) accept the API key as the HTTP Basic password for reading apps",
+      "caused_by": [
+        "c46",
+        "c6"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "Lato is self-hosted (OFL woff2 under web/static/fonts); CSP is font-src 'self', style-src 'self' (decider 0.965)",
+      "caused_by": [
+        "c32",
+        "c38"
+      ],
+      "evidence_refs": [
+        "e32"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "added",
+      "behavior_text": "An item's uploader key can read and edit its own private items (item_uploaders table; GET /api/library/{id} returns uploaded_by_you); diary keys need no private flag (decider 0.740)",
+      "caused_by": [
+        "d4",
+        "c6"
+      ],
+      "evidence_refs": [
+        "e6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "culture-library keys mint|list|revoke CLI noun mints the first admin key",
+      "caused_by": [
+        "d2",
+        "c6"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "amended",
+      "behavior_text": "The embedding gateway client lives in culture_library/gateway.py outside core; the indexer always runs and indexes bodies for full-text without the gateway, embeddings only when configured",
+      "caused_by": [
+        "d1",
+        "d4",
+        "c41"
+      ],
+      "evidence_refs": [
+        "e23"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "added",
+      "behavior_text": "Send targets carry an optional free-text type label shown in the menu (decider 0.833)",
+      "caused_by": [
+        "d4",
+        "c50"
+      ],
+      "evidence_refs": [
+        "e28"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "amended",
+      "behavior_text": "At \u2264720px the send menu is anchored inside the viewport so the page never scrolls sideways (the original reference overflowed); 18 reference views re-approved",
+      "caused_by": [
+        "d5",
+        "c32"
+      ],
+      "evidence_refs": [
+        "e35"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b11",
+      "kind": "amended",
+      "behavior_text": "Migration covers every xteink item (51 on 2026-10-24, not the spec's 17), ids and sha256 preserved; recording EPUBs migrate as kind document",
+      "caused_by": [
+        "c9",
+        "c33"
+      ],
+      "evidence_refs": [
+        "e41"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b12",
+      "kind": "amended",
+      "behavior_text": "Search (full-text and semantic) covers library items only; repo documents are listed and readable but not searchable yet",
+      "caused_by": [
+        "c28",
+        "c24"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

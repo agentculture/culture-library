@@ -1,0 +1,830 @@
+<title>Culture Library</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&display=swap">
+<style>
+/* Layout: sticky top bar. Home = intro + shelf, continue reading, card grid. Reader = collapsible list pane (drawer on phones) + wide reader. Site state = tiles, status, chart grid. */
+:root {
+  --bg: #faf5e8;         /* cream page */
+  --surface: #fffcf3;    /* cards, reader */
+  --surface-2: #f2ead5;  /* wells, hovers */
+  --ink: #12301f;        /* forest ink */
+  --ink-2: #4b5d50;
+  --muted: #6f7868;
+  --rule: #e8dfc8;
+  --accent: #00684a;     /* forest green: actions, single-series marks */
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefdf;
+  --hl: #b9f2c9;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  --k-newspaper: #2a78d6; --k-document: #eb6834; --k-book: #1baf7a;
+  --k-transcript: #eda100; --k-repo: #e87ba4; --k-diary: #008300;
+  --shadow: 0 1px 2px rgba(18,48,31,.06), 0 10px 28px rgba(18,48,31,.07);
+  --scrim: rgba(18,48,31,.35);
+  --font: "Lato", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --r-lg: 18px; --r-md: 12px; --r-pill: 999px;
+  --top-h: 64px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #172b47; --surface: #1d3354; --surface-2: #253f66; --ink: #eef2f7; --ink-2: #b9c6d8; --muted: #8fa0b8;
+  --rule: #2c4872; --accent: #5fd897; --accent-ink: #10233a; --accent-soft: #23485a; --hl: #2f6b55;
+  --k-newspaper: #3987e5; --k-document: #d95926; --k-book: #199e70; --k-transcript: #c98500; --k-repo: #d55181; --k-diary: #008300;
+  --shadow: 0 1px 2px rgba(5,12,24,.3), 0 10px 28px rgba(5,12,24,.28); --scrim: rgba(5,12,24,.55); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #172b47; --surface: #1d3354; --surface-2: #253f66; --ink: #eef2f7; --ink-2: #b9c6d8; --muted: #8fa0b8;
+  --rule: #2c4872; --accent: #5fd897; --accent-ink: #10233a; --accent-soft: #23485a; --hl: #2f6b55;
+  --k-newspaper: #3987e5; --k-document: #d95926; --k-book: #199e70; --k-transcript: #c98500; --k-repo: #d55181; --k-diary: #008300;
+  --shadow: 0 1px 2px rgba(5,12,24,.3), 0 10px 28px rgba(5,12,24,.28); --scrim: rgba(5,12,24,.55); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15.5px; line-height: 1.6; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+a { color: var(--accent); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.wrap { max-width: 1760px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+@media (min-width: 1100px) { .wrap { padding-left: max(32px, env(safe-area-inset-left, 0px)); padding-right: max(32px, env(safe-area-inset-right, 0px)); } }
+h1, h2, h3 { font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: -0.005em; }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--rule); background: var(--surface); border-radius: var(--r-pill); padding: 7px 14px; cursor: pointer; font-weight: 700; font-size: 14px; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.icon { padding: 7px; width: 38px; height: 38px; justify-content: center; }
+.btn svg { flex: none; }
+
+/* top bar */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--rule); }
+.top .wrap { display: flex; align-items: center; gap: 12px 16px; padding-block: 12px; flex-wrap: wrap; min-height: var(--top-h); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 21px; font-weight: 900; text-decoration: none; color: var(--ink); }
+.tabs { display: flex; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: var(--r-pill); }
+.tabs button { border: 0; background: transparent; padding: 5px 14px; border-radius: var(--r-pill); cursor: pointer; font-weight: 700; color: var(--ink-2); font-size: 14px; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.search { flex: 1 1 320px; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-pill); padding: 7px 16px; min-width: 0; }
+.search input { border: 0; outline: 0; background: transparent; flex: 1; min-width: 0; }
+.search:focus-within { border-color: var(--accent); }
+.actions { display: flex; gap: 8px; margin-left: auto; }
+@media (max-width: 720px) {
+  .search { order: 5; flex-basis: 100%; }
+  .tabs { order: 4; }
+  .btn .lbl { display: none; }
+  .btn.upl { padding: 7px; width: 38px; height: 38px; justify-content: center; }
+}
+
+/* home */
+.intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 36px; align-items: end; padding-block: 36px 8px; }
+.intro h1 { font-size: clamp(30px, 3.6vw, 48px); line-height: 1.12; font-weight: 900; }
+.intro p { color: var(--ink-2); max-width: 54ch; margin: 12px 0 0; font-size: 17px; }
+.shelf { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px 20px 12px; min-width: 0; }
+.shelf-row { display: flex; align-items: flex-end; gap: 3px; height: 112px; border-bottom: 6px solid var(--surface-2); overflow: hidden; }
+.spine { flex: 0 0 auto; width: 14px; border-radius: 4px 4px 2px 2px; cursor: pointer; border: 0; padding: 0; transition: transform .15s ease; }
+.spine:hover, .spine:focus-visible { transform: translateY(-6px); }
+.spine.ghost { cursor: default; opacity: .3; }
+.spine.ghost:hover { transform: none; }
+.gap { flex: 0 0 18px; }
+.shelf-cap { display: flex; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+
+.sect { padding-block: 26px 4px; }
+.sect-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.sect-head h2 { font-size: 22px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.filters button { border: 1px solid var(--rule); background: transparent; border-radius: var(--r-pill); padding: 4px 12px; cursor: pointer; font-size: 13.5px; color: var(--ink-2); }
+.filters button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+
+.continue { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; padding-bottom: 56px; }
+.card { text-align: left; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 18px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.card h3 { font-size: 18px; line-height: 1.3; }
+.card p { margin: 0; color: var(--ink-2); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card .meta { font-size: 13px; color: var(--muted); margin-top: auto; padding-top: 4px; }
+.card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.card.big { background: var(--accent-soft); border-color: transparent; padding: 24px; }
+.card.big h3 { font-size: 24px; }
+.card.big p { -webkit-line-clamp: 4; font-size: 15px; color: var(--ink); }
+.card .bar { height: 4px; border-radius: 4px; background: var(--rule); overflow: hidden; }
+.card .bar span { display: block; height: 100%; background: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 2px 10px 2px 8px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink); width: fit-content; white-space: nowrap; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.chip.soon { background: transparent; border: 1px dashed var(--muted); color: var(--ink-2); font-weight: 400; }
+.chip.local { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+.empty { padding: 24px 8px; color: var(--ink-2); }
+
+/* reader view */
+.split { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; padding-block: 20px 56px; align-items: start; }
+.split.closed { grid-template-columns: 0 minmax(0, 1fr); gap: 0; }
+.pane { position: sticky; top: calc(var(--top-h) + env(safe-area-inset-top, 0px) + 16px); max-height: calc(100vh - var(--top-h) - 40px); display: flex; flex-direction: column; background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); min-width: 0; overflow: hidden; }
+.split.closed .pane { visibility: hidden; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 8px 18px; }
+.pane-head h2 { font-size: 17px; }
+.pane .filters { padding: 0 14px 10px; }
+.rows { overflow: auto; padding: 0 10px 14px; overflow-wrap: anywhere; }
+.day { font-size: 12.5px; color: var(--muted); font-weight: 700; padding: 12px 8px 4px; }
+.row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: var(--r-md); cursor: pointer; }
+.row:hover { background: var(--surface-2); }
+.row[aria-current="true"] { background: var(--accent-soft); }
+.row .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row[aria-current="true"] .t { font-weight: 700; }
+.row .s { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.row .snip { grid-column: 2 / 4; font-size: 12.5px; color: var(--ink-2); }
+mark { background: var(--hl); color: inherit; border-radius: 3px; padding: 0 2px; }
+.scrim { display: none; }
+
+.readerbox { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); min-width: 0; overflow-wrap: anywhere; }
+.rtool { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+.rtool .sp { flex: 1; }
+.reader { padding: 28px clamp(18px, 4vw, 56px) 44px; }
+.reader-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; color: var(--muted); font-size: 13.5px; margin-bottom: 10px; }
+.reader h2 { font-size: clamp(26px, 2.6vw, 36px); line-height: 1.18; font-weight: 900; margin-bottom: 6px; }
+.prose { max-width: 76ch; }
+@media (min-width: 1500px) { .prose { max-width: 96ch; } .reader { padding-inline: 72px; } }
+.prose h3 { font-size: 20px; margin: 28px 0 10px; }
+.prose ul { padding-left: 20px; margin: 0; display: grid; gap: 10px; }
+.prose p { margin: 10px 0; }
+.prose pre { white-space: pre-wrap; background: var(--surface-2); border-radius: var(--r-md); padding: 14px 16px; font-size: 13.5px; }
+.lede { font-size: 19px; line-height: 1.55; font-weight: 300; border-left: 4px solid var(--accent); padding: 4px 0 4px 16px; margin: 18px 0; }
+.ba { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0; }
+.ba div { background: var(--surface-2); border-radius: var(--r-md); padding: 14px 16px; font-size: 14.5px; }
+.ba b { display: block; margin-bottom: 4px; }
+.req { border: 1px solid var(--rule); border-radius: var(--r-md); padding: 14px 16px; margin-top: 12px; }
+.req .h { margin-top: 8px; font-size: 14px; color: var(--ink-2); background: var(--accent-soft); border-radius: 8px; padding: 8px 12px; }
+.note { font-size: 13.5px; color: var(--ink-2); background: var(--surface-2); border-radius: var(--r-md); padding: 10px 14px; margin-top: 22px; }
+.progress { display: flex; height: 12px; border-radius: var(--r-pill); overflow: hidden; gap: 2px; margin: 14px 0 6px; }
+.claim { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule); }
+.claim .id { font-weight: 900; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: var(--r-pill); }
+.pill.ok { background: var(--accent-soft); color: var(--accent); }
+.pill.prop { background: color-mix(in srgb, var(--warning) 25%, transparent); color: var(--ink); }
+.q { font-size: 14px; color: var(--ink-2); margin-top: 8px; padding-left: 12px; border-left: 2px solid var(--rule); }
+.q b { color: var(--ink); }
+details { margin-top: 18px; }
+summary { cursor: pointer; font-weight: 700; }
+.scope { font-size: 14px; padding: 8px 0; border-top: 1px solid var(--rule); }
+.scope b { display: block; }
+
+@media (max-width: 900px) {
+  .intro { grid-template-columns: 1fr; padding-top: 24px; }
+  .continue { grid-template-columns: 1fr; }
+  .split, .split.closed { grid-template-columns: minmax(0, 1fr); gap: 0; padding-top: 12px; }
+  .pane { position: fixed; z-index: 40; top: 0; bottom: 0; left: 0; width: min(88vw, 360px); max-height: none; border-radius: 0 var(--r-lg) var(--r-lg) 0; padding-top: env(safe-area-inset-top, 0px); padding-left: env(safe-area-inset-left, 0px); transform: translateX(-105%); transition: transform .2s ease; visibility: visible; }
+  .split.closed .pane { visibility: hidden; }
+  .split:not(.closed) .pane { transform: none; }
+  .split:not(.closed) .scrim { display: block; position: fixed; inset: 0; z-index: 35; background: var(--scrim); }
+  .ba { grid-template-columns: 1fr; }
+  .reader { padding: 20px 18px 36px; }
+}
+
+/* state view */
+.state { padding-block: 32px 64px; display: grid; gap: 22px; }
+.state > header p { color: var(--ink-2); margin: 8px 0 0; max-width: 76ch; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.tile { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px 20px; }
+.tile .v { font-weight: 900; font-size: 38px; line-height: 1.1; }
+.tile .l { color: var(--ink-2); font-size: 14.5px; }
+.tile .d { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.status { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 6px 20px; }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 2.4fr); gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
+.srow:first-child { border-top: 0; }
+.srow .n { font-weight: 700; overflow-wrap: anywhere; }
+.srow .x { color: var(--ink-2); font-size: 14px; }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 18px; }
+.cc { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 20px; min-width: 0; position: relative; overflow-wrap: anywhere; }
+.cc h3 { font-size: 18px; padding-right: 70px; }
+.cc .sub { color: var(--ink-2); font-size: 14px; margin: 2px 0 14px; }
+.cc .src { color: var(--muted); font-size: 12.5px; margin-top: 12px; }
+.cc .tog { position: absolute; top: 18px; right: 18px; border: 1px solid var(--rule); background: transparent; border-radius: var(--r-pill); padding: 2px 10px; font-size: 12.5px; cursor: pointer; color: var(--ink-2); }
+.hbars { display: grid; gap: 8px; }
+.hb { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px; }
+.hb .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.hb .track { height: 22px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hb .bar { height: 16px; border-radius: 2px 4px 4px 2px; min-width: 3px; }
+.hb .val { font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; }
+.cols { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 6px; }
+.yax { position: relative; height: 190px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.yax span { position: absolute; right: 0; transform: translateY(50%); }
+.plot { position: relative; height: 190px; display: flex; align-items: flex-end; gap: 6px; border-bottom: 1px solid var(--muted); }
+.grid-l { position: absolute; left: 0; right: 0; border-top: 1px solid var(--rule); }
+.col { flex: 1; display: flex; align-items: flex-end; justify-content: center; height: 100%; }
+.col .bar { width: min(100%, 48px); border-radius: 4px 4px 0 0; background: var(--accent); position: relative; z-index: 1; }
+.col:hover .bar { filter: brightness(1.12); }
+.xlab { display: flex; gap: 6px; margin-left: 44px; font-size: 12px; color: var(--muted); }
+.xlab span { flex: 1; text-align: center; min-width: 0; overflow: hidden; }
+.tip { position: fixed; z-index: 60; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 13px; padding: 6px 10px; border-radius: 8px; box-shadow: var(--shadow); max-width: 280px; }
+table.data { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+table.data td, table.data th { text-align: left; padding: 6px 4px; border-top: 1px solid var(--rule); }
+table.data th { color: var(--muted); }
+@media (max-width: 900px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .srow { grid-template-columns: minmax(0, 1fr) auto; }
+  .srow .x { grid-column: 1 / -1; }
+}
+
+/* upload dialog */
+dialog { border: 0; border-radius: var(--r-lg); padding: 0; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog::backdrop { background: var(--scrim); }
+.dlg { padding: 22px; display: grid; gap: 14px; }
+.dlg h2 { font-size: 21px; }
+.drop { border: 2px dashed var(--rule); border-radius: var(--r-md); padding: 24px 16px; text-align: center; color: var(--ink-2); cursor: pointer; }
+.drop.over, .drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.drop b { color: var(--ink); }
+.field { display: grid; gap: 4px; font-size: 14px; }
+.field input, .field select { border: 1px solid var(--rule); background: var(--bg); border-radius: 10px; padding: 8px 12px; width: 100%; min-width: 0; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fields .wide { grid-column: 1 / -1; }
+@media (max-width: 520px) { .fields { grid-template-columns: 1fr; } }
+.dlg code { display: block; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dlg .fine { font-size: 13px; color: var(--muted); margin: 0; }
+.dlg .err { color: var(--critical); font-size: 14px; margin: 0; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sendwrap { position: relative; }
+.menu { position: absolute; z-index: 25; top: calc(100% + 6px); left: 0; min-width: 280px; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 6px; display: grid; gap: 2px; }
+.menu button { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 10px; align-items: center; text-align: left; border: 0; background: transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.menu button:hover:not(:disabled) { background: var(--surface-2); }
+.menu button:disabled { cursor: not-allowed; opacity: .55; }
+.menu .mt { font-weight: 700; }
+.menu .ms { grid-column: 2; font-size: 12.5px; color: var(--muted); }
+.menu .mfoot { font-size: 12.5px; color: var(--muted); padding: 6px 10px 4px; border-top: 1px solid var(--rule); margin-top: 4px; }
+.sendline { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 700; }
+.toast { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: var(--r-pill); box-shadow: var(--shadow); font-weight: 700; font-size: 14px; max-width: calc(100vw - 32px); }
+.foot { color: var(--muted); font-size: 13px; padding-bottom: 40px; }
+@media (prefers-reduced-motion: reduce) { .spine, .pane { transition: none; } .spine:hover { transform: none; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#home" data-home aria-label="Culture Library home">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="6" width="5" height="18" rx="2" fill="var(--accent)"/><rect x="10" y="3" width="5" height="21" rx="2" fill="var(--k-book)"/><rect x="17" y="8" width="5" height="16" rx="2" fill="var(--k-newspaper)" transform="rotate(-8 19.5 16)"/></svg>
+      Culture Library
+    </a>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button role="tab" aria-selected="true" data-view="home">Library</button>
+      <button role="tab" aria-selected="false" data-view="state">Site state</button>
+    </nav>
+    <label class="search" for="q">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--muted)" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Search titles and full text, e.g. Thor, RTL, scopes" autocomplete="off">
+    </label>
+    <div class="actions">
+      <button class="btn primary upl" id="upload-open" aria-label="Upload">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 11V2.5M4.5 6L8 2.5 11.5 6M2.5 10.5v2a1 1 0 001 1h9a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="lbl">Upload</span>
+      </button>
+      <button class="btn icon" id="theme" aria-label="Switch to dark mode"></button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section id="view-home" class="wrap">
+    <div class="intro">
+      <div>
+        <h1>Everything you read, record and plan, on one shelf</h1>
+        <p>Books, daily newspapers, documents and PDFs, recording transcripts, Gwen's diary, and the specs and plans from every Culture repo. Culture-rules brings items in, Gwen reads them, and you browse them here.</p>
+      </div>
+      <div class="shelf" aria-label="The shelf: one spine per item">
+        <div class="shelf-row" id="shelf"></div>
+        <div class="shelf-cap"><div class="legend" id="legend"></div><span id="shelf-count"></span></div>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="sect-head"><h2 id="cont-title">Continue reading</h2></div>
+      <div class="continue" id="continue"></div>
+    </div>
+    <div class="sect">
+      <div class="sect-head"><h2>Latest</h2><div class="filters" id="home-filters"></div></div>
+      <div class="cards" id="cards"></div>
+    </div>
+  </section>
+
+  <section id="view-read" class="wrap" hidden>
+    <div class="split" id="split">
+      <aside class="pane" id="pane" aria-label="Library list">
+        <div class="pane-head"><h2>Library</h2>
+          <button class="btn icon" data-pane-toggle aria-label="Close list"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="filters" id="pane-filters"></div>
+        <div class="rows" id="rows"></div>
+      </aside>
+      <div class="scrim" data-pane-toggle></div>
+      <div class="readerbox">
+        <div class="rtool">
+          <button class="btn" data-pane-toggle id="pane-btn" aria-expanded="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span id="pane-lbl">Hide list</span>
+          </button>
+          <button class="btn" data-home aria-label="All cards">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="9" y="2" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="2" y="9" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="9" y="9" width="5" height="5" rx="1.2" fill="currentColor"/></svg>
+            <span class="lbl">All cards</span>
+          </button>
+          <div class="sendwrap">
+            <button class="btn" id="send-btn" aria-label="Send to device" aria-haspopup="menu" aria-expanded="false" aria-controls="send-menu">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="1.6" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M8 4.5v5M6 7.5l2 2 2-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="lbl">Send to device</span>
+            </button>
+            <div class="menu" id="send-menu" role="menu" hidden></div>
+          </div>
+          <span class="sp"></span>
+          <button class="btn icon" id="prev" aria-label="Previous item"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+          <button class="btn icon" id="next" aria-label="Next item"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+        </div>
+        <article class="reader" id="reader" aria-live="polite"></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-state" class="wrap state" hidden>
+    <header>
+      <h1 style="font-size:clamp(28px,3.2vw,42px);font-weight:900">Site state</h1>
+      <p>Measured on spark on 24 October 2026. The library is still a spec: today's content lives in xteink, pocketsync and the repos, waiting for culture-rules to move it here.</p>
+    </header>
+    <div class="tiles" id="tiles"></div>
+    <div class="status" id="status"></div>
+    <div class="charts" id="charts"></div>
+  </section>
+</main>
+<div class="wrap foot">Prototype built from live data on this host: xteink's catalog, the 23 October newspaper, embodiment's spec, and this library's own devague frame. Items marked "Arriving" are not in any library yet; uploads stay in this browser tab.</div>
+
+<dialog id="upload" aria-labelledby="up-title">
+  <form class="dlg" id="up-form" method="dialog">
+    <h2 id="up-title">Upload to the library</h2>
+    <label class="drop" id="drop" for="up-file">
+      <b>Drop a file here or choose one</b><br>EPUB, PDF, Markdown, text or JSON, up to 50 MB
+      <input id="up-file" type="file" accept=".epub,.pdf,.md,.markdown,.txt,.json" hidden>
+    </label>
+    <div class="fields">
+      <label class="field wide" for="up-name">Title<input id="up-name" type="text" placeholder="Taken from the file name"></label>
+      <label class="field" for="up-kind">Kind<select id="up-kind"><option value="document">Document</option><option value="book">Book</option><option value="newspaper">Newspaper</option><option value="transcript">Transcript</option><option value="repo">Spec or plan</option><option value="diary">Diary</option></select></label>
+      <label class="field" for="up-vis">Who can see it<select id="up-vis"><option value="shared">Everyone with access</option><option value="private">Only me</option></select></label>
+    </div>
+    <code id="up-curl"></code>
+    <p class="fine">In this preview the file is read in your browser and added to this tab only. On library.culture.dev the same form sends the request above; agents use the MCP tool push_file.</p>
+    <p class="err" id="up-err" hidden></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="up-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="up-go" disabled>Add to library</button>
+    </div>
+  </form>
+</dialog>
+<div class="tip" id="tip" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/*DATA*/
+const KINDS = {
+  newspaper: { label: 'Newspaper', plural: 'Newspapers' },
+  document: { label: 'Document', plural: 'Documents' },
+  book: { label: 'Book', plural: 'Books' },
+  transcript: { label: 'Transcript', plural: 'Transcripts' },
+  repo: { label: 'Spec or plan', plural: 'Specs and plans' },
+  diary: { label: 'Diary', plural: 'Diary' },
+};
+const kc = k => `var(--k-${k})`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmtSize = b => b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : (b / 1024).toFixed(1) + ' KB';
+const fmtN = n => n.toLocaleString('en-US');
+const chip = k => `<span class="chip"><i style="background:${kc(k)}"></i>${KINDS[k].label}</span>`;
+const store = {
+  get(k) { try { return localStorage.getItem('lib.' + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('lib.' + k, v); } catch (e) { /* storage unavailable */ } },
+};
+
+/* ---------- items ---------- */
+const spec = DATA.spec, frame = DATA.frame;
+const items = DATA.catalog.map(i => ({ ...i, key: 'item-' + i.id, live: true }));
+const paperItem = items.find(i => i.id === 20); paperItem.key = 'paper';
+items.push({ key: 'spec', kind: 'repo', title: spec.title, at: '2026-10-23 23:10', size: 0, live: false, repo: 'embodiment' });
+items.push({ key: 'frame', kind: 'repo', title: 'library.culture.dev (devague frame)', at: '2026-10-24 ' + frame.updated.slice(11, 16), size: 0, live: false, repo: 'culture-library' });
+const bodies = {
+  paper: DATA.paper.sections.map(s => s.h + ' ' + s.items.join(' ')).join(' '),
+  spec: [spec.ann, spec.before, spec.after, ...spec.reqs.flatMap(r => [r.t, r.h])].join(' '),
+  frame: frame.claims.map(c => c.text + ' ' + c.q.map(q => q.text + ' ' + (q.res || '')).join(' ')).join(' '),
+};
+const excerpt = {
+  paper: DATA.paper.sections.map(s => s.h).join(', ') + '. ' + DATA.paper.sections[0].items[0],
+  spec: spec.ann,
+  frame: frame.claims[0].text,
+};
+const sorted = () => [...items].sort((a, b) => b.at.localeCompare(a.at));
+const byKey = k => items.find(i => i.key === k);
+
+/* ---------- theme ---------- */
+const themeBtn = document.getElementById('theme');
+const SUN = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M9 1.5v1.8M9 14.7v1.8M1.5 9h1.8M14.7 9h1.8M3.7 3.7l1.3 1.3M13 13l1.3 1.3M3.7 14.3L5 13M13 5l1.3-1.3"/></g></svg>';
+const MOON = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M14.5 11.2A6.2 6.2 0 016.8 3.5 6.3 6.3 0 1014.5 11.2z" fill="currentColor"/></svg>';
+function effectiveTheme() {
+  const t = document.documentElement.dataset.theme;
+  if (t === 'dark' || t === 'light') return t;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function paintThemeBtn() {
+  const dark = effectiveTheme() === 'dark';
+  themeBtn.innerHTML = dark ? SUN : MOON;
+  themeBtn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+}
+const savedTheme = store.get('theme');
+if (savedTheme === 'dark' || savedTheme === 'light') document.documentElement.dataset.theme = savedTheme;
+themeBtn.addEventListener('click', () => {
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next; store.set('theme', next); paintThemeBtn();
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintThemeBtn);
+paintThemeBtn();
+
+/* ---------- home ---------- */
+let homeFilter = 'all', paneFilter = 'all', current = null, query = '';
+function filterButtons(active, attr) {
+  const kinds = ['all', ...Object.keys(KINDS).filter(k => items.some(i => i.kind === k))];
+  return kinds.map(k => {
+    const n = k === 'all' ? items.length : items.filter(i => i.kind === k).length;
+    return `<button ${attr}="${k}" aria-pressed="${active === k}">${k === 'all' ? 'All' : KINDS[k].plural} ${n}</button>`;
+  }).join('');
+}
+function cardTags(i) {
+  return `<span class="tags">${chip(i.kind)}${i.local ? '<span class="chip local">Added in this tab</span>' : i.live ? '' : '<span class="chip soon">Arriving</span>'}${i.vis === 'private' ? '<span class="chip soon">Only me</span>' : ''}</span>`;
+}
+function cardMeta(i) {
+  const when = new Date(i.at.replace(' ', 'T') + ':00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  if (i.repo) return `${when}, from ${i.repo}`;
+  return `${when}, ${(i.format || '').toUpperCase()} ${i.size ? fmtSize(i.size) : ''}`;
+}
+function cardText(i) {
+  if (excerpt[i.key]) return excerpt[i.key];
+  if (bodies[i.key]) return bodies[i.key].slice(0, 240);
+  if (i.kind === 'newspaper') return 'Daily newspaper from culture-rules. Its full text opens in the reader once the library indexes EPUB bodies.';
+  if (i.kind === 'book') return 'An O’Reilly EPUB uploaded by hand on 14 October. The largest item on the shelf.';
+  return 'A document uploaded to xteink in early October.';
+}
+function card(i, big) {
+  const prog = Number(store.get('pos.' + i.key) || 0);
+  return `<button class="card${big ? ' big' : ''}" data-open="${i.key}">${cardTags(i)}<h3>${esc(i.title)}</h3><p>${esc(cardText(i))}</p>
+    ${big && prog ? `<span class="bar" role="img" aria-label="${prog}% read"><span style="width:${prog}%"></span></span>` : ''}
+    <span class="meta">${esc(cardMeta(i))}</span></button>`;
+}
+function drawHome() {
+  const last = byKey(store.get('last'));
+  const recent = sorted();
+  const lead = last || recent[0];
+  document.getElementById('cont-title').textContent = last ? 'Continue reading' : 'Start with the newest';
+  const others = recent.filter(i => i !== lead).slice(0, 2);
+  document.getElementById('continue').innerHTML = card(lead, true) + others.map(i => card(i)).join('');
+  document.getElementById('home-filters').innerHTML = filterButtons(homeFilter, 'data-hfilter');
+  document.getElementById('cards').innerHTML = recent.filter(i => homeFilter === 'all' || i.kind === homeFilter).map(i => card(i)).join('');
+}
+function drawShelf() {
+  const live = items.filter(i => i.live || i.local).sort((a, b) => a.at.localeCompare(b.at));
+  let h = live.map(i => {
+    const ht = Math.round(52 + Math.min(1, Math.log10(Math.max(i.size, 10)) / 7) * 56);
+    return `<button class="spine" style="height:${ht}px;background:${kc(i.kind)}" data-open="${i.key}" aria-label="${esc(i.title)}" data-tip="${esc(i.title)}<br>${KINDS[i.kind].label}, ${fmtSize(i.size)}"></button>`;
+  }).join('') + '<span class="gap"></span>';
+  for (let n = 0; n < 40; n++) {
+    const k = n < 22 ? 'repo' : n < 34 ? 'transcript' : 'diary';
+    h += `<span class="spine ghost" style="height:${46 + ((n * 37) % 50)}px;background:${kc(k)}" data-tip="Arriving: ${KINDS[k].plural}"></span>`;
+  }
+  document.getElementById('shelf').innerHTML = h;
+  document.getElementById('legend').innerHTML = Object.keys(KINDS).map(k => `<span><i class="sw" style="background:${kc(k)}"></i>${KINDS[k].plural}</span>`).join('');
+  document.getElementById('shelf-count').textContent = `${live.length} on the shelf, ${fmtN(DATA.stats.pocket.n + DATA.stats.records)} arriving`;
+}
+
+/* ---------- pane list ---------- */
+function snippet(text, q) {
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return '';
+  const s = Math.max(0, i - 40), e = Math.min(text.length, i + q.length + 60);
+  return (s ? '…' : '') + esc(text.slice(s, i)) + '<mark>' + esc(text.slice(i, i + q.length)) + '</mark>' + esc(text.slice(i + q.length, e)) + (e < text.length ? '…' : '');
+}
+const dayLabel = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+function visibleList() {
+  const q = query.trim().toLowerCase();
+  return sorted().filter(i => (paneFilter === 'all' || i.kind === paneFilter) &&
+    (!q || i.title.toLowerCase().includes(q) || (bodies[i.key] || '').toLowerCase().includes(q)));
+}
+function drawRows() {
+  document.getElementById('pane-filters').innerHTML = filterButtons(paneFilter, 'data-pfilter');
+  const q = query.trim(), list = visibleList();
+  if (!list.length) { document.getElementById('rows').innerHTML = `<p class="empty">Nothing matches “${esc(q)}”. Full text covers the 23 October newspaper, the Gwen spec, this library's frame and anything you upload here. Try “Thor” or “scopes”.</p>`; return; }
+  let h = '', last = '';
+  for (const i of list) {
+    const d = i.at.slice(0, 10);
+    if (d !== last) { h += `<div class="day">${dayLabel(d)}</div>`; last = d; }
+    const sn = q && bodies[i.key] ? snippet(bodies[i.key], q) : '';
+    h += `<button class="row" data-open="${i.key}" aria-current="${current === i.key}"><i class="sw" style="background:${kc(i.kind)}"></i><span class="t">${esc(i.title)}</span>
+      <span class="s">${i.live || i.local ? fmtSize(i.size) : 'arriving'}</span>${sn ? `<span class="snip">${sn}</span>` : ''}</button>`;
+  }
+  document.getElementById('rows').innerHTML = h;
+}
+
+/* ---------- reader ---------- */
+function hl(text) {
+  const q = query.trim(); const e = esc(text);
+  if (!q) return e;
+  return e.replace(new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), m => `<mark>${m}</mark>`);
+}
+function readPaper() {
+  return `<div class="reader-head">${chip('newspaper')}<span>Friday 23 October 2026</span><span>EPUB, 7.0 KB</span><span>from culture-rules</span></div>
+    <h2>Daily newspaper</h2>
+    <div class="prose">${DATA.paper.sections.map(s => `<h3>${hl(s.h)}</h3><ul>${s.items.map(x => `<li>${hl(x)}</li>`).join('')}</ul>`).join('')}
+    <p class="note">Item 20 in xteink's library today, sha256 ${paperItem.sha}…. It moves here unchanged, with its kind set to newspaper.</p></div>`;
+}
+function readSpec() {
+  return `<div class="reader-head">${chip('repo')}<span class="chip soon">Arriving</span><span>agentculture/embodiment</span><span>docs/specs, 23 October</span></div>
+    <h2>${esc(spec.title)}</h2>
+    <div class="prose"><p class="lede">${hl(spec.ann)}</p>
+    <div class="ba"><div><b>Before</b>${hl(spec.before)}</div><div><b>After</b>${hl(spec.after)}</div></div>
+    <h3>Requirements, 3 of ${spec.nreq}</h3>
+    ${spec.reqs.map(r => `<div class="req">${hl(r.t)}<div class="h"><b>Honesty condition.</b> ${hl(r.h)}</div></div>`).join('')}
+    <p class="note">Repo documents are versioned by commit. When the spec is amended, this page shows the new version and keeps the old one in history.</p></div>`;
+}
+function readFrame() {
+  const c = frame.claims, ok = c.filter(x => x.status === 'confirmed').length, pr = c.length - ok;
+  const qs = c.flatMap(x => x.q), qres = qs.filter(q => q.res).length;
+  const names = { announcement: 'Announcement', decision: 'Decisions', requirement: 'Requirements', boundary: 'Boundaries', non_goal: 'Non-goals', assumption: 'Assumptions', audience: 'Audience', before_state: 'Before', after_state: 'After', why_it_matters: 'Why it matters', success_signal: 'Success signals' };
+  const groups = Object.keys(names).filter(k => c.some(x => x.kind === k)).map(k => `<h3>${names[k]}</h3>` + c.filter(x => x.kind === k).map(x => `
+    <div class="claim"><span class="id">${x.id}</span><div>
+      <span class="pill ${x.status === 'confirmed' ? 'ok' : 'prop'}">${x.status === 'confirmed' ? '✓ Confirmed' : '○ Proposed'}</span>
+      <div style="margin-top:4px">${hl(x.text)}</div>
+      ${x.q.map(q => `<div class="q"><b>${q.id}</b> ${hl(q.text)}${q.res ? `<br><b>Decided:</b> ${hl(q.res)}` : ''}</div>`).join('')}
+    </div></div>`).join('')).join('');
+  return `<div class="reader-head">${chip('repo')}<span class="chip soon">Arriving</span><span>agentculture/culture-library</span><span>.devague/frames, ${frame.status}</span></div>
+    <h2>library.culture.dev</h2>
+    <div class="prose">
+      <div class="progress" role="img" aria-label="${ok} confirmed, ${pr} proposed"><span style="flex:${ok};background:var(--accent)"></span><span style="flex:${pr};background:var(--warning)"></span></div>
+      <div style="font-size:14px;color:var(--ink-2)">${ok} of ${c.length} claims confirmed, ${pr} waiting for you. ${qres} of ${qs.length} questions decided. ${frame.scope.length} surfaces explored.</div>
+      ${groups}
+      <details><summary>Scope exploration, ${frame.scope.length} surfaces</summary>${frame.scope.map(s => `<div class="scope"><b>${esc(s.surface)}</b>${hl(s.finding)}</div>`).join('')}</details>
+      <details><summary>Open unknowns, ${frame.vague.length}</summary>${frame.vague.map(v => `<div class="scope">${hl(v.text)}</div>`).join('')}</details>
+      <p class="note">Rendered from the frame's JSON (schema version 5). The raw file stays downloadable beside this page.</p></div>`;
+}
+function readLocal(i) {
+  const head = `<div class="reader-head">${chip(i.kind)}<span class="chip local">Added in this tab</span>${i.vis === 'private' ? '<span class="chip soon">Only me</span>' : ''}<span>${esc(i.fname)}</span><span>${fmtSize(i.size)}</span></div><h2>${esc(i.title)}</h2>`;
+  if (i.sections) return head + `<div class="prose">${i.sections.map(s => `${s.h ? `<h3>${hl(s.h)}</h3>` : ''}${s.p.map(p => `<p>${hl(p)}</p>`).join('')}`).join('')}</div>`;
+  if (i.text != null) return head + `<div class="prose"><pre>${hl(i.text)}</pre></div>`;
+  return head + `<div class="prose"><p class="note">PDF text is extracted on the server when the file reaches library.culture.dev. This preview keeps the file in your browser and shows its details only.</p></div>`;
+}
+function readOther(i) {
+  return `<div class="reader-head">${chip(i.kind)}<span>${dayLabel(i.at.slice(0, 10))}</span><span>${(i.format || '').toUpperCase()}, ${fmtSize(i.size)}</span></div>
+    <h2>${esc(i.title)}</h2>
+    <div class="prose"><p>Item ${i.id} in xteink's library, added ${i.at}. sha256 ${i.sha}…</p>
+    <p class="note">This preview carries the full text of three items: the 23 October newspaper, the Gwen spec and this library's frame. You can also upload a file to read it here.</p></div>`;
+}
+
+/* ---------- pane state ---------- */
+const split = document.getElementById('split');
+const narrow = () => matchMedia('(max-width: 900px)').matches;
+function setPane(open) {
+  split.classList.toggle('closed', !open);
+  document.getElementById('pane-lbl').textContent = open ? 'Hide list' : 'Show list';
+  document.getElementById('pane-btn').setAttribute('aria-expanded', open);
+  if (!narrow()) store.set('pane', open ? 'open' : 'closed');
+}
+
+/* ---------- views ---------- */
+function show(view) {
+  for (const v of ['home', 'read', 'state']) document.getElementById('view-' + v).hidden = v !== view;
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.view === (view === 'read' ? 'home' : view)));
+}
+function openItem(key, keepScroll) {
+  const i = byKey(key); if (!i) return goHome();
+  current = key; store.set('last', key);
+  const r = document.getElementById('reader');
+  r.innerHTML = key === 'paper' ? readPaper() : key === 'spec' ? readSpec() : key === 'frame' ? readFrame() : i.local ? readLocal(i) : readOther(i);
+  if (sends[key]) { const h = r.querySelector('.reader-head'); if (h) h.insertAdjacentHTML('afterend', `<div style="margin:-2px 0 10px">${sendLine(key)}</div>`); }
+  paintSendBtn();
+  const wasRead = !document.getElementById('view-read').hidden;
+  show('read'); drawRows();
+  if (!wasRead) { if (narrow()) setPane(false); else setPane(store.get('pane') !== 'closed'); }
+  else if (narrow()) setPane(false);
+  if (location.hash !== '#' + key) history.replaceState(null, '', '#' + key);
+  if (!keepScroll) window.scrollTo({ top: 0 });
+  const row = document.querySelector('.row[aria-current="true"]'); if (row) row.scrollIntoView({ block: 'nearest' });
+}
+function step(d) {
+  const list = visibleList(), ix = list.findIndex(i => i.key === current);
+  const nx = list[ix + d]; if (nx) openItem(nx.key);
+}
+function goHome() { current = null; show('home'); drawHome(); history.replaceState(null, '', '#home'); window.scrollTo({ top: 0 }); }
+function route() {
+  const h = location.hash.slice(1);
+  if (h === 'state') return show('state');
+  if (h && byKey(h)) return openItem(h);
+  current = null; show('home'); drawHome();
+}
+let scrollT;
+window.addEventListener('scroll', () => {
+  if (!current) return;
+  clearTimeout(scrollT);
+  scrollT = setTimeout(() => {
+    const max = document.documentElement.scrollHeight - innerHeight;
+    if (max > 0) store.set('pos.' + current, Math.min(100, Math.round(scrollY / max * 100)));
+  }, 200);
+}, { passive: true });
+
+/* ---------- state view ---------- */
+const ICON = {
+  good: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="7" fill="var(--good)"/><path d="M4 7.2l2 2 4-4.4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>',
+  warning: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1l6.5 12H.5z" fill="var(--warning)"/><path d="M7 5.5v3.2M7 10.6v.2" stroke="#0b0b0b" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  critical: '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="7" fill="var(--critical)"/><path d="M4.5 4.5l5 5M9.5 4.5l-5 5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>',
+};
+function drawState() {
+  const s = DATA.stats;
+  const tiles = [
+    [DATA.catalog.length, 'Items in a library today', 'All in xteink: 13 newspapers, 3 documents, 1 book'],
+    [s.pocket.n, 'Recordings waiting', `${s.pocket.hours} hours of audio; transcripts only will move`],
+    [fmtN(s.records), 'Repo records waiting', `Specs, plans and devague files in ${s.repos_n} repos`],
+    [`${frame.claims.filter(c => c.status === 'confirmed').length}/${frame.claims.length}`, 'Spec claims confirmed', 'The library’s own devague frame'],
+  ];
+  document.getElementById('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="v">${t[0]}</div><div class="l">${t[1]}</div><div class="d">${t[2]}</div></div>`).join('');
+  const rows = [
+    ['library.culture.dev', 'critical', 'Not live', 'No DNS record yet. Provisioned with cultureflare once the server exists.'],
+    ['culture-library code', 'warning', 'Scaffold', 'CLI introspection only. No storage, API, MCP or site yet; the spec is in /think.'],
+    ['ebooks.culture.dev', 'good', 'Live', 'Behind Cloudflare Access (302 to sign-in). Torn down after the move.'],
+    ['xteink library API', 'good', 'Running', 'Containers xteink-api-1 and xteink-mcp-1 on spark, from the local-only branch feat/issue-1.'],
+    ['Daily newspaper', 'good', '13 of 13 days', 'culture-rules pushed every issue from 11 to 23 October at about 05:03.'],
+    ['Transcripts into a library', 'warning', 'Not wired', 'culture-rules transcribes to local JSON only. A library step is still to be written.'],
+  ];
+  document.getElementById('status').innerHTML = rows.map(r => `<div class="srow"><span class="n">${r[0]}</span><span class="st">${ICON[r[1]]}${r[2]}</span><span class="x">${r[3]}</span></div>`).join('');
+  const news = DATA.catalog.filter(i => i.kind === 'newspaper' && !i.title.includes('live test')).sort((a, b) => a.at.localeCompare(b.at));
+  const charts = [
+    { id: 'mix', title: 'What the library will hold', sub: 'Items by kind, today and arriving', type: 'h',
+      data: [['repo', 'Specs and plans', s.records, 'arriving'], ['transcript', 'Transcripts', s.pocket.n, 'arriving'], ['newspaper', 'Newspapers', 13, 'in xteink'], ['document', 'Documents', 3, 'in xteink'], ['book', 'Books', 1, 'in xteink'], ['diary', 'Diary entries', 0, 'starts with Gwen']],
+      src: 'xteink library.db, pocketsync files tree, ~/git' },
+    { id: 'specs', title: 'Specs exported per month', sub: `${fmtN(s.specs_total)} spec documents across all repos, dated by file name`, type: 'v',
+      data: s.months.map(([m, n]) => [new Date(m + '-15').toLocaleDateString('en-GB', { month: 'short' }) + (m === '2026-10' ? '*' : ''), n]),
+      src: '~/git/*/docs/specs. *October runs to the 23rd' },
+    { id: 'repos', title: 'Largest repo records', sub: 'Specs, plans and devague files per repo, top 10 of ' + s.repos_n, type: 'h',
+      data: s.top.map(([r, n]) => [null, r, n]), src: '~/git/*/.devague and docs/{specs,plans,deliveries}' },
+    { id: 'paper', title: 'Newspaper issues', sub: 'EPUB size per daily issue, 12 to 23 October', type: 'v',
+      data: news.map(i => [i.title.slice(-2), +(i.size / 1024).toFixed(1)]), unit: ' KB', src: 'xteink library.db, items 8 to 20' },
+    { id: 'labels', title: 'Recordings by topic', sub: `${s.pocket.n} Pocket recordings, labelled by pocketsync`, type: 'h',
+      data: Object.entries(s.pocket.labels).sort((a, b) => b[1] - a[1]).map(([l, n]) => [null, { 'personal-note': 'Personal note', 'todo-reminder': 'To-do or reminder', 'lecture-learning': 'Lecture or learning' }[l] || l[0].toUpperCase() + l.slice(1), n]),
+      src: 'pocketsync events.jsonl' },
+    { id: 'kinds', title: 'Devague records by type', sub: 'Files in .devague across all repos', type: 'h',
+      data: Object.entries(s.kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => [null, k[0].toUpperCase() + k.slice(1), n]),
+      src: '~/git/*/.devague/{frames,plans,reviews,questions,deliveries}' },
+  ];
+  document.getElementById('charts').innerHTML = charts.map(c => `<section class="cc" id="c-${c.id}">
+    <h3>${c.title}</h3><div class="sub">${c.sub}</div><button class="tog" data-tog="${c.id}">Table</button>
+    <div class="viz">${c.type === 'h' ? hbars(c) : vcols(c)}</div><div class="tbl" hidden>${table(c)}</div>
+    <div class="src">Source: ${c.src}</div></section>`).join('');
+}
+function hbars(c) {
+  const max = Math.max(...c.data.map(d => d[2]));
+  return '<div class="hbars">' + c.data.map(d => {
+    const w = d[2] ? Math.max(0.6, d[2] / max * 100) : 0, col = d[0] ? kc(d[0]) : 'var(--accent)';
+    return `<div class="hb"><span class="lab" title="${esc(d[1])}">${esc(d[1])}</span><span class="track" data-tip="${esc(d[1])}: ${fmtN(d[2])}${d[3] ? ', ' + d[3] : ''}">
+      ${d[2] ? `<span class="bar" style="width:calc(${w}% - 70px);background:${col}"></span>` : ''}<span class="val">${fmtN(d[2])}${d[3] ? ` <span style="color:var(--muted)">${d[3]}</span>` : ''}</span></span></div>`;
+  }).join('') + '</div>';
+}
+function nice(max) { const p = Math.pow(10, Math.floor(Math.log10(max))); const m = max / p; return (m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; }
+function vcols(c) {
+  const top = nice(Math.max(...c.data.map(d => d[1]))), ticks = [0, top / 2, top];
+  return `<div class="cols"><div class="yax">${ticks.map(t => `<span style="bottom:${t / top * 100}%">${fmtN(t)}</span>`).join('')}</div>
+    <div class="plot">${ticks.slice(1).map(t => `<span class="grid-l" style="bottom:${t / top * 100}%"></span>`).join('')}
+    ${c.data.map(d => `<span class="col" data-tip="${esc(d[0])}: ${fmtN(d[1])}${c.unit || ''}"><span class="bar" style="height:${d[1] / top * 100}%"></span></span>`).join('')}</div></div>
+    <div class="xlab">${c.data.map(d => `<span>${esc(d[0])}</span>`).join('')}</div>`;
+}
+function table(c) {
+  const rows = c.type === 'h' ? c.data.map(d => [d[1], fmtN(d[2]) + (d[3] ? ' (' + d[3] + ')' : '')]) : c.data.map(d => [d[0], fmtN(d[1]) + (c.unit || '')]);
+  return `<table class="data"><tr><th>${c.type === 'h' ? 'Category' : 'Period'}</th><th>Value</th></tr>${rows.map(r => `<tr><td>${esc(r[0])}</td><td>${r[1]}</td></tr>`).join('')}</table>`;
+}
+
+/* ---------- upload ---------- */
+const dlg = document.getElementById('upload'), fileIn = document.getElementById('up-file'), drop = document.getElementById('drop');
+const DROP_IDLE = '<b>Drop a file here or choose one</b><br>EPUB, PDF, Markdown, text or JSON, up to 50 MB';
+let pending = null, upCount = 0;
+function setDrop(html) { drop.innerHTML = html; drop.appendChild(fileIn); }
+function curl() {
+  const f = pending ? pending.name : '<file>';
+  const k = document.getElementById('up-kind').value, v = document.getElementById('up-vis').value;
+  document.getElementById('up-curl').textContent = `curl -H "Authorization: Bearer $LIBRARY_KEY" \\\n  -F file=@${f} -F kind=${k} -F visibility=${v} \\\n  https://library.culture.dev/api/library`;
+}
+function pick(f) {
+  const err = document.getElementById('up-err'); err.hidden = true;
+  if (!/\.(epub|pdf|md|markdown|txt|json)$/i.test(f.name)) { err.textContent = `${f.name} is not a supported format. Choose an EPUB, PDF, Markdown, text or JSON file.`; err.hidden = false; return; }
+  if (f.size > 50 * 1024 * 1024) { err.textContent = `${f.name} is ${fmtSize(f.size)}. The limit is 50 MB.`; err.hidden = false; return; }
+  pending = f;
+  setDrop(`<b>${esc(f.name)}</b><br>${fmtSize(f.size)}. Choose another file to replace it.`);
+  document.getElementById('up-name').value = f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+  document.getElementById('up-kind').value = /\.epub$/i.test(f.name) ? 'book' : 'document';
+  document.getElementById('up-go').disabled = false; curl();
+}
+async function readEpub(f) {
+  if (!window.JSZip) throw new Error('the EPUB reader did not load');
+  const zip = await JSZip.loadAsync(f);
+  const names = Object.keys(zip.files).filter(n => /\.x?html?$/i.test(n) && !/(^|\/)(nav|toc)\./i.test(n)).sort();
+  const sections = [];
+  for (const n of names.slice(0, 200)) {
+    const doc = new DOMParser().parseFromString(await zip.files[n].async('string'), 'text/html');
+    const h = doc.querySelector('h1,h2,h3');
+    const p = [...doc.querySelectorAll('p,li')].map(e => e.textContent.trim()).filter(Boolean).slice(0, 400);
+    if (p.length) sections.push({ h: h ? h.textContent.trim() : '', p });
+  }
+  return sections;
+}
+document.getElementById('upload-open').addEventListener('click', () => {
+  pending = null; document.getElementById('up-form').reset(); setDrop(DROP_IDLE);
+  document.getElementById('up-go').disabled = true; document.getElementById('up-err').hidden = true; curl(); dlg.showModal();
+});
+document.getElementById('up-cancel').addEventListener('click', () => dlg.close());
+fileIn.addEventListener('change', () => fileIn.files[0] && pick(fileIn.files[0]));
+['up-kind', 'up-vis'].forEach(id => document.getElementById(id).addEventListener('change', curl));
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
+document.getElementById('up-form').addEventListener('submit', async e => {
+  e.preventDefault(); if (!pending) return;
+  const go = document.getElementById('up-go'); go.disabled = true; go.textContent = 'Adding…';
+  const f = pending, ext = f.name.split('.').pop().toLowerCase();
+  const now = new Date(), pad = n => String(n).padStart(2, '0');
+  const it = { key: 'upload-' + (++upCount), local: true, live: false, fname: f.name, size: f.size, format: ext === 'markdown' ? 'md' : ext,
+    title: document.getElementById('up-name').value.trim() || f.name, kind: document.getElementById('up-kind').value, vis: document.getElementById('up-vis').value,
+    at: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}` };
+  try {
+    if (ext === 'epub') { it.sections = await readEpub(f); bodies[it.key] = it.sections.map(s => s.h + ' ' + s.p.join(' ')).join(' '); }
+    else if (ext !== 'pdf') { it.text = await f.text(); bodies[it.key] = it.text; }
+  } catch (err) {
+    const el = document.getElementById('up-err'); el.textContent = `Could not read ${f.name}: ${err.message}. Check that the file opens elsewhere, then try again.`; el.hidden = false;
+    go.disabled = false; go.textContent = 'Add to library'; return;
+  }
+  items.push(it); go.textContent = 'Add to library'; dlg.close();
+  drawShelf(); openItem(it.key);
+});
+
+/* ---------- send to device ---------- */
+const TARGETS = [
+  { id: 'x3-ori', label: 'x3-ori', type: 'Xteink X3 reader', ok: true, note: 'Enabled' },
+  { id: 'sticky', label: 'reTerminal Sticky', type: 'e-paper board', ok: false, note: 'Not enabled yet' },
+];
+const sends = {};
+const sendBtn = document.getElementById('send-btn'), sendMenu = document.getElementById('send-menu');
+const DEV = '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="4" y="1.5" width="10" height="15" rx="2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M7 13.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function canSend(i) { return i && (i.live || i.local); }
+function paintSendBtn() {
+  const i = byKey(current); sendBtn.disabled = !canSend(i);
+  sendBtn.title = canSend(i) ? '' : 'Available once this item is in the library';
+}
+function openSendMenu() {
+  sendMenu.innerHTML = TARGETS.map(t => `<button role="menuitem" data-send="${t.id}" ${t.ok ? '' : 'disabled'}>${DEV}<span class="mt">${esc(t.label)}</span><span class="ms">${esc(t.type)}. ${esc(t.note)}</span></button>`).join('') +
+    '<div class="mfoot">Sending publishes an event. culture-rules picks it up and delivers it. Agents use the MCP tool send_to_device.</div>';
+  sendMenu.hidden = false; sendBtn.setAttribute('aria-expanded', 'true');
+  const first = sendMenu.querySelector('button:not(:disabled)'); if (first) first.focus();
+}
+function closeSendMenu() { sendMenu.hidden = true; sendBtn.setAttribute('aria-expanded', 'false'); }
+let toastT;
+function toast(msg) { const el = document.getElementById('toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 3600); }
+function sendLine(key) {
+  const s = sends[key]; if (!s) return '';
+  return `<span class="sendline">${DEV}Sent to ${esc(s.target)} at ${s.at}. culture-rules takes it from here.</span>`;
+}
+sendBtn.addEventListener('click', e => { e.stopPropagation(); sendMenu.hidden ? openSendMenu() : closeSendMenu(); });
+sendMenu.addEventListener('click', e => {
+  const b = e.target.closest('[data-send]'); if (!b || b.disabled) return;
+  const t = TARGETS.find(x => x.id === b.dataset.send), i = byKey(current);
+  sends[current] = { target: t.label, at: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) };
+  closeSendMenu(); openItem(current, true);
+  toast(`Sent to ${t.label}.`);
+});
+document.addEventListener('click', e => { if (!sendMenu.hidden && !e.target.closest('.sendwrap')) closeSendMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sendMenu.hidden) { closeSendMenu(); sendBtn.focus(); } });
+
+/* ---------- events ---------- */
+document.addEventListener('click', e => {
+  const t = e.target;
+  const o = t.closest('[data-open]'); if (o) { openItem(o.dataset.open); return; }
+  if (t.closest('[data-home]')) { e.preventDefault(); goHome(); return; }
+  if (t.closest('[data-pane-toggle]')) { setPane(split.classList.contains('closed')); return; }
+  const hf = t.closest('[data-hfilter]'); if (hf) { homeFilter = hf.dataset.hfilter; drawHome(); return; }
+  const pf = t.closest('[data-pfilter]'); if (pf) { paneFilter = pf.dataset.pfilter; drawRows(); return; }
+  const v = t.closest('[data-view]'); if (v) { if (v.dataset.view === 'state') { show('state'); history.replaceState(null, '', '#state'); window.scrollTo({ top: 0 }); } else goHome(); return; }
+  const g = t.closest('[data-tog]'); if (g) {
+    const cc = document.getElementById('c-' + g.dataset.tog), tb = cc.querySelector('.tbl'), vz = cc.querySelector('.viz');
+    const on = tb.hidden; tb.hidden = !on; vz.hidden = on; g.textContent = on ? 'Chart' : 'Table';
+  }
+});
+document.getElementById('prev').addEventListener('click', () => step(-1));
+document.getElementById('next').addEventListener('click', () => step(1));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && narrow() && !split.classList.contains('closed')) setPane(false); });
+document.getElementById('q').addEventListener('input', e => {
+  query = e.target.value;
+  if (!query.trim()) { if (current) openItem(current, true); return; }
+  const list = visibleList();
+  const target = list.find(i => i.key === current && bodies[i.key]) || list.find(i => bodies[i.key]) || list[0];
+  if (target) openItem(target.key, target.key === current); else { show('read'); drawRows(); }
+  setPane(true);
+});
+const tip = document.getElementById('tip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest('[data-tip]');
+  if (!t) { tip.hidden = true; return; }
+  tip.innerHTML = t.dataset.tip; tip.hidden = false;
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px'; tip.style.top = (e.clientY + 16) + 'px';
+});
+window.addEventListener('hashchange', route);
+
+drawShelf(); drawState(); route();
+</script>

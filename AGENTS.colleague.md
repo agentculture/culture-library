@@ -34,11 +34,9 @@ update this section so the docs keep matching what's actually on disk.
 `culture-library` is the AgentCulture mesh agent for Culture's library of
 your own content and media (recordings, books, newspapers, articles, EPUBs,
 PDFs, docs), aiming at one catalog to ingest, index, search and serve it all
-at library.culture.dev. It is an **early scaffold** created from
-`culture-agent-template`. Today it holds only the template baseline (an
-agent-first CLI, a mesh identity, the canonical skill kit, a
-buildable/deployable package). No library code exists yet, so don't assume
-an ingest/index/search layer you haven't seen on disk. `CLAUDE.md` in this repo is written for
+at library.culture.dev. The library is built but not yet deployed. `culture_library/` holds the
+core, the HTTP server, the MCP server and the site; read `CLAUDE.md`'s status
+section before assuming anything about it. `CLAUDE.md` in this repo is written for
 a Claude Code session working *on* the repo — it is not your runtime prompt,
 but it is the fullest write-up of the repo's conventions if you need more
 context than fits here (worktree layout, memory discipline, `ask-colleague`

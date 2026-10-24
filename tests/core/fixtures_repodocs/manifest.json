@@ -1,0 +1,47 @@
+[
+  {
+    "repo": "devague",
+    "remote": "https://github.com/agentculture/devague",
+    "path": "docs/specs/sample-spec.md",
+    "file": "devague/docs/specs/sample-spec.md",
+    "commit": "e943d3dd98667c66d56599a3ab506cb74ab14e5b",
+    "committed_at": "2026-10-01T12:00:00Z",
+    "visibility": "public"
+  },
+  {
+    "repo": "culture-rules",
+    "remote": "https://github.com/agentculture/culture-rules.git",
+    "path": "docs/plans/sample-plan.md",
+    "file": "culture-rules/docs/plans/sample-plan.md",
+    "commit": "79467fe2c29733d92355d135e7a8078afa0aa2fc",
+    "committed_at": "2026-10-02T12:00:00Z",
+    "visibility": "public"
+  },
+  {
+    "repo": "embodiment",
+    "remote": "git@github.com:agentculture/embodiment.git",
+    "path": ".devague/frames/sample-frame.json",
+    "file": "embodiment/.devague/frames/sample-frame.json",
+    "commit": "d748f93455b2fed34979a8d2f2b4c6e3df7bd68c",
+    "committed_at": "2026-10-03T12:00:00Z",
+    "visibility": "public"
+  },
+  {
+    "repo": "lobes-cli",
+    "remote": "ssh://git@github.com/agentculture/lobes-cli.git",
+    "path": ".devague/deliveries/sample-delivery.json",
+    "file": "lobes-cli/.devague/deliveries/sample-delivery.json",
+    "commit": "d45686e74fbe1e9a49b12cbae3eb22320e274aed",
+    "committed_at": "2026-10-04T12:00:00Z",
+    "visibility": "public"
+  },
+  {
+    "repo": "pocketsync",
+    "remote": "https://github.com/agentculture/pocketsync/",
+    "path": "docs/deliveries/sample-delivery.md",
+    "file": "pocketsync/docs/deliveries/sample-delivery.md",
+    "commit": "7ff89e90198bb19995e38308d0196b92843f64b5",
+    "committed_at": "2026-10-05T12:00:00Z",
+    "visibility": "public"
+  }
+]

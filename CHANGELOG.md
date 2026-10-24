@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-24
+
+### Added
+
+- The library behind library.culture.dev, built from the devague plan
+  `docs/plans/2026-10-24-library-culture-dev.md`. The run is summarized in
+  `docs/deliveries/2026-10-24-library-culture-dev.md`.
+- The optional `[server]` extra (fastapi, uvicorn, mcp, python-multipart).
+  Base dependencies stay empty, and the CLI imports in a bare venv.
+- **Store:** SQLite WAL with content-addressed files. Items default to
+  private visibility.
+- **Ingest:** EPUB, PDF, Markdown, text and JSON. Audio is refused. Archives
+  are size-capped and zip bombs are refused.
+- **Keys and auth:**
+  - `clk_` keys with read, write and admin scopes and per-kind write limits;
+    the first one is minted with `culture-library keys mint`.
+  - People sign in through Cloudflare Access, with a CSRF header required on
+    writes. Access service tokens are refused.
+  - An item's uploader can read its own private items.
+- **Library API:** `/api/library` is compatible with xteink's, so the
+  culture-rules push works unchanged. Delete archives an item for 30 days
+  before it is purged. Duplicate bytes of a private item get an opaque 409.
+- **Change feed:** `/api/feed?since=&item_id=`.
+- **Search:** full-text (FTS5) over item bodies, plus semantic search through
+  the lobes gateway. A background indexer feeds both.
+  `/api/search` and `/api/status`.
+- **Repo documents:** specs, plans and devague records keyed by remote, path
+  and commit at `/api/repodocs`. A renderer handles frame and plan schemas 1
+  to 6.
+- **Send to device:** publishes `library.item.send_requested` through
+  events-cli and serves the content by reference. Targets come from config.
+- **Reading apps:** OPDS 1.2 at `/opds` and read-only WebDAV at `/dav/`.
+- **MCP server:** `python -m culture_library.mcp`, with push, list, search,
+  read, send and diary tools.
+- **The site:** ported from the approved prototype. Strict CSP, vendored
+  Lato, right-to-left text support. Design contract in
+  `docs/design/library-site.md`, with 30 approved reference screenshots.
+- **Opt-in visual parity tests** (`visual` group, `-m visual`) and a
+  dedicated CI job.
+- **Operator CLI:** `culture-library migrate from-xteink`,
+  `culture-library backup run|verify|restore|schedule`, and
+  `culture-library keys mint|list|revoke`.
+- **Deploy files and runbooks:** `deploy/` (Dockerfile, compose) and
+  `docs/operations/` (deploy, backup, ebooks.culture.dev teardown gate).
+
+### Fixed
+
+These were found by code review on PR #8.
+
+- Backups now cover repo-document files as well as items.
+- A corrupt EPUB upload returns 400 `corrupt_archive`, not 500.
+- A kind-limited key can no longer restore an archived item of another kind
+  by re-uploading it.
+- OPDS search returns the newest matches.
+- `/api/excerpts` rejects non-ASCII digits with 400.
+- Checking a key no longer takes the write lock.
+- The reader serves text that is already indexed.
+- Uploads index their text once instead of extracting it twice.
+- The CI Sonar findings are fixed:
+  - PDF text is read from stdin;
+  - browser-storage keys and values are bounded;
+  - unhandled promises are handled.
+- The 259 SonarCloud maintainability findings on PR #8 are resolved:
+  - tests assert one fact per `assert`, and `pytest.raises` blocks hold a
+    single call;
+  - complex functions are split into helpers, with behaviour unchanged;
+  - regular expressions that could backtrack are replaced by linear ones;
+  - the site toast is an `<output>`, and the search label has accessible text.
+
+### Changed
+
+- `CLAUDE.md` describes the built library instead of the scaffold, and
+  records the `[server]` extra.
+
 ## [0.10.1] - 2026-10-24
 
 ### Changed

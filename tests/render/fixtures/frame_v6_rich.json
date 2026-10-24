@@ -1,0 +1,178 @@
+{
+  "slug": "dashboard-data-efficiency",
+  "title": "dashboard data efficiency",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-09-24T06:10:54Z",
+  "updated": "2026-09-24T08:31:12Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The weather dashboard reads only what it shows: chart and stats queries hit an index over the requested window instead of scanning all history, so response time stays flat as the collection grows",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Same query results before and after; only the plan and latency change",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "The readings collection gets a compound index matching the range query (location, provider, kind, observed_at), so /series and /latest read only the requested window instead of scanning the whole collection; query time stops growing with total history (/forecast is a follow-up)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "MongoWeatherStore.__init__ creates the index idempotently (like the existing fetches index), so both tracker and web start safely on an existing volume, and a store_contract/mongo test pins the index spec",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h15",
+          "text": "The tracker ensures the readings index idempotently at startup on the existing volume, and a test with a spec-recording FakeCollection pins the index spec",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "contradiction with c18?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "User: resolve by the index-ownership change (c18) — the tracker ensures the index and the web store never calls create_index; h2's __init__ placement is superseded"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The readings collection gets a compound index matching the range query (location, provider, kind, observed_at) so /series, /latest and /forecast read only the requested window instead of scanning the whole collection; query time stops growing with total history",
+          "kind": "requirement",
+          "reason": "lapse l1 (confirmed): /forecast is not bounded by this index"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "kind": "assumption",
+      "text": "Wire payloads are already small and range-bounded (/series 6h ≈ 12 KB, 7d ≈ 87 KB, /forecast 48h ≈ 10 KB); the waste is server-side scanning and client re-fetching, not response size",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The dashboard loads a window as time-aligned chunks requested with the documented from/to params, keeps completed past chunks in an in-memory cache, and on each 60 s poll re-fetches only the live (newest) chunk — no cursors or pagination added to the API",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Past chunks are never re-requested within a page session; only the live chunk is re-fetched on each 60 s poll",
+          "status": "rejected",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Beyond the index: are client-side chunking (c4), chart-only refetch on variable switch (c5), lazy /stats (c6) and /stats without raw bodies (c7) in this spec, or a follow-up once the index lands?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User accepted the recommendation: this spec is the index only; client chunking, variable-switch refetch, lazy /stats and /stats without raw bodies are a follow-up once the index lands"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Follow-up spec after the index lands: client-side time-chunked loading with a cache and live-chunk-only polling (was c4), variable switch fetches only /series (c5), lazy /stats via IntersectionObserver (c6), /stats bytes_stored without loading raw bodies (c7) — findings s3–s6",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "No retention policy: readings grow ~25k/day (mostly forecast rows superseded by later issues) and the new index grows with them; pruning superseded forecast issues is unexamined",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "climate/weather/mongo.py:361-362 + live explain() on weather.readings",
+      "finding": "Only indexes are fetches(provider,location,requested_at) and readings(fetch_id). A 7-day series query explains as SORT over COLLSCAN: 172,882 docs examined to return a window. Measured /series 6h = 0.56s and 7d = 0.60s — flat, because the cost is the full scan, not the window.",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "curl timings against 127.0.0.1:8095 + api.py /series (from/to/step/max_points push-down, MAX_SERIES_STORE_POINTS=100000)",
+      "finding": "The API already pushes since/until/limit into store.series and grids the result (default 2000, ceiling 10000 points). The dashboard sends from and step per window (app.js:31-35), so responses are bounded; only the Mongo side reads everything.",
+      "seeds": [
+        "c3"
+      ]
+    }
+  ],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "Claim c2 (confirmed) states the index makes /series, /latest and /forecast read only the requested window; /forecast was never traced — its query is kind=forecast, since=now across every stored issue, so the index does not bound it the way c2 says",
+      "skipped_check": "trace _select_forecast_issue's store call and time /forecast before writing c2",
+      "refs": [
+        "challenge pass / unstated-assumptions lens: api.py _select_forecast_issue"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "weather.readings indexes — MongoWeatherStore(ensure_indexes=True)",
+      "behavior": "a compound (location, provider, kind, observed_at) index exists and series/latest queries use it",
+      "source_text": "The readings collection gets a compound index matching the range query (location, provider, kind, observed_at), so /series and /latest read only the requested window instead of scanning the whole collection; query time stops growing with total history (/forecast is a follow-up)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c18",
+      "seam": "store construction: tracker vs web entry points",
+      "behavior": "the tracker ensures indexes; the web store never issues createIndex",
+      "source_text": "Index creation is owned by the writer: the tracker ensures the readings index at startup, and the web service's store never issues createIndex, so it keeps working once issue #8 gives it a read-only Mongo user",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
+}

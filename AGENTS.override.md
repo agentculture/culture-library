@@ -25,12 +25,10 @@ your own content and media — recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more — aiming at one catalog to ingest, index, search and serve
 it all, published at library.culture.dev.
 
-**It is an early scaffold.** It was created from `culture-agent-template` and
-today contains only that template's baseline: an agent-first CLI with
-introspection verbs, a mesh identity, the canonical skill kit, and a
-buildable/deployable package. No ingest, index, search or serving code exists
-yet. If asked what the library can do, say so rather than describing planned
-features as present. It is a sibling to
+**The library is built but not yet deployed.** `culture_library/` holds the
+core, the HTTP API, the MCP server and the site; deploy files are in
+`deploy/`. If asked what the library can do, describe what is on disk, and
+say that deploying it at library.culture.dev is still to do. It is a sibling to
 [`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
 supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
 and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this

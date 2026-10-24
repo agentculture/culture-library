@@ -29,6 +29,15 @@ Commands
   culture-library overview           Descriptive snapshot of the agent.
   culture-library doctor             Check the agent-identity invariants.
   culture-library cli overview       Describe the CLI surface itself.
+  culture-library server serve       Start the HTTP server (needs culture-library[server]).
+  culture-library server overview    Describe the server noun.
+  culture-library migrate from-xteink  Copy an xteink library in (dry run unless --apply).
+  culture-library migrate overview   Describe the migrate noun.
+  culture-library keys mint          Mint an API key (shown once).
+  culture-library keys overview      Describe the keys noun.
+  culture-library backup run         Snapshot DB + files to a second location.
+  culture-library backup restore     Restore a snapshot into an empty dir (verified).
+  culture-library backup overview    Describe the backup noun.
 
 Machine-readable output
 -----------------------
@@ -60,6 +69,15 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},
             {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
+            {"path": ["server", "serve"], "summary": "Start the HTTP server ([server] extra)."},
+            {"path": ["server", "overview"], "summary": "Describe the server noun."},
+            {"path": ["migrate", "from-xteink"], "summary": "Migrate xteink items (--apply)."},
+            {"path": ["migrate", "overview"], "summary": "Describe the migrate noun."},
+            {"path": ["keys", "mint"], "summary": "Mint an API key (shown once)."},
+            {"path": ["keys", "overview"], "summary": "Describe the keys noun."},
+            {"path": ["backup", "run"], "summary": "Snapshot DB + files to a second location."},
+            {"path": ["backup", "restore"], "summary": "Restore a snapshot (verified)."},
+            {"path": ["backup", "overview"], "summary": "Describe the backup noun."},
         ],
         "exit_codes": {
             "0": "success",
