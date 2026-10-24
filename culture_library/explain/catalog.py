@@ -26,6 +26,7 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 - `culture-library overview` — descriptive snapshot of the agent.
 - `culture-library doctor` — check the agent-identity invariants.
 - `culture-library cli overview` — describe the CLI surface.
+- `culture-library server serve` — run the HTTP server (`[server]` extra).
 
 ## Exit-code policy
 
@@ -109,6 +110,23 @@ reported by the informational harness-prompts check and never substituted.
     culture-library doctor --json
 """
 
+_SERVER = """\
+# culture-library server
+
+Runs the library HTTP server. Requires the optional `[server]` extra
+(`pip install 'culture-library[server]'`); the base CLI has zero runtime
+dependencies and works without it.
+
+## Verbs
+
+- `culture-library server serve [--host H] [--port N]` — start the server
+  (default 127.0.0.1:8780). `GET /api/health` reports status.
+- `culture-library server overview` — describe this noun.
+
+If the extra is missing, `serve` exits 2 with a hint to install
+`culture-library[server]`.
+"""
+
 _CLI = """\
 # culture-library cli
 
@@ -132,4 +150,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("doctor",): _DOCTOR,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
+    ("server",): _SERVER,
+    ("server", "serve"): _SERVER,
+    ("server", "overview"): _SERVER,
 }

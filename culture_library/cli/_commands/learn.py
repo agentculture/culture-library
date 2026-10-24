@@ -29,6 +29,8 @@ Commands
   culture-library overview           Descriptive snapshot of the agent.
   culture-library doctor             Check the agent-identity invariants.
   culture-library cli overview       Describe the CLI surface itself.
+  culture-library server serve       Start the HTTP server (needs culture-library[server]).
+  culture-library server overview    Describe the server noun.
 
 Machine-readable output
 -----------------------
@@ -60,6 +62,8 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},
             {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
+            {"path": ["server", "serve"], "summary": "Start the HTTP server ([server] extra)."},
+            {"path": ["server", "overview"], "summary": "Describe the server noun."},
         ],
         "exit_codes": {
             "0": "success",

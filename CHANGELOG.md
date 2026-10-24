@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-24
+
+### Added
+
+- Optional [server] extra (fastapi, uvicorn, mcp, python-multipart); base dependencies stay empty
+- culture_library.server.create_app with GET /api/health and routes_*.py router auto-discovery
+- culture-library server serve|overview CLI noun (lazy imports, structured error when the extra is missing)
+- tests/test_zero_deps.py
+
+### Changed
+
+- CLAUDE.md records the [server] extra decision
+
 ## [0.10.1] - 2026-10-24
 
 ### Changed
