@@ -1,10 +1,16 @@
 """The 30 reference views and how to reach each one.
 
-Names are the reference files' (``<form>-<scheme>-<view>``). ``DEVIATED`` are the six that the
-operator-approved deviation d3 makes impossible to match (the prototype showed faded
-"arriving" spines, "N arriving" and migration-time site state; the built site shows only live
-data): they are compared with ``docs/design/reference-candidates/`` once the operator has
-re-approved candidates there, never with ``docs/design/reference/``.
+Names are the reference files' (``<form>-<scheme>-<view>``). ``DEVIATED`` are the views that
+cannot match the prototype's screenshots, and are compared with
+``docs/design/reference-candidates/`` once the operator has approved candidates there (never
+with ``docs/design/reference/``):
+
+- home, site state, and the upload backdrop: deviation d3 (no faded "arriving" spines, no
+  "N arriving", live site state) plus the prototype's preview-only upload text;
+- spec and frame readers (and the frame with the list hidden): d3 again, the prototype's
+  "Arriving" chip makes its head row 2px taller than the built site's;
+- the phone send menu: the prototype's menu ran off the right edge, the built site anchors it
+  to the viewport so the page never scrolls sideways.
 """
 
 from __future__ import annotations
@@ -21,12 +27,19 @@ DESKTOP = ("home", "reader-paper", "reader-spec", "reader-frame", "reader-list-h
 DESKTOP += ("send-menu", "sent", "state", "upload")
 PHONE = ("home", "reader", "list-drawer", "send-menu", "sent", "upload")
 DEVIATED = {
-    "desktop-light-home",
-    "desktop-dark-home",
-    "phone-light-home",
-    "phone-dark-home",
-    "desktop-light-state",
-    "desktop-dark-state",
+    f"{form}-{scheme}-{view}"
+    for scheme in ("light", "dark")
+    for form, view in (
+        ("desktop", "home"),
+        ("phone", "home"),
+        ("desktop", "state"),
+        ("desktop", "upload"),
+        ("phone", "upload"),
+        ("desktop", "reader-spec"),
+        ("desktop", "reader-frame"),
+        ("desktop", "reader-list-hidden"),
+        ("phone", "send-menu"),
+    )
 }
 
 VIEWS: list[tuple[str, str, str, str]] = [  # (name, form, scheme, view)
@@ -69,8 +82,9 @@ def go(page, site, view: str) -> None:
     elif view == "reader-frame":
         _open(page, site, "#" + site.ids["frame"])
         page.wait_for_selector("#reader .dv-id, #reader .claim")
-    elif view == "reader-list-hidden":
-        _paper(page, site)
+    elif view == "reader-list-hidden":  # the frame reader with the list pane hidden
+        _open(page, site, "#" + site.ids["frame"])
+        page.wait_for_selector("#reader .dv-id, #reader .claim")
         page.click("#pane-btn")
     elif view == "list-drawer":
         _paper(page, site)

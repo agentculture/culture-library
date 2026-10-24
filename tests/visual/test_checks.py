@@ -215,21 +215,8 @@ def test_only_lato_300_400_700_900(browser, site, scheme) -> None:
 # ------------------------------------------------------------------ layout (o4)
 
 
-# The reference screenshots of the open send menu at 400px themselves show a horizontal
-# scrollbar: the prototype's menu runs off the right edge. The built site matches that (pixel
-# parity), so the rule "no sideways scroll on every view" fails there until the prototype and
-# its reference are fixed together; strict xfail makes the fix flip this test.
-_MENU_OVERFLOW = pytest.mark.xfail(
-    strict=True, reason="send menu overflows the viewport at 400px, in the reference too"
-)
-
-
-def _phone_views():
-    return [pytest.param(v, marks=_MENU_OVERFLOW) if v == "send-menu" else v for v in views.PHONE]
-
-
 @pytest.mark.parametrize("scheme", ("light", "dark"))
-@pytest.mark.parametrize("view", _phone_views())
+@pytest.mark.parametrize("view", views.PHONE)
 def test_no_sideways_scroll_at_400px(browser, site, scheme, view) -> None:
     page = harness.new_page(browser, site, "phone", scheme)
     try:

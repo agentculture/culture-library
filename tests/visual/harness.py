@@ -95,7 +95,7 @@ def launch(playwright):
     """Chromium with classic scrollbars, as in the references (headless hides them by default)."""
     return playwright.chromium.launch(
         ignore_default_args=["--hide-scrollbars"],
-        args=["--font-render-hinting=none"],
+        args=["--font-render-hinting=slight"],
     )
 
 

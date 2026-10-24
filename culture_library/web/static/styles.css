@@ -142,7 +142,7 @@ mark { background: var(--hl); color: inherit; border-radius: 3px; padding: 0 2px
 .scrim { display: none; }
 
 .readerbox { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); min-width: 0; overflow-wrap: anywhere; }
-.rtool { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+.rtool { position: relative; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
 .rtool .sp { flex: 1; }
 .reader { padding: 28px clamp(18px, 4vw, 56px) 44px; }
 .reader-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; color: var(--muted); font-size: 13.5px; margin-bottom: 10px; }
@@ -250,6 +250,7 @@ dialog::backdrop { background: var(--scrim); }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .sendwrap { position: relative; }
 .menu { position: absolute; z-index: 25; top: calc(100% + 6px); inset-inline-start: 0; min-width: 280px; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 6px; display: grid; gap: 2px; }
+@media (max-width: 720px) { .sendwrap { position: static; } .menu { inset-inline: 12px; min-width: 0; } }
 .menu button { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 10px; align-items: center; text-align: start; border: 0; background: transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
 .menu button:hover:not(:disabled) { background: var(--surface-2); }
 .menu button:disabled { cursor: not-allowed; opacity: .55; }

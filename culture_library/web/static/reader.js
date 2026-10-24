@@ -13,6 +13,9 @@ import * as send from './send.js';
 
 const dayLabel = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 const dayMonth = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+const fullDay = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(',', '');
+/** The publication title without a trailing ISO date ("Daily newspaper 2026-10-23" -> "Daily newspaper"). */
+const bareTitle = t => String(t).replace(/[\s,\-–—:]*\(?\d{4}-\d{2}-\d{2}\)?\s*$/, '').trim() || String(t);
 let token = 0;
 
 /* ---------- highlighting (text nodes + <mark>) ---------- */
@@ -104,10 +107,10 @@ function itemBody(i, t) {
   return kids;
 }
 function renderItem(i, art, my) {
-  const meta = [h('span', {}, dayLabel(i.at.slice(0, 10))), h('span', {}, `${(i.format || '').toUpperCase()}, ${fmtSize(i.size)}`)];
-  if (i.author) meta.push(h('span', { dir: 'auto' }, `by ${i.author}`));
+  const meta = [h('span', {}, fullDay(i.at.slice(0, 10))), h('span', {}, `${(i.format || '').toUpperCase()}, ${fmtSize(i.size)}`)];
+  if (i.author) meta.push(h('span', { dir: 'auto' }, `from ${i.author}`));
   const prose = h('div', { class: 'prose', dir: 'auto' }, loading());
-  fill(art, head(i, meta), h('h2', { class: 'title', dir: 'auto' }, i.title), prose);
+  fill(art, head(i, meta), h('h2', { class: 'title', dir: 'auto' }, bareTitle(i.title)), prose);
   api(`/api/library/${i.id}/text`).then(t => { if (my === token) fill(prose, itemBody(i, t)); }, e => { if (my === token) fill(prose, failed(e)); });
 }
 

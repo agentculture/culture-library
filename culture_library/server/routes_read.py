@@ -176,6 +176,31 @@ def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMI
     return out
 
 
+_TRAILING_DATE = re.compile(r"[\s,\-\u2013\u2014:]*\(?\d{4}-\d{2}-\d{2}\)?\s*$")
+_ONLY_DATE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+Z?)?")
+
+
+def _bare(title: str) -> str:
+    return _TRAILING_DATE.sub("", title).strip().casefold()
+
+
+def drop_masthead(sections: list[dict], title: str) -> list[dict]:
+    """Drop a leading masthead: a section headed like the title (ignoring a trailing date)
+    whose content is only dates, e.g. ``Daily newspaper`` / ``2026-10-23``."""
+    if not sections:
+        return sections
+    first = sections[0]
+    heading = first.get("heading") or ""
+    if (
+        heading
+        and _bare(heading) == _bare(title)
+        and first["paragraphs"]
+        and all(_ONLY_DATE.fullmatch(p.strip()) for p in first["paragraphs"])
+    ):
+        return sections[1:]
+    return sections
+
+
 # ------------------------------------------------------------------ items
 
 
@@ -192,7 +217,7 @@ def _item_text(store: Store, item: Item) -> dict:
     data = store.blob_path(item.sha256).read_bytes()
     try:
         extraction = ingest.extract_text_ex(data, item.format)
-        sections = epub_sections(data) if item.format == "epub" else None
+        sections = drop_masthead(epub_sections(data), item.title) if item.format == "epub" else None
     except ValidationError as exc:
         return {"text": "", "sections": None, "reason": exc.code}
     return {"text": extraction.text, "sections": sections, "reason": extraction.reason}
@@ -309,7 +334,28 @@ def _indexed_body(store: Store, item_id: int) -> str:
     return row[0] if row and row[0] else ""
 
 
+def _epub_excerpt(store: Store, item: Item) -> str:
+    """Section headings, then the first paragraph; nav/toc documents are skipped like in
+    the reader (``Jetson optimization, Jetson news. Models | Jetson AI Lab: ...``)."""
+    path = store.blob_path(item.sha256)
+    if item.size > EXCERPT_EXTRACT_MAX_BYTES or not path.is_file():
+        return ""
+    try:
+        sections = drop_masthead(epub_sections(path.read_bytes()), item.title)
+    except ValidationError:
+        return ""
+    if not sections:
+        return ""
+    heads = [s["heading"] for s in sections if s["heading"]]
+    first = sections[0]["paragraphs"][0]
+    return _clip(f"{', '.join(heads)}. {first}" if heads else first)
+
+
 def _item_excerpt(store: Store, item: Item) -> str:
+    if item.format == "epub":
+        found = _epub_excerpt(store, item)
+        if found:
+            return found
     body = _indexed_body(store, item.id)
     if not body and item.format != "pdf" and item.size <= EXCERPT_EXTRACT_MAX_BYTES:
         path = store.blob_path(item.sha256)
