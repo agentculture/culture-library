@@ -1,0 +1,175 @@
+{
+  "_note": "The 17 items of the prototype's catalog (xteink's library on 2026-10-24: 13 newspapers, 3 documents, 1 book): title, kind, size in bytes and upload time exactly as they were. The 23 Oct newspaper (id 20) is the real EPUB next to this file; the others are minimal EPUBs padded to the same size.",
+  "items": [
+    {
+      "id": 1,
+      "kind": "article",
+      "title": "The Port of Least Resistance",
+      "author": "xteink (Claude)",
+      "size": 7223,
+      "created_at": "2026-10-06T20:36:53+00:00"
+    },
+    {
+      "id": 2,
+      "kind": "article",
+      "title": "ai-souls-article.md",
+      "author": "",
+      "size": 7629,
+      "created_at": "2026-10-06T21:46:40+00:00"
+    },
+    {
+      "id": 4,
+      "kind": "article",
+      "title": "A Neurosymbolic Approach to Natural Language Formalization and Verification",
+      "author": "",
+      "size": 69016,
+      "created_at": "2026-10-06T22:59:32+00:00"
+    },
+    {
+      "id": 5,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-11 (live test)",
+      "author": "culture-rules",
+      "size": 3201,
+      "created_at": "2026-10-11T05:06:40+00:00"
+    },
+    {
+      "id": 8,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-12",
+      "author": "culture-rules",
+      "size": 7773,
+      "created_at": "2026-10-12T02:02:44+00:00"
+    },
+    {
+      "id": 9,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-13",
+      "author": "culture-rules",
+      "size": 7688,
+      "created_at": "2026-10-13T02:03:19+00:00"
+    },
+    {
+      "id": 10,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-14",
+      "author": "culture-rules",
+      "size": 7552,
+      "created_at": "2026-10-14T02:03:07+00:00"
+    },
+    {
+      "id": 11,
+      "kind": "book",
+      "title": "oreilly-epub-58b8e8a8-9e4b-4546-8efa-410075244424",
+      "author": "",
+      "size": 7397772,
+      "created_at": "2026-10-14T16:38:06+00:00"
+    },
+    {
+      "id": 12,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-15",
+      "author": "culture-rules",
+      "size": 8579,
+      "created_at": "2026-10-15T02:03:57+00:00"
+    },
+    {
+      "id": 13,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-16",
+      "author": "culture-rules",
+      "size": 7899,
+      "created_at": "2026-10-16T02:03:03+00:00"
+    },
+    {
+      "id": 14,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-17",
+      "author": "culture-rules",
+      "size": 7649,
+      "created_at": "2026-10-17T02:04:00+00:00"
+    },
+    {
+      "id": 15,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-18",
+      "author": "culture-rules",
+      "size": 8040,
+      "created_at": "2026-10-18T02:03:48+00:00"
+    },
+    {
+      "id": 16,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-19",
+      "author": "culture-rules",
+      "size": 6791,
+      "created_at": "2026-10-19T02:02:19+00:00"
+    },
+    {
+      "id": 17,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-20",
+      "author": "culture-rules",
+      "size": 6133,
+      "created_at": "2026-10-20T02:02:09+00:00"
+    },
+    {
+      "id": 18,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-21",
+      "author": "culture-rules",
+      "size": 6043,
+      "created_at": "2026-10-21T02:02:33+00:00"
+    },
+    {
+      "id": 19,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-22",
+      "author": "culture-rules",
+      "size": 7037,
+      "created_at": "2026-10-22T02:03:41+00:00"
+    },
+    {
+      "id": 20,
+      "kind": "newspaper",
+      "title": "Daily newspaper 2026-10-23",
+      "author": "culture-rules",
+      "size": 7114,
+      "created_at": "2026-10-23T02:03:34+00:00",
+      "file": "newspaper-2026-10-23.epub"
+    }
+  ],
+  "docs": [
+    {
+      "key": "spec",
+      "remote": "https://github.com/agentculture/embodiment",
+      "path": "docs/specs/2026-10-23-gwen-is-pocketchat-transcripts-as-knowledge.md",
+      "file": "gwen-spec.md",
+      "commit": "c76a74c000000000000000000000000000000000",
+      "committed_at": "2026-10-23T20:10:00Z",
+      "updated_at": "2026-10-23T20:10:00+00:00"
+    },
+    {
+      "key": "frame",
+      "remote": "https://github.com/agentculture/culture-library",
+      "path": ".devague/frames/library-culture-dev.json",
+      "file": "frame.json",
+      "commit": "56b2176000000000000000000000000000000000",
+      "committed_at": "2026-10-23T23:39:52Z",
+      "updated_at": "2026-10-23T23:39:52+00:00"
+    }
+  ],
+  "targets": [
+    {
+      "label": "x3-ori",
+      "type": "Xteink X3 reader",
+      "enabled": true
+    },
+    {
+      "label": "reTerminal Sticky",
+      "type": "e-paper board",
+      "enabled": false
+    }
+  ],
+  "_spec_note": "gwen-spec.md is the embodiment spec docs/specs/2026-10-23-gwen-is-pocketchat-transcripts-as-knowledge.md cut down to what the prototype's DATA.spec carried: its lede, Audience, Before/After, Why it matters and three of the 15 requirements (the prototype heading read 'Requirements, 3 of 15'): requirements 2, 8 and 9 of the original. The first two are the ones visible in the reference screenshots; the third is not visible there and is a guess."
+}

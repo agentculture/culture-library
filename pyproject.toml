@@ -54,6 +54,12 @@ dev = [
     "python-multipart>=0.0.9",
     "mcp>=1.2,<2",
 ]
+# Opt-in visual parity tests (tests/visual): `uv sync --group visual`, then
+# `uv run playwright install chromium` and `uv run pytest -m visual`.
+visual = [
+    "playwright>=1.49",
+    "pillow>=10.0",
+]
 
 [tool.coverage.run]
 source = ["culture_library"]
@@ -87,3 +93,6 @@ skips = ["B101", "B404", "B603"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "visual: Playwright visual-parity tests against docs/design/reference (opt-in: -m visual or CULTURE_LIBRARY_VISUAL=1)",
+]

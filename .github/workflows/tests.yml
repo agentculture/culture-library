@@ -77,6 +77,36 @@ jobs:
       - name: afi rubric gate
         run: uv run teken cli doctor . --strict
 
+  visual:
+    # Opt-in browser tests: Playwright renders the built site with the prototype's fixture data
+    # and compares it with docs/design/reference. The `test` job stays browser-free.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+
+      - run: uv python install 3.12
+
+      - run: uv sync --group visual
+
+      - run: uv run playwright install --with-deps chromium
+
+      - name: visual parity tests
+        env:
+          CULTURE_LIBRARY_VISUAL_OUT: ${{ runner.temp }}/visual-out
+        run: uv run pytest -m visual -v
+
+      - name: upload actual and diff images of failing views
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: visual-diffs
+          path: ${{ runner.temp }}/visual-out
+          if-no-files-found: ignore
+
   harness-smoke:
     # All four harnesses (Claude Code, Pi/associate, colleague, Qwen Code) are
     # live for interactive use over the same clone at all times, so all four
