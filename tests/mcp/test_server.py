@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 
 import pytest
 
@@ -38,8 +39,10 @@ def test_main_reports_missing_extra_or_bad_bind(capsys):
     assert "LAN/loopback" in capsys.readouterr().err
 
 
-@pytest.mark.skipif(HAS_SDK, reason="only meaningful without the mcp SDK")
-def test_server_needs_sdk_only_when_used():
+def test_server_needs_sdk_only_when_used(monkeypatch):
+    # Simulate an install without the ``server`` extra even when the SDK is present.
+    for name in ("mcp", "mcp.types", "mcp.server", "mcp.server.lowlevel"):
+        monkeypatch.setitem(sys.modules, name, None)
     with pytest.raises(server.ServerExtraMissing):
         server.build_server()
 
