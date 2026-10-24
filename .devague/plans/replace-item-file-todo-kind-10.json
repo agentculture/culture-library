@@ -1,0 +1,525 @@
+{
+  "slug": "replace-item-file-todo-kind-10",
+  "title": "replace item file + todo kind (#10)",
+  "frame_slug": "replace-item-file-todo-kind-10",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-24T21:59:58Z",
+  "updated": "2026-10-24T22:02:39Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-library items can have their file replaced under the same id (PUT /api/library/{id}/file), and a new 'todo' kind works on existing deployed databases \u2014 so culture-rules can keep one living to-do checklist per recording and Gwen re-reads it when its sha256 changes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Both halves ship together in one release: the replace route and the todo kind with its migration.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A new write route PUT /api/library/{id}/file (multipart 'file') replaces an item's bytes and keeps its id: it runs the same caps and format/content checks as upload (ingest._validate + _check_content), writes the new blob before commit, and UPDATEs sha256, size and format. No such route exists today (routes_library.py has GET/POST/GET id/GET file/DELETE/restore at 203-376) and no store method updates bytes.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Replace refuses exactly what upload refuses (too_large 413, unsupported_format 415, empty/bad_magic/invalid_encoding/invalid_json 400) and leaves the item untouched on refusal.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Replace re-indexes the item the way index_on_add does. search.set_body rewrites the FTS row (keyed rowid = item.id) inside the transaction. The index_queue row resets to pending, mirroring requeue_* (indexer.py:106-134), because enqueue is INSERT OR IGNORE and would do nothing. _notify_indexer wakes the embedder. Stale embeddings are keyed by item_id and the indexer replaces them.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "After a replace, search finds the new body text and not the old, and the item's index_queue row is pending with attempts reset.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Replace appends an 'updated' feed event carrying the NEW sha256, built from the updated item. The data field is {replaced: true, old_sha256, size, format}, so Gwen's reconcile on (id, sha256) sees the change. 'updated' is already in EVENT_TYPES (feed.py:20), and restore already uses _event(conn, 'updated', item, {restored: true}) (library.py:205, 398).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The feed event's sha256 equals the item's new sha256, and the event is appended inside the same transaction as the UPDATE (no event without the change, no change without the event).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Replace is authorized exactly like restore: _writable() (routes_library.py:354-358) runs check(write), then library.get(include_archived=True), then check(write, item.kind). A key that cannot write the item's kind gets 403 {code: forbidden_kind} from auth.check (auth.py:182-192), and the item is left unchanged.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A forbidden_kind refusal happens before any bytes are read or written, so neither the blob store nor the DB changes.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "New bytes whose sha256 already belongs to ANOTHER item are refused with 409 and a dedicated machine code (not the opaque 'conflict'), checked before the UPDATE so the UNIQUE constraint (store.py:36) never raises IntegrityError. When the other item is private and the caller cannot see it, the response stays opaque and gives no id, as the existing ConflictError/CONFLICT_DETAIL does (library.py:136-141).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A cross-item collision never surfaces as a 500/IntegrityError, and never reveals a private item's id to a caller who cannot see it.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "'todo' is added to KINDS (models.py:12-22). Everything that derives from KINDS picks it up with no other edit: library.check_kind, feed.append, keys.mint validation (keys.py:168; the CLI --kind has no choices=), the MCP kind enum (mcp/tools.py:23), the search Literal (routes_search.py:111), OPDS and WebDAV folders. 'culture-library keys mint --kind todo' then works, and md is already a supported format (ingest.py:56).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "No hard-coded kind list outside models.py blocks todo on the API, the CLI or MCP (the site's display fallback is handled by q5).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "On open, an idempotent schema migration rebuilds the items table so its kind CHECK matches the current KINDS on an existing database. It detects drift from sqlite_master.sql, keeps every id, the sqlite_sequence/AUTOINCREMENT high-water mark, the column order (test_items_columns asserts it) and the child rows (embeddings, index_queue). It runs on an old backup restored later too, because backup.restore copies the DB verbatim and never opens a Store (backup.py:296-312).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The migration is idempotent (a second open is a no-op), atomic (a failure leaves the old table intact), and preserves ids, sqlite_sequence, column order, and the embeddings/index_queue child rows.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "tests/contract/culture_rules_wire.py stays a byte-for-byte cited copy of culture-rules' library.push (test_cited_copy_matches_upstream). The replace route's culture-rules contract goes in a separate new test, and the existing upload behaviour (201, then 200 on dedupe, plus the error codes) does not change.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "test_cited_copy_matches_upstream still passes, and the existing push tests pass unchanged.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "WebDAV stays read-only. routes_webdav.py answers 405 to PUT and every other write method (lines 6-7, 41-43, 138), so the HTTP replace route is the only new write path.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "PUT, DELETE and MKCOL on /dav/ still return 405 after this change.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "Read paths need no change. No ETag/Last-Modified is set and Cache-Control is private, no-cache (app.py:52-70). URLs are by item id, and sha256 is used only to locate the blob via store.blob_path (routes_read.py:263-415, routes_opds.py:164, routes_library.py:337), so GET /{id} and /{id}/file serve the new bytes as soon as sha256 is updated.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "No read route needs editing for replaced bytes to be served: GET /{id}/file returns the new bytes after a replace.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "audience",
+      "text": "culture-rules (the only writer: pushes one Markdown to-do checklist per recording with a todo-scoped API key and replaces it as lines are checked off), Gwen/embodiment (reads to-dos from the library and re-reads an item when its id is unchanged and its sha256 changes), and the operator who runs the live library on spark.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "culture-rules writes and Gwen only reads, so nothing in this change gives Gwen write access.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "before_state",
+      "text": "Library items are effectively immutable. sha256 is UNIQUE and there is no route that changes an item's bytes (routes_library.py:203-376), so an edited checklist could only be uploaded as a new item with a new id. KINDS has no 'todo', and the deployed DB's items CHECK (store.py:37) would refuse one even if KINDS gained it.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The before-state describes main at b67ddb9 accurately.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "why_it_matters",
+      "text": "Gwen is moving to read everything she knows (transcripts, newspapers, to-dos) from culture-library. The live to-do flow (culture-rules marks a line done \u2192 Gwen sees it) needs a stable item per checklist; culture-rules' side is already built against a configurable replace route and waits on this.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Issue #10 is the authoritative statement of need, written by culture-rules for the operator.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "after_state",
+      "text": "culture-rules PUTs new Markdown bytes to /api/library/{id}/file and gets the same id back with a new sha256. GET /api/library/{id} and /file serve the new bytes, and /api/feed shows an 'updated' event for that id. A todo item uploads on the migrated live database, and 'culture-library keys mint --kind todo' mints a key that can write it.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The after-state is observable over HTTP alone, with no DB inspection needed.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "success_signal",
+      "text": "All 3 acceptance criteria from issue #10 pass as automated tests: (1) a replace returns the same id with a new sha256, GET /{id} and /file serve the new bytes, and the feed has exactly 1 new 'updated' event; (2) a key without the item's kind gets 403 forbidden_kind with the item's sha256 unchanged; (3) POST kind=todo with a .md file returns 201 on a database created with the old 9-kind schema.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The three tests map 1:1 to issue #10's acceptance criteria.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "The live library on spark migrates in place with 51 of 51 items, 0 lost, every id unchanged, and the full suite and CI stay green (coverage >= 60%).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The live migration is verified on the real volume, not only on fixtures.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "The migration runs on a dedicated connection with PRAGMA foreign_keys=OFF set BEFORE its BEGIN IMMEDIATE, never inside Store.connect(). SQLite ignores that pragma inside a transaction, and connect() always begins one (store.py:89-106), so a rebuild there would cascade-delete every embeddings and index_queue row. After taking the write lock it re-reads sqlite_master and rebuilds only if the CHECK is still stale, because a second process (e.g. 'docker compose exec library culture-library keys mint', keys.py:27 builds its own Store) can race the server's first open. It runs PRAGMA foreign_key_check before COMMIT.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "An old-schema DB with child rows keeps every embeddings and index_queue row through the migration, and two concurrent first opens produce one rebuild and no error.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "The migration carries sqlite_sequence's items value across the rebuild explicitly. The textbook create/copy/drop/rename resets it to max(id), so after a purge the next upload REUSES a purged id, and purged ids are already published as 'purged' feed events that consumers reconcile by id.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "After a migration no id is ever reissued: the next insert's id is greater than the pre-migration sqlite_sequence value.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "The migration verifies itself before COMMIT: the items row count, max(id) and the embeddings/index_queue child counts must equal their pre-rebuild values, or it rolls back and raises (the store does not open). On success it writes one diagnostic line to stderr naming the old and new kind sets and the row count.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "A rebuild whose counts don't match never commits: the old table and its CHECK survive and the store refuses to open with a clear error.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "boundary",
+      "text": "Rollback is restoring the pre-upgrade snapshot (deploy.md:166-167). Running an older image against a migrated DB that holds todo items is unsupported: the old feed.append validates kinds against its KINDS (feed.py:52), so archiving or purging a todo item would raise there, and one bad row fails the whole purge transaction (library.py:436-450).",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "deploy.md states that rollback means restoring a snapshot and that running an older image on a DB holding todo items is unsupported.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "docs/operations/deploy.md gains an upgrade procedure for schema-changing releases: run 'culture-library backup' and verify it, deploy the new image, check the one-line migration diagnostic in the container logs, and compare SELECT count(*), max(id) FROM items with the pre-upgrade values.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "The runbook's steps are followed for the live spark upgrade, and the before/after counts are filed as evidence.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Replace makes sure the new blob exists INSIDE its write transaction (write it if missing), as on_insert and _reuse_existing already do (library.py:197-198, 237-238). Unlinking unreferenced old blobs makes a toggle-back race real: unchecking a line restores an earlier checklist's exact bytes, so a concurrent replace can unlink a blob another replace wrote before it took the lock.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "After any interleaving of replaces (including toggling back to earlier bytes), every live item's blob exists on disk and hashes to its sha256.",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "todo kind + items-table kind-CHECK migration (core/models.py, core/store.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'todo' is in KINDS (core/models.py) and test_all_kinds_accepted covers it; 'culture-library keys mint --kind todo' succeeds (CLI test)",
+        "A DB created with the old 9-kind items CREATE (literal SQL in the test), holding items plus embeddings and index_queue rows, opens with Store(): the items CHECK now admits 'todo', and the row count, ids, column order and every embeddings/index_queue row are unchanged",
+        "sqlite_sequence is preserved: with the highest-id row deleted before migration (seq > max(id)), the first insert after migration gets id seq+1",
+        "Idempotent: a second Store() open performs no rebuild (sqlite_master SQL unchanged, no diagnostic line). Two threads racing their first Store() open produce exactly one rebuild and no error",
+        "Containment: when the copy step is monkeypatched to lose a row, Store() raises, and the old items table and its old CHECK are intact; the success path writes one line to stderr naming the old/new kinds and the row count",
+        "Everything lives in core/store.py, core/models.py and tests/core/test_store_migration.py (new); the existing tests/core/test_store.py passes unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h7",
+        "c8",
+        "h8",
+        "c29",
+        "h20",
+        "c30",
+        "h21",
+        "c31",
+        "h22"
+      ],
+      "instruction": "Add a migration step to Store.ensure_schema in core/store.py that runs BEFORE the CREATE fragments, on its own sqlite3 connection (not Store.connect()). Order: open conn; PRAGMA foreign_keys=OFF (must be set before any BEGIN, because SQLite ignores it inside a transaction, and doing it inside connect() cascade-deleted every child row in our probe); BEGIN IMMEDIATE; read sqlite_master.sql for 'items'; if the table exists and its kind CHECK does not match the current _KIND_SQL, then save the counts (items, max(id), sqlite_sequence seq for items, embeddings, index_queue if those tables exist); CREATE TABLE items_new with the exact current items DDL; INSERT INTO items_new SELECT <explicit column list> FROM items; DROP TABLE items; ALTER TABLE items_new RENAME TO items; restore sqlite_sequence (UPDATE or INSERT the saved seq: the textbook rebuild resets it to max(id), so a purged id gets reused); PRAGMA foreign_key_check must return nothing; re-count and ROLLBACK and raise on any mismatch; COMMIT; write one diagnostic line to stderr. Re-read sqlite_master AFTER taking the lock so that a racing process does not rebuild twice. Keep runtime deps at zero (stdlib only). Then add 'todo' to KINDS."
+    },
+    {
+      "id": "t2",
+      "summary": "core library.replace(): swap an item's bytes under the same id (core/library.py, core/errors.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "library.replace(store, item_id, data, filename, ...) returns the updated Item with the same id and the new sha256/size/format; title, author, kind, visibility, created_at and the uploader are unchanged",
+        "It reuses ingest's validation (_validate + _check_content); every refusal raises the same ValidationError codes as upload and leaves the row, the blob and the feed unchanged",
+        "Search: after replace, an old-only word has 0 FTS hits and a new-only word has 1; the item's index_queue row is pending with attempts=0",
+        "Feed: exactly one 'updated' event, in the same transaction, whose sha256 is the new one and whose data is {replaced: true, old_sha256, size, format}; same bytes again gives no event and no change (idempotent)",
+        "The old blob is unlinked inside the transaction only when _blob_referenced is false (a repodoc_versions row with the same sha keeps it); the new blob is (re)written inside the write transaction if missing; toggling A to B to A leaves A's blob present and hashing correctly",
+        "Bytes owned by ANOTHER item raise a new DuplicateContentError (code 'duplicate_content') carrying the other item's id and visibility, checked before the UPDATE (never IntegrityError); an archived target item raises NotFoundError",
+        "Tests live in tests/core/test_replace.py (new); only core/library.py and core/errors.py change in the source"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3",
+        "c4",
+        "h4",
+        "c34",
+        "h25",
+        "c6"
+      ],
+      "instruction": "Model replace() on restore() and _reuse_existing() in core/library.py: with store.connect() as conn (BEGIN IMMEDIATE), _row, _visible(...), refuse archived (NotFoundError). Validate first via ingest._validate(data, filename, limits) and _check_content, outside the lock. Inside the transaction: compute the new sha; if it equals the current one, return unchanged. If another items row has that sha, raise DuplicateContentError(other_id, other_visibility). Write the blob if missing (store.write_blob); UPDATE items SET sha256, size, format; search.set_body(conn, item, extracted_text); UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0, body_done=1 (mirror the requeue_* helpers in core/indexer.py; INSERT OR IGNORE enqueue is a no-op for an existing row); _event(conn, 'updated', new_item, {...}); then unlink the old blob if not _blob_referenced(conn, old_sha). Define DuplicateContentError in core/library.py beside ConflictError/ForbiddenKindError (code 'duplicate_content'), or in errors.py if that is where codes live. Do not touch routes."
+    },
+    {
+      "id": "t3",
+      "summary": "HTTP route PUT /api/library/{id}/file + acceptance tests (server/routes_library.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "PUT /api/library/{id}/file (multipart 'file') with new Markdown bytes returns 200 and the updated item: same id, new sha256; GET /api/library/{id} and /file serve the new bytes; GET /api/feed shows exactly one new 'updated' event for that id (issue #10 criterion 1)",
+        "A key minted for another kind gets 403 forbidden_kind, and the item's sha256 and file are unchanged (criterion 2); a private item is 404 for a non-private key; an archived item is 404",
+        "POST /api/library kind=todo with a .md file returns 201 on a store first created with the old 9-kind schema (criterion 3)",
+        "Refusals map like upload: too_large 413, unsupported_format 415, bad_magic/empty/invalid_encoding 400, with the body capped by the same max_body; duplicate_content gives 409 with the other item's id only when the caller can see it, otherwise no id",
+        "PUT, DELETE and MKCOL on /dav/ still return 405; tests/contract (including test_cited_copy_matches_upstream) passes unchanged; a new tests/contract/test_culture_rules_replace.py exercises PUT with the same multipart encoder",
+        "Only server/routes_library.py changes in the source; tests in tests/server/test_replace_api.py (new) and tests/contract/test_culture_rules_replace.py (new)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c5",
+        "h5",
+        "c6",
+        "h6",
+        "c12",
+        "h17",
+        "c13",
+        "h18",
+        "c19",
+        "h14",
+        "c20",
+        "h15",
+        "c11",
+        "h9",
+        "c16",
+        "h11"
+      ],
+      "instruction": "Add @router.put('/{item_id}/file') in server/routes_library.py next to restore_item. Decorate with the same @max_body(_upload_cap) as upload. Guard with _writable(principal, store, item_id), which gives 403 forbidden_kind via auth.check before any bytes are read. Read file.read(max+1), call library.replace in run_in_threadpool, then _notify_indexer(store). Map errors through the existing _refused/_STATUS_BY_CODE/_flat helpers; DuplicateContentError gives 409 via _flat(409, ..., 'duplicate_content') and adds the other id only if visible per _vis(principal). NotFoundError gives _not_found. Return _item(item). Use the api fixture from tests/server/test_library_api.py. For criterion 3, build the old-schema DB file with literal SQL before creating the app. The new contract test imports tests/contract/culture_rules_wire.encode_multipart; do not modify culture_rules_wire.py."
+    },
+    {
+      "id": "t4",
+      "summary": "Docs: upgrade + rollback runbook, spec amendment, CLAUDE.md, version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/operations/deploy.md has an 'Upgrading across a schema change' section: culture-library backup plus verify, deploy, check the one-line migration diagnostic in the container logs, compare SELECT count(*), max(id) FROM items before/after. It states rollback = restore the pre-upgrade snapshot, and that running an older image on a DB holding todo items is unsupported (old feed.append rejects unknown kinds)",
+        "docs/specs/2026-10-23-library-culture-dev.md: the kinds line lists every KINDS value including book, article and todo, and the 'sha256-immutable' wording allows a same-id file replace (PUT /api/library/{id}/file) (decision c28)",
+        "CLAUDE.md mentions the replace route and the todo kind; version bumped (minor) with a CHANGELOG entry via the version-bump skill; markdownlint-cli2 passes on every touched .md"
+      ],
+      "deps": [],
+      "covers": [
+        "c32",
+        "h23"
+      ],
+      "instruction": "Docs only: docs/operations/deploy.md (next to the rollback paragraph at lines 166-167), docs/specs/2026-10-23-library-culture-dev.md (lines 26 and 42), CLAUDE.md, CHANGELOG.md, pyproject.toml. Use the version-bump skill (minor). Do not touch code."
+    },
+    {
+      "id": "t5",
+      "summary": "Close the loop on issue #10: reply with the final route, file the site follow-up issue",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Issue #10 reply (via the cicd/gh path, signed by the script) names method PUT and path /api/library/{id}/file, the 409 duplicate_content contract, and that keys mint --kind todo works; it is posted only after the PR containing both halves is merged or approved by the operator",
+        "A follow-up issue is filed in culture-library for a first-class todo display kind on the site (colour, palette re-validation, design contract, upload option), per decision c26",
+        "The PR description restates the before-state (immutable items on main at b67ddb9) and the need (issue #10) accurately, and ships both halves in one release"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c17",
+        "h12",
+        "c18",
+        "h13"
+      ],
+      "instruction": "Main-agent task, not a subagent: outward-facing posts need the operator's go-ahead. Reply text: replace_method=PUT, replace_path=/api/library/{id}/file, multipart field 'file', 200 + item JSON, codes forbidden_kind 403 / duplicate_content 409 / not_found 404 / upload refusal codes."
+    },
+    {
+      "id": "t6",
+      "summary": "Upgrade the live library on spark and verify the migration",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Following the new deploy.md procedure on spark: a verified backup snapshot exists before the upgrade; afterwards items count = 51 (or the pre-upgrade count) and max(id) is unchanged; the container log shows the migration line; a todo upload and a replace succeed against the live API",
+        "The migration test is run once inside the built image (SQLite 3.40.1) and passes (covers assumption c35); before/after counts are filed as delivery evidence",
+        "Full suite and CI green, coverage >= 60%"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c21",
+        "h16",
+        "c33",
+        "h24"
+      ],
+      "instruction": "Main-agent, operator-gated: it touches production data. Use the restart command from memory library-build-state-2026-10-24 (grant run --inject TUNNEL_TOKEN ... docker compose --profile remote up -d), never printing the token. Stop and /deviate if the counts differ."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "t1 and t2 run in parallel and both add tests over a shared store fixture (tests/core/conftest.py): neither may edit conftest.py; each builds what it needs locally, keeping wave 0 file-disjoint",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "t3 depends on t2's DuplicateContentError shape (other id + visibility); if t2 lands a different shape, t3 adapts in routes_library.py only, never by editing core in wave 1",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Residual from /challenge: a replace may unlink a blob mid-download (FileResponse opens lazily) or under a concurrent backup; purge shares the same window. Accepted unless it is observed; watch the file_missing and backup-verify output after the live upgrade",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "t6 touches production data and t5 posts on GitHub: both are operator-gated (human gate 3 / explicit go-ahead), not fanned out to subagents",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
