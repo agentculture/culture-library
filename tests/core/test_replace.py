@@ -1,0 +1,193 @@
+"""library.replace(): swap an item's bytes under the same id (index, feed and blob effects)."""
+
+import hashlib
+import sqlite3
+
+import pytest
+
+from culture_library.core import feed, library, repodocs, search  # noqa: F401
+from culture_library.core.errors import NotFoundError, ValidationError
+from culture_library.core.ingest import IngestLimits
+from culture_library.core.library import DuplicateContentError
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _add(store, data: bytes, name: str = "a.md", **kw):
+    item, created = library.add(store, data, name, **kw)
+    assert created
+    return item
+
+
+def _rep(store, item_id, data, name, **kw):
+    kw.setdefault("include_private", True)
+    return library.replace(store, item_id, data, name, **kw)
+
+
+def _events(store, item_id=None):
+    with store.reader() as conn:
+        return feed.read_since(conn, 0, item_id=item_id)["events"]
+
+
+def _hits(store, word):
+    return len(search.fulltext(store, word, include_private=True))
+
+
+def _queue(store, item_id):
+    with store.reader() as conn:
+        return conn.execute("SELECT * FROM index_queue WHERE item_id = ?", (item_id,)).fetchone()
+
+
+def _row(store, item_id):
+    with store.reader() as conn:
+        return conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+def test_replace_swaps_bytes_keeping_metadata(store):
+    old = b"# Old\n\nalpha text\n"
+    item = _add(
+        store, old, kind="spec", title="My title", author="Ann", visibility="public", uploader="k1"
+    )
+    new = b"plain new text\n"
+    out = _rep(store, item.id, new, "b.txt")
+    assert out.id == item.id
+    assert (out.sha256, out.size, out.format) == (_sha(new), len(new), "txt")
+    assert (out.title, out.author, out.kind, out.visibility, out.created_at) == (
+        "My title",
+        "Ann",
+        "spec",
+        "public",
+        item.created_at,
+    )
+    assert library.uploader_of(store, item.id) == "k1"
+    assert store.read_bytes(item.id) == new
+    assert library.get(store, item.id, include_private=True) == out
+
+
+@pytest.mark.parametrize(
+    ("data", "name", "code"),
+    [
+        (b"", "x.md", "empty"),
+        (b"x", "x.exe", "unsupported_format"),
+        (b"nope", "x.pdf", "bad_magic"),
+        (b"{bad", "x.json", "invalid_json"),
+        (b"x" * 50, "x.md", "too_large"),
+    ],
+)
+def test_replace_refusals_match_upload_and_change_nothing(store, data, name, code):
+    """Same ValidationError code as upload (``code`` is the expected one)."""
+    old = b"keep me\n"
+    item = _add(store, old)
+    before_row, before_feed = tuple(_row(store, item.id)), _events(store)
+    limits = IngestLimits(max_bytes=20)
+    with pytest.raises(ValidationError) as up:
+        library.add(store, data, name, limits=limits)
+    with pytest.raises(ValidationError) as rep:
+        _rep(store, item.id, data, name, limits=limits)
+    assert rep.value.code == up.value.code == code
+    assert tuple(_row(store, item.id)) == before_row
+    assert _events(store) == before_feed
+    assert store.blob_path(_sha(old)).read_bytes() == old
+    assert not store.blob_path(_sha(data)).exists()
+
+
+def test_replace_reindexes_body_and_requeues(store):
+    item = _add(store, b"zebraword here\n")
+    with store.connect() as conn:
+        conn.execute("UPDATE index_queue SET state='done', attempts=3, next_attempt_at=99")
+    assert _hits(store, "zebraword") == 1
+    _rep(store, item.id, b"giraffeword here\n", "n.md")
+    assert _hits(store, "zebraword") == 0
+    assert _hits(store, "giraffeword") == 1
+    q = _queue(store, item.id)
+    assert (q["state"], q["attempts"], q["next_attempt_at"], q["body_done"]) == ("pending", 0, 0, 1)
+
+
+def test_replace_appends_one_updated_event_and_is_idempotent(store):
+    item = _add(store, b"first\n")
+    new = b"second\n"
+    out = _rep(store, item.id, new, "n.md")
+    events = [e for e in _events(store, item.id) if e["type"] == "updated"]
+    assert len(events) == 1
+    assert events[0]["sha256"] == _sha(new)
+    assert events[0]["data"] == {
+        "replaced": True,
+        "old_sha256": item.sha256,
+        "size": len(new),
+        "format": "md",
+    }
+    before = _events(store)
+    again = _rep(store, item.id, new, "n.md")
+    assert again == out
+    assert _events(store) == before
+
+
+def test_old_blob_unlinked_unless_referenced(store):
+    item = _add(store, b"old bytes\n")
+    _rep(store, item.id, b"new bytes\n", "n.md")
+    assert not store.blob_path(item.sha256).exists()
+    assert store.blob_path(_sha(b"new bytes\n")).exists()
+
+
+def test_old_blob_kept_when_repodoc_version_references_it(store):
+    item = _add(store, b"shared bytes\n")
+    with store.connect() as conn:
+        conn.execute(
+            "INSERT INTO repodocs (id, repo, path, kind, created_at, updated_at)"
+            " VALUES (1, 'r', 'p.md', 'spec', 't', 't')"
+        )
+        conn.execute(
+            "INSERT INTO repodoc_versions (doc_id, commit_sha, committed_at, visibility, sha256,"
+            " size, pushed_at) VALUES (1, ?, 't', 'public', ?, 1, 't')",
+            ("c" * 40, item.sha256),
+        )
+    _rep(store, item.id, b"other bytes\n", "n.md")
+    assert store.blob_path(item.sha256).read_bytes() == b"shared bytes\n"
+
+
+def test_toggle_a_b_a_keeps_blob_and_hash(store):
+    a, b = b"bytes A\n", b"bytes B\n"
+    item = _add(store, a)
+    _rep(store, item.id, b, "n.md")
+    assert not store.blob_path(_sha(a)).exists()
+    out = _rep(store, item.id, a, "n.md")
+    assert out.sha256 == _sha(a)
+    assert store.blob_path(_sha(a)).exists()
+    assert hashlib.sha256(store.read_bytes(item.id)).hexdigest() == _sha(a)
+    assert not store.blob_path(_sha(b)).exists()
+
+
+def test_missing_new_blob_is_written(store):
+    item = _add(store, b"one\n")
+    out = _rep(store, item.id, b"two\n", "n.md")
+    assert store.blob_path(out.sha256).read_bytes() == b"two\n"
+
+
+def test_duplicate_of_another_item_raises_before_update(store):
+    a = _add(store, b"content a\n", visibility="public")
+    b = _add(store, b"content b\n", visibility="private")
+    with pytest.raises(DuplicateContentError) as exc:
+        _rep(store, a.id, b"content b\n", "n.md")
+    assert exc.value.code == "duplicate_content"
+    assert exc.value.other_id == b.id
+    assert exc.value.other_visibility == "private"
+    assert isinstance(exc.value, library.CoreError)
+    assert not isinstance(exc.value, sqlite3.IntegrityError)
+    assert _row(store, a.id)["sha256"] == a.sha256
+    assert store.blob_path(a.sha256).exists()
+
+
+def test_archived_or_missing_or_invisible_raises_not_found(store):
+    item = _add(store, b"x1\n")
+    library.archive(store, item.id, include_private=True)
+    with pytest.raises(NotFoundError):
+        _rep(store, item.id, b"x2\n", "n.md")
+    assert _row(store, item.id)["sha256"] == item.sha256
+    with pytest.raises(NotFoundError):
+        _rep(store, 9999, b"x2\n", "n.md")
+    priv = _add(store, b"secret\n", visibility="private")
+    with pytest.raises(NotFoundError):
+        library.replace(store, priv.id, b"x3\n", "n.md", include_private=False)
+    library.replace(store, priv.id, b"x3\n", "n.md", include_private=True)
