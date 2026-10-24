@@ -22,13 +22,15 @@ full-text (they are indexed at add time). Optional by construction.
 from __future__ import annotations
 
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 
 from culture_library.core import KINDS, Store
 from culture_library.core import search as sr
-from culture_library.core.indexer import Indexer
+from culture_library.core.indexer import Indexer, enqueue_missing
 from culture_library.gateway import GatewayEmbedder
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
@@ -62,11 +64,31 @@ def stop_indexer() -> None:
         indexer.stop()
 
 
-def _on_startup() -> None:
-    start_indexer(Store())
+def notify_indexer(store: Store) -> None:
+    """Wake the running indexer for ``store`` after an add (never starts one)."""
+    with _lock:
+        running = [i for i in _indexers if i.store is store]
+    for indexer in running:
+        indexer.notify()
 
 
-router = APIRouter(on_startup=[_on_startup], on_shutdown=[stop_indexer])
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Start the indexer on the app's shared store and queue anything not yet indexed."""
+    store = getattr(app.state, "store", None)
+    if store is None:
+        store = app.state.store = Store()
+    indexer = start_indexer(store)
+    if indexer is not None:
+        enqueue_missing(store)
+        indexer.notify()
+    try:
+        yield
+    finally:
+        stop_indexer()
+
+
+router = APIRouter(lifespan=_lifespan)
 
 
 def _embedder(request: Request) -> sr.Embedder | None:
