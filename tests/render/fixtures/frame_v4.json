@@ -1,0 +1,364 @@
+{
+  "slug": "issue-backlog-sweep",
+  "title": "issue-backlog-sweep",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-07-28T06:49:19Z",
+  "updated": "2026-07-28T07:47:39Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "devague closes its fifteen-issue backlog: exports become lossless and lint-clean, rejected and contested content stops leaking into artifacts, plans gain live coverage targets with per-target deferral, claims and hard questions gain amend and resolve moves, the delivery summary scopes to confirmed work, gate 2 gains a durable split artifact, and scope exploration fans out to smaller-tier subagents",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "honest only if one release genuinely closes every one of the fifteen listed issues — each closed with a pointer to the shipping test/section, none closed as wontfix-by-stealth or half-delivered",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "export renders every parked kind: `render/spec_md.py:110-118` `_follow_up` filters to `follow_up`/`out_of_scope` only, so an unresolved `unknown_nonblocking` park renders nowhere in the spec; all open parks must render grouped by kind, and the pinning test `tests/test_render.py:301-306` flips from asserting absence to asserting presence (#93, #49)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "honest only if a converged frame carrying open parks of all four kinds exports a spec where every open park appears, labeled by kind — verified by flipping tests/test_render.py:301-306 from asserting absence to asserting presence",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "hard questions render honestly: `render/spec_md.py:104-107` shows no resolved marker and iterates all claims regardless of status — resolved questions render as resolved (or are omitted) and questions on rejected claims never render (#49, #83)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "honest only if a resolved hard question renders with a resolved marker (or is omitted by documented choice) and a hard question on a rejected claim never reaches the export — regression covering the #83 repro shape: capture, interrogate --risk, reject, converge, export",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "a user move resolves claim-attached hard questions: nothing in the codebase sets `HardQuestion.resolved` (only vagueness `frame.py:243` and plan-risk `plan.py:187` resolves exist), `set_status` (`frame.py:264-273`) routes only c*/h* ids, so the gate at `convergence.py:111-116` blocks forever; `suggest_move` (`convergence.py:206-211`) must name the real move (#48, #52)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "honest only if the block-resolve-converge sequence completes through CLI moves alone (no state-JSON hand-edit), suggest_move names the shipped move verbatim, and resolved state survives a save/load round-trip",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "reject cascades over attachments: rejecting a claim cascades to (or refuses over) its honesty conditions and hard questions, reporting what it took; `_assumption_warnings` (`convergence.py:120-126`) and the blocking-question gate skip rejected claims; `devague review` stops listing orphaned conditions (#83)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "honest only if rejecting a claim with attachments reports exactly what it cascaded over (or refuses with an actionable hint), post-reject converge emits zero warnings about the rejected claim, and review lists zero orphaned conditions",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "markdown escaping lands at the single verbatim seam: `render/_md_safety.py` (today only `autolink_urls`/`heading_safe`) gains identifier-aware escaping — code-span wrapping for underscore and dunder tokens per the #87 comment, fixing MD037 and MD050 — applied at every verbatim site in `spec_md.py`, `plan_md.py`, and `summary_md.py` (#87)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "honest only if a frame whose text contains `_read_file`, `__init__.py`, `*`, `[`, a backtick, and a leading `#` exports spec-md and plan-md passing markdownlint-cli2 default config — the integration test extends tests/test_export_markdownlint_integration.py",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "issue 86 reports plan converge missed a self-cycle on 0.20.0 but the code shows evaluate includes `_missing_dep_integrity` — unverified which is true for the installed 0.20.0; creation-time validation fixes it either way",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "downstream repos carry stale vendored copies and workarounds to retire once fixes land: reachy-mini-cli split placeholder table and render_plan.py projection (issues 82/85), shell-cli markdownlint ignores for docs/specs (issue 87); notify via guildmaster re-broadcast",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "whether issue 85 secondary ask — warn when a task covers many targets with few acceptance criteria — ships in this sweep or as a later plan-convergence warning heuristic",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "behavior of live-target cover when the source frame has regressed below convergence: `_live` refuses in that state — whether cover falls back to the stored snapshot or refuses with the reconverge hint is an implementation-time decision",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "re-exporting any historical committed frame after the escaping change rewrites its dated spec file with code-span wrapping — expected and presentational-only, but the first re-export after upgrade produces a large diff reviewers should anticipate",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "devague/render/spec_md.py",
+      "finding": "park-kind filter `_follow_up` (lines 110-118) renders only `follow_up`/`out_of_scope`; hard questions (104-107) render with no resolved marker and no parent-status filter; all verbatim text passes only through `autolink_urls`, never an escaper",
+      "seeds": [
+        "c2",
+        "c3",
+        "c6"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "devague/convergence.py",
+      "finding": "blocking-question gate (111-116) and assumption warnings (120-126) iterate claims status-agnostically, so rejected claims still block and warn; `suggest_move` (206-211) advertises a resolve path no CLI move implements",
+      "seeds": [
+        "c4",
+        "c5"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "devague/frame.py",
+      "finding": "`set_status` (264-273) routes only c*/h*; `HardQuestion.resolved` exists but nothing sets it; `add_scope_entry` (252-254) validates seeds via `find_claim` only; no amend machinery exists for claim text or scope entries; `HardQuestion(**q)`/`Vagueness(**v)` unpacking (315, 322) rejects unknown keys",
+      "seeds": [
+        "c4",
+        "c7",
+        "c8",
+        "c18"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "devague/store.py",
+      "finding": "the schema-version gate (143-147) runs after `from_dict` (136), so a newer-schema frame with new nested fields dies with a raw TypeError before reaching the fail-closed IncompatibleSchemaError",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "devague/cli/_commands/plan.py",
+      "finding": "`_require_target` (145-151) validates cover/--covers against the stored snapshot; `_live` (108-118) re-derives from the live frame for converge/export/status; converge and export persist the refreshed snapshot (496-502, 527-543) but status does not; `plan confirm`/`reject` are single-id (827-835); `plan task --dep` is never validated (220-232)",
+      "seeds": [
+        "c9",
+        "c11",
+        "c12"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "devague/plan_convergence.py",
+      "finding": "`_missing_coverage` (26-32) iterates every target unconditionally — no deferral set exists and `out_of_scope` risks have zero gate effect; `_missing_dep_integrity` (100-121) is shared by converge and waves, so both catch cycles but only after creation",
+      "seeds": [
+        "c10",
+        "c11"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "live repro of issue 90 against the 0.20.1 tree",
+      "finding": "scratchpad run: frame converges, plan seeded, frame grows c7/h7, `plan status` recommends `devague plan cover t1 --target c7`, that exact move refuses with unknown coverage target, and after a persisting `plan converge` the same cover succeeds — the escape hatch exists but is accidental and the recommended move is the refusing path",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "devague/render/plan_md.py and devague/render/summary_md.py",
+      "finding": "no markdown escaping beyond `autolink_urls`/`heading_safe`; plan-md has no Deferred targets section (sections: title, announcement, Tasks, Risks at 78-102); summary Planned Work (119-129) and Actual Delivery (132-143) iterate every task with no status filter while `dependency_waves` (plan.py:285) already excludes rejected tasks",
+      "seeds": [
+        "c6",
+        "c10",
+        "c13"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "devague/delivery.py, devague/delivery_store.py, devague/cli/_commands/deviate.py",
+      "finding": "DeviationRecord carries `affects` validated against plan task ids, target ids, and all frame claim/honesty ids (deviate.py:78-89); statuses are proposed/approved/rejected; the store is keyed by plan slug only — no frame slug on Delivery and no reverse index on Frame",
+      "seeds": [
+        "c14",
+        "c19"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "devague/cli/_commands/export.py, show.py, status.py",
+      "finding": "zero references to the delivery store in any of the five frame-side view/export modules (grep confirmed) — no path exists today to mark a confirmed claim contested by an approved deviation",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": ".claude/skills/assign-to-workforce/SKILL.md and scripts/assign-to-workforce.sh",
+      "finding": "the split-plan table renders real task content since 0.16.0 (script line 202 reads summaries from the `plan waves --json` payload); the Model column is a presentation-only hardcoded sonnet default (156-159); no --write flag and no *-split.md artifact exists anywhere in the repo (subcommands: split-plan, waves, help at 262-283)",
+      "seeds": [
+        "c15",
+        "c17",
+        "c20"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": ".claude/skills/scope/SKILL.md",
+      "finding": "steps 1-2 (lines 43-50) describe serial first-person exploration; no subagent, fan-out, or model-tier language anywhere in the skill, and no precedent in think or spec-to-plan — the only fan-out pattern in the kit is assign-to-workforce worktree orchestration, which is the wrong shape for read-only exploration",
+      "seeds": [
+        "c16"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "devague/cli/_commands/learn.py",
+      "finding": "`SCOPE_STAGE` (153-171) and `ASSIGN_TO_WORKFORCE_GUIDANCE` (65-112) assert method text that goes stale if the skills change; skill bodies are linked by raw GitHub URL, not embedded, so only the capsule dicts need sweeping",
+      "seeds": [
+        "c15",
+        "c16"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "docs/skills.md and docs/skill-sources.md",
+      "finding": "origin-skill ledger rows carry per-skill version stamps that must be updated on any skill change (skill-sources.md:38-66); docs/skills.md:255-256 already drifts from SKILL.md:138-140 on where task briefs quote from",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "tests/",
+      "finding": "pinned tests that must flip: `test_render.py:301-306` (nonblocking park stays unlisted) and `test_cli_plan.py:87-96` (unknown dep accepted); `test_export_markdownlint_integration.py` runs real markdownlint-cli2 as the escaping guard; `test_summary.py:227` is the rejected-X-omitted template; `test_e2e_resolve.py` is the resolve-lifecycle template for hard questions",
+      "seeds": [
+        "c2",
+        "c6",
+        "c11",
+        "c13"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / adjacent-systems lens: learn.py + explain recipes",
+      "finding": "four new CLI surfaces land in this sweep and none of the spec claims covered documenting them; #52 explicitly requires learn/explain updates for the resolve move",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / counter-evidence lens: render/_md_safety.py + this frame as corpus",
+      "finding": "this frame mixes backticked and bare identifiers in the same claim texts — an escaper that wraps inside existing code spans would corrupt its own spec on the next export; idempotence across repeated exports is required",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / lifecycle lens: spec_md scope section + issue 84 acceptance criteria",
+      "finding": "the amend claim c7 covers three amend surfaces but not the dead-seed-reference acceptance criterion; reject-then-recapture (which this session itself performed on h8) leaves scope seeds citing rejected ids",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / containment lens: delivery-store reads from export/show/status",
+      "finding": "the contested-marker join adds the first delivery-store read on the frame side; a corrupt or newer-schema delivery file must degrade to markerless rendering, never a crashed export",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / migration lens: plan.py PLAN_SCHEMA_VERSION + plan_store.py load order",
+      "finding": "probe confirmed plan_store.load parses via from_dict (line 54) before the version gate (line 62) — the same hazard c18 records for frames; defer state forces a plan schema bump, so the fix must cover both stores",
+      "seeds": [
+        "c35",
+        "c18"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / actors lens: qN id namespace across HardQuestion and the questions file",
+      "finding": "probe confirmed both hard questions (frame.py:201) and durable questions assign qN ids independently — recorded as pending decision q4 (seeds not linkable: --seeds refuses q ids until c8 lands, which is itself finding evidence for c8)",
+      "seeds": []
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / concurrency lens: worktree-copied .devague state during fan-out",
+      "finding": "clean pass: each worktree owns a full checkout copy of .devague, conflicts surface at reconcile per the documented worktree-contention convention; residual risk only if two agents ever share one checkout — no new claim seeded",
+      "seeds": []
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / reversibility lens: one-combined-release decision c26",
+      "finding": "clean pass: a CLI release reverts by version rollback/yank; the schema bumps are fail-closed downgrade-safe once the load-order fix lands (c18/c35); no new claim seeded",
+      "seeds": []
+    }
+  ]
+}

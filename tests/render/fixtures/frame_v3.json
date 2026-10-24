@@ -1,0 +1,113 @@
+{
+  "slug": "lobes-capabilities-tells-you-where-a-lobe-is-serve",
+  "title": "lobes capabilities tells you WHERE a lobe is served — a proxied role reads by-proxy, never a bare loaded:no",
+  "schema_version": 3,
+  "status": "exported",
+  "created": "2026-07-25T07:22:48Z",
+  "updated": "2026-07-25T08:08:58Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "lobes capabilities tells you WHERE a lobe is served — a proxied role reads by-proxy, never a bare loaded:no",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "The table distinguishes THREE readings an operator can act on — locally served, served by a named peer, and genuinely absent — visible in one command's output, rather than collapsing the last two onto the same 'no'.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Render a third state in lobes/cli/_commands/capabilities.py _render_table: a role with feasible=false AND proxied=true prints 'by-proxy' in the loaded column with its hosted_by peer, instead of yes/no. Derive it from the payload's existing proxied + hosted_by keys — do NOT change the gateway JSON. Redeem the stale comment at capabilities.py:289-292 while you are there."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators reading 'lobes capabilities' / 'lobes fleet status' on a mesh-brain box, and programmatic consumers of gateway GET /capabilities (Colleague, webcam-cli, reachy-mini-cli) that decide from the payload whether a role is usable and where it lives.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "Both audiences are actually reached: the CLI table is what an operator runs, and at least one named programmatic consumer genuinely reads GET /capabilities to decide role usability (checkable in that consumer's source) — so a CLI-only change is verified sufficient for the operator audience and explicitly NOT claimed to change anything for the payload audience.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Verified live on spark 2026-07-25: senses and muse are BOTH dropped-and-proxied and BOTH serve 200 through this gateway (muse proved end-to-end: X-Lobes-Proxied-By thor, plus a clean tool_calls response). Yet 'lobes capabilities' prints senses loaded=yes and muse loaded=no. The difference is not health, reachability, or the peer — it is only whether <PREFIX>_BASE_URL happens to be set in this box's local .env.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The asymmetry is reproducible on demand, not a one-off: toggling <PREFIX>_BASE_URL alone flips the affected role's loaded value with no change on the peer side, proving the display tracks local wiring rather than the peer's real state.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c4",
+      "kind": "why_it_matters",
+      "text": "'loaded' is the ONLY yes/no column in the capabilities table, so operators read it as 'is this role usable'. For a proxied role it answers a different question (did this box wire a local backend), so it is both wrong-looking (muse:no while muse serves) and misleading (senses:yes while spark runs no senses container at all). An operator cannot tell a working proxied lobe from a dead one.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Demonstrable today: two roles in the SAME proxied state, both returning 200 through this gateway, print DIFFERENT loaded values — and no other column in that table distinguishes a working proxied lobe from a dead one.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c5",
+      "kind": "after_state",
+      "text": "A proxied role reads 'by-proxy' in the capabilities table instead of a bare yes/no, and names its hosting peer. loaded stops being the field an operator consults to answer 'is this usable' for a role this box does not host. Both senses and muse read identically for identical situations — the display no longer depends on leftover local wiring.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "After the change a role's displayed state is a function of (feasible, proxied, hosted_by) ONLY and never of whether <PREFIX>_BASE_URL is set — provable by toggling that var and observing the displayed state does not move.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c6",
+      "kind": "assumption",
+      "text": "ROOT CAUSE, read from source, not inferred: loaded = (backend is not None) at lobes/roles.py:455 — a pure LOCAL wiring fact that never consults the peer. Both roles reach _optional_backend (_config.py:514/530), which returns None when <PREFIX>_BASE_URL is empty. Spark's .env still sets MULTIMODAL_BASE_URL (leftover from when spark hosted senses) but leaves MUSE_BASE_URL empty, so senses gets a Backend object and muse does not. The peer's real state rides on 'ready', which is true for both.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": []
+}
