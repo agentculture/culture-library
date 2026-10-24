@@ -12,7 +12,7 @@ def test_gate_lists_three_conditions_with_evidence_slots() -> None:
     for heading in (
         "Devices sync from the library",
         "Seven consecutive newspapers on library.culture.dev",
-        "Migration 17/17",
+        "Migration complete",
     ):
         assert heading in text
     assert text.count("- [ ] **Evidence:**") == 3

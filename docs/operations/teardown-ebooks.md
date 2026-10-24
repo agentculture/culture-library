@@ -36,13 +36,16 @@ address and no longer sends the device-queue step (culture-rules#86).
 - [ ] **Evidence:** the seven dates, the matching `created` events from
   `GET /api/feed`, and `GET /api/library?kind=newspaper` showing them.
 
-### 3. Migration 17/17
+### 3. Migration complete
 
-All 17 xteink items are in culture-library with the same id and sha256.
+Every xteink item is in culture-library with the same id and sha256. The spec
+said 17; xteink held 51 on 2026-10-24, because 33 recording EPUBs and more
+newspapers had arrived since (`docs/evidence/t21-delivery-evidence.md`).
+Count against xteink's live total at teardown time, not a fixed number.
 
 - [ ] **Evidence:** the output of
   `culture-library migrate from-xteink --data-dir <copy of xteink /data> --apply`,
-  ending in `17/17 items with matching sha256`. Then a re-run reporting every
+  ending in `N/N items with matching sha256`, where N is xteink's item count. Then a re-run reporting every
   item `unchanged`.
 
 ## Before the teardown
