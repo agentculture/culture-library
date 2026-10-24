@@ -275,8 +275,10 @@ def list_items(
     offset: int = 0,
     include_private: bool = False,
     owner: str | None = None,
+    newest_first: bool = False,
 ) -> list[Item]:
-    """Live (unarchived) items in id order; ``q`` matches title/author substrings."""
+    """Live (unarchived) items in id order (descending with ``newest_first``, so ``limit``
+    keeps the newest matches); ``q`` matches title/author substrings."""
     vis, params = uploaders.visible_sql(include_private, owner)
     where = ["archived_at IS NULL", vis]
     params = list(params)
@@ -288,7 +290,8 @@ def list_items(
         where.append("(lower(title) LIKE ? ESCAPE '\\' OR lower(author) LIKE ? ESCAPE '\\')")
         params += [pat, pat]
     limit = max(1, min(int(limit), MAX_LIMIT))
-    sql = _SEL + " WHERE " + " AND ".join(where) + " ORDER BY id LIMIT ? OFFSET ?"
+    order = "id DESC" if newest_first else "id"
+    sql = _SEL + " WHERE " + " AND ".join(where) + f" ORDER BY {order} LIMIT ? OFFSET ?"
     with store.reader() as conn:
         return [_item(r) for r in conn.execute(sql, (*params, limit, max(0, int(offset))))]
 
