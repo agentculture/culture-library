@@ -31,6 +31,8 @@ Commands
   culture-library cli overview       Describe the CLI surface itself.
   culture-library server serve       Start the HTTP server (needs culture-library[server]).
   culture-library server overview    Describe the server noun.
+  culture-library migrate from-xteink  Copy an xteink library in (dry run unless --apply).
+  culture-library migrate overview   Describe the migrate noun.
 
 Machine-readable output
 -----------------------
@@ -64,6 +66,8 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
             {"path": ["server", "serve"], "summary": "Start the HTTP server ([server] extra)."},
             {"path": ["server", "overview"], "summary": "Describe the server noun."},
+            {"path": ["migrate", "from-xteink"], "summary": "Migrate xteink items (--apply)."},
+            {"path": ["migrate", "overview"], "summary": "Describe the migrate noun."},
         ],
         "exit_codes": {
             "0": "success",

@@ -27,6 +27,7 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 - `culture-library doctor` — check the agent-identity invariants.
 - `culture-library cli overview` — describe the CLI surface.
 - `culture-library server serve` — run the HTTP server (`[server]` extra).
+- `culture-library migrate from-xteink` — copy an xteink library in.
 
 ## Exit-code policy
 
@@ -127,6 +128,25 @@ If the extra is missing, `serve` exits 2 with a hint to install
 `culture-library[server]`.
 """
 
+_MIGRATE = """\
+# culture-library migrate
+
+One-off migrations into the catalog.
+
+## Verbs
+
+- `culture-library migrate from-xteink --data-dir <xteink-dir> [--dest D] [--apply]
+  [--visibility private|public]` — read the xteink `library.db` (opened read-only,
+  never written) and copy items with the same id, sha256 and created_at. Titles
+  starting `Daily newspaper` become `newspaper`, kind `book` stays `book`, the rest
+  become `document`. Dry run unless `--apply`; items are `private` unless
+  `--visibility public`. Re-runs report existing items as unchanged; a clashing id
+  or sha256 is an error (exit 1), never an overwrite. A `--data-dir` without
+  `library.db` is refused with a hint. The destination is `--dest`, else
+  `CULTURE_LIBRARY_DATA_DIR`.
+- `culture-library migrate overview` — describe this noun.
+"""
+
 _CLI = """\
 # culture-library cli
 
@@ -153,4 +173,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("server",): _SERVER,
     ("server", "serve"): _SERVER,
     ("server", "overview"): _SERVER,
+    ("migrate",): _MIGRATE,
+    ("migrate", "from-xteink"): _MIGRATE,
+    ("migrate", "overview"): _MIGRATE,
 }
