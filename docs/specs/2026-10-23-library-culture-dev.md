@@ -43,10 +43,36 @@
   - honesty: Pushing the same (remote, path) at a new commit creates a new version, not a new item; pushing the same commit twice is a no-op; history lists both commits
 - Repo documents inherit their repo's visibility: 17 of 129 agentculture GitHub repos are PRIVATE (incl. culture-core, steward, devex, guildmaster, grant, cultureagent, agent-lifecycle, katvan) — their specs/plans are never shown to readers who could not read the repo
   - honesty: A document pushed from any of the 17 PRIVATE repos is private by default; a test pushes one from a repo marked private and asserts it is invisible to a shared-scope key
-- Frame and plan JSON (`schema_version` 5 per devague docs/spec-contract.md) is rendered as readable pages — claims with status, honesty conditions, scope entries, open questions, plan waves — rather than served as raw JSON only; the raw file stays downloadable
-  - honesty: Every frame/plan JSON with `schema_version` ≤ 5 in ~/git renders without error (a corpus test over the real files); unknown future schema renders raw with a notice instead of failing
+- Frame and plan JSON (every `schema_version` devague has written, 1 through 6, and files with no `schema_version`) is rendered as readable pages — claims with status, honesty conditions, scope entries, open questions, plan waves — rather than served as raw JSON only; the raw file stays downloadable; a file with a schema newer than the renderer knows renders raw with a notice
+  - honesty: A corpus test renders all 1,230 frame/plan files from ~/git without error, covering versions 1–6 and the unversioned ones; a synthetic version-7 file renders raw with a notice
 - The library dedups repo documents by (remote URL, path, commit) so a culture-rules rule that reads ~/git — which holds 106 extra .devague dirs under .worktrees.\* and \*/.worktrees — cannot multiply frames
   - honesty: Pushing the same frame from `~/git/<repo>` and `~/git/.worktrees.<repo>/<branch>` at the same commit yields one version
+- Migration preserves xteink item ids, not only sha256 (amends c9): xteink's queue rows reference items 1–20 by `item_id` with ON DELETE CASCADE, culture-rules records the pushed `item_id` per newspaper date in its own store, and Gwen reconciles by (id, sha256); ids are never reused afterwards (AUTOINCREMENT)
+  - honesty: After migration, every xteink queue row and every culture-rules newspaper record resolves to the same item (same id, same sha256) in the library; a test inserts after migration and gets an id above the old maximum
+- Pullers can see deletions and changes: the library exposes a change feed (or since-cursor on GET /api/library) carrying created/updated/deleted events with item id and sha256, so xteink's mirror mode, Gwen's index reconcile (embodiment c33) and culture-rules re-pull without rescanning the catalog
+  - honesty: A test deletes and replaces items and a client reading the feed from a saved cursor sees exactly those events in order, with no full-catalog scan
+- The store tolerates concurrent writers: SQLite in WAL mode with a busy timeout (xteink runs `journal_mode`=delete, timeout 30 s) and one write path, because culture-rules pushes, Gwen's diary writes, human uploads and bulk repo-record pushes (~3,000 files) land at the same time
+  - honesty: A load test runs a bulk push of 3,000 repo records, 10 diary writes and an upload at once with zero 'database is locked' errors
+- Repo identity and 'current version' survive clones and remote-less repos: identity is the normalized remote URL (5 folders clone agentculture/lobes-cli, 2 clone culture-guide), a repo with no remote (transformer) gets a host:path identity, and 'current' is the newest commit on the default branch — a push from a stale clone or feature branch adds history but never rolls current back
+  - honesty: Pushing the same repo file from a clone at an older commit leaves 'current' unchanged and adds a history entry; transformer's files get a stable identity
+- Ingested and uploaded content is untrusted: the site reader renders extracted text (or an allowlisted, sanitized subset) and never the EPUB/HTML as markup or script, under a CSP with no inline script from content; xteink's ingest caps (50 MiB, zip-bomb member/byte limits, 60 s conversion timeout) are kept
+  - honesty: A test uploads an EPUB containing script, event handlers and a javascript: link; the reader shows its text and runs nothing, and the CSP blocks inline script
+- Hebrew and mixed-direction text render correctly: dir=auto on titles, cards, list rows, search snippets and reader paragraphs, logical CSS properties in the site styles, because culture-rules runs a Hebrew STT lane (stt-he, 0.24.0) and embodiment's specs already require dir=auto
+  - honesty: A Hebrew transcript and a mixed Hebrew/English title render right-to-left in cards, rows, snippets and reader, checked in the Playwright run
+- Backups with a tested restore: the library becomes the only copy of Gwen's diary and the long-term home of everything else, and xteink has no library backup today (only 'device backup' of reader firmware); the DB and content files are backed up on a schedule to a second location, and a restore drill is run before ebooks.culture.dev is torn down
+  - honesty: A restore drill from the latest backup onto a clean host reproduces the catalog (ids, sha256, visibility) and passes before teardown
+- Ingest never waits on indexing: an upload or push is accepted and stored even when the embedding service (lobes gateway) is down, indexing runs behind it with retries, and index lag, failures and per-source last push are shown on the site state page and an API status endpoint
+  - honesty: With the gateway stopped, an upload returns 201 and appears in title search; full-text/semantic search catches up after the gateway returns, and the lag is visible meanwhile
+- Missing visibility fails closed: an item pushed without an explicit visibility is private, so a culture-rules rule that forgets the field (e.g. for one of the 17 private repos) cannot publish it
+  - honesty: A push with no visibility field is invisible to a shared-scope key; a test pins it
+- Send to device ends at an event: POST /api/library/{id}/send {target}, the MCP tool `send_to_device` and the reader's 'Send to device' button each publish library.item.`send_requested` through events-cli carrying the item reference (id, sha256, kind, title, format, size, a content URL on the local address) plus target and requester, and return 202; the library makes no call to any device or device service
+  - honesty: A test presses Send, calls the API and the MCP tool: each publishes exactly one library.item.`send_requested` event with the item reference and returns 202; a grep finds no HTTP client call from the library to xteink or reterminal
+- Rules can fetch what they deliver: any rule holding a read-scoped key can GET the item's metadata and bytes (GET /api/library/{id}, GET /api/library/{id}/file) by the reference in the event, so culture-rules can pass either the content or the reference on to another service
+  - honesty: A rule with a read-scoped key fetches metadata and bytes for the referenced id and gets identical bytes (sha256 matches the event)
+- Send targets are a plain list of names in the library's config (label, enabled) used only to fill the menu and the event's target field; the library stores no device ids, keys or delivery mapping
+  - honesty: Changing the target list in config changes the menu and the event's target field; no device identifier appears in the library's database
+- The site confirms only what the library did: a toast and a 'Sent to `<target>` at `<time>'` line once the event is published, an error with a retry when publishing fails, and nothing about delivery, which happens outside this repo
+  - honesty: With the event broker down, Send shows an error and a working retry; with it up, the toast and the sent line appear; no delivered/failed delivery state exists in the library
 
 ## Honesty conditions
 
@@ -59,6 +85,8 @@
 - The operator confirms this states their reason (user-owned)
 - Each number is measured on spark, recorded in docs/evidence/, and the 1 s full-text bound holds at the full corpus size
 - Measured end-to-end through embodiment once its seam points at library.culture.dev; until then recorded as pending, not passed
+- The teardown is not run until the three conditions are recorded as evidence, and the dry-run output is reviewed first
+- The plan has no culture-library task that delivers to a device, maps targets to devices, or tracks delivery status; those land as issues on culture-rules (c10)
 
 ## Success signals
 
@@ -71,6 +99,8 @@
 
 - The e-reader side stays in xteink and is not built here: device keys (`xtd_`), device protocol v1, per-device queue, mirror, firmware tables, MCP `send_to_device`, USB CLI, avahi, and the xteink.culture.dev tunnel; xteink becomes an HTTP client of library.culture.dev — xteink#3 'xteink keeps the device side', xteink `routes_device.py`/core/devices.py
 - The library never writes back to repos and does not change devague: devague stays deterministic, offline and local-only (devague issue #20, spec-contract 'All operations run fully offline against local .devague/ state'); the library is a reader/mirror of committed state
+- ebooks.culture.dev is torn down only after: xteink devices sync from the library, culture-rules has pushed 7 consecutive newspapers to library.culture.dev, and the c9 migration report is 17/17; teardown runs cultureflare remote-login teardown dry-run first, then --apply
+- Once the send event is published, delivery is beyond culture-library: culture-rules rules decide what to do with it (xteink's queue today, reTerminal later) and own any delivery status (operator, 2026-10-24)
 
 ## Non-goals
 
@@ -116,6 +146,36 @@
   - seeds: `c16`, `c17`, `c14`
 - `s17` — `~/git/agentculture-cli remote`: origin points at github.com/agentculture/culture-guide.git — a local clone's directory name is not a reliable repo identity; key repo docs by remote URL
   - seeds: `c14`
+- `s18` — `challenge pass / cheap-probe lens`: Probed live: library.db schema + pragma + queue ids, culture-rules push gate, frame schema versions across ~/git, remote dedup, xteink backups, stt-he lane. Not probed: Access behaviour for headless clients, embedding cost for 2,949 records + book bodies, PDF sizes
+- `s19` — `challenge pass / migration lens: xteink library.db queue + culture-rules newspaper_issue.py _library_item`: queue.`item_id` FK ON DELETE CASCADE to items(id), 17 rows referencing ids 1–20; culture-rules keeps library.`item_id` per date and gates re-push on it
+  - seeds: `c33`
+- `s20` — `challenge pass / adjacent-systems lens: xteink mirror flag + embodiment c33 reconcile`: two pullers already need deletion signals (xteink mirror deletes on device; Gwen purges deleted items' chunks); a list-only API forces full rescans
+  - seeds: `c34`
+- `s21` — `challenge pass / concurrency lens: xteink core/store.py + live library.db pragma`: `journal_mode` is delete, connect timeout 30 s; fine for one daily push, not for bulk repo pushes beside diary writes
+  - seeds: `c35`
+- `s22` — `challenge pass / counter-evidence lens: schema_version across ~/git/*/.devague/{frames,plans}`: 1,230 JSON files, all parse; versions 1–6 and none; devague docs/spec-contract.md still says current is 5
+  - seeds: `c36` (rejected)
+- `s23` — `challenge pass / overlooked-actors lens: ~/git remotes`: about 72 distinct remotes behind 76 folders; 288 files are byte-identical across clone folders; transformer has no remote
+  - seeds: `c37`
+- `s24` — `challenge pass / security lens: newspaper EPUBs + upload dialog + xteink ingest caps`: newspapers carry web-sourced text and uploads are arbitrary zips; the prototype escapes text, the real reader must too
+  - seeds: `c38`
+- `s25` — `challenge pass / overlooked-actors lens: culture-rules stt-he lane + embodiment gwen-remembers-recordings spec l.56-57`: Hebrew transcripts are coming; docs/design/library-site.md and the prototype set no text direction
+  - seeds: `c39`
+- `s26` — `challenge pass / recovery lens: xteink README + delivery doc`: no backup or restore exists for library.db or files/; 'device backup' covers reader firmware only
+  - seeds: `c40`
+- `s27` — `challenge pass / observability lens: q5 decision + pocketsync 0.11.1 self-healing enrichment`: semantic search adds a dependency on the lobes gateway; pocketsync needed retrying enrichment for the same reason
+  - seeds: `c41`
+- `s28` — `challenge pass / reversibility lens: cultureflare remote-login teardown + c25`: teardown deletes tunnel, DNS and Access app; it is the one hard-to-undo step of the move
+  - seeds: `c42`
+- `s29` — `challenge pass / security lens: c15 + gh repo list agentculture (17 PRIVATE)`: c15 maps repo visibility but not a push that omits it
+  - seeds: `c43`
+- `s30` — `challenge pass / adjacent-systems lens: xteink#3 split list + ebooks-cli README`: OPDS/WebDAV were promised by the issue and the superseded repo but are absent from the spec; routed to a question
+- `s31` — `xteink devices table + queue API (feat/issue-1)`: one active reader, x3-ori (id 3, last seen 2026-10-23 03:30); queue add is idempotent per (`device_id`, `item_id`) and stays in xteink
+  - seeds: `c48`
+- `s32` — `culture-rules event triggers (runner.py open_event_source, events-cli; pocket-transcribe rule trigger kind event)`: rules already start from named events published through events-cli/MQTT, so library.item.`send_requested` fits without a new trigger kind
+  - seeds: `c48`
+- `s33` — `reterminal-cli docs/delivery-map.md (board push + paginated PDF)`: reTerminal Sticky accepts POST /v1/panels/{id}/pdf (rasterized, touch page-turn, live 2026-08-12) and /v1/push cards/text — a future send target, not EPUB
+  - seeds: `c50`
 
 ## Decisions
 
@@ -126,7 +186,11 @@
 - xteink reads from the library (pull); the device queue stays in xteink (operator, 2026-10-24)
 - The library provides both full-text and semantic search (operator, 2026-10-24)
 - ebooks.culture.dev is torn down eventually, after library.culture.dev serves its content (operator, 2026-10-24)
-- The site UI follows the approved prototype (<https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz>, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)
+- The site UI follows the approved prototype (`<https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz>`, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)
+- Machine clients (culture-rules, Gwen, xteink) reach the library on spark's loopback/LAN address with API keys; only humans use library.culture.dev behind Cloudflare Access (operator, 2026-10-24)
+- Gwen may edit and delete her own diary entries through MCP and the API; every deletion (any kind) archives first and is purged after 30 days, restorable until then (operator, 2026-10-24)
+- The library serves OPDS and WebDAV for reading apps, alongside the HTTP API, MCP and the site (operator, 2026-10-24)
+- Send to my device: from the site, the API and MCP, the operator (and agents) can send a library item to a personal device — Xteink readers today (via xteink's device queue), reTerminal later; culture-rules performs the delivery (operator, 2026-10-24)
 
 ## Hard questions
 
@@ -139,8 +203,11 @@
 - Source of truth for repo docs: committed state on each repo's default branch (GitHub, includes repos not cloned here, excludes in-progress work) or the local ~/git working trees (includes untracked frames like embodiment's drafting plan, and gitignored .devague in reachy-mini-cli 125 files, culture-guide, notion-agent, agentculture-cli, reachy-lobes)? (resolved: Deferred to culture-rules: which tree a rule reads (GitHub default branch vs ~/git) is the rule's choice; the library accepts either, keyed by remote URL + path + commit (follows from the q8 decision, operator 2026-10-24))
 - Push or pull: does each repo publish on merge (a CI step / guildmaster-broadcast skill, i.e. a change in ~75 repos), does a culture-rules rule fire on push events, or does the library crawl GitHub/~/git on a schedule (no repo changes)? (resolved: culture-rules moves the data; the library is source-agnostic and accepts push (API/MCP) and serves pull (API/MCP/site) — no crawler or repo hook inside the library (operator, 2026-10-24))
 - Visibility model: map GitHub repo visibility to library visibility automatically (private repo → private item), and who may read private ones — operator only via Access, or mesh agents with scoped keys?
+- c16 and h14 say `schema_version` ≤ 5; the corpus has v6 (this frame too). Amend c16/h14 to 'versions 1–6 and unversioned', or keep c16 and let c supersede it? (resolved: Amended c16 in place to cover schema versions 1–6 and unversioned files, with corpus-test honesty h43; h14 rejected; c36 rejected as its duplicate (the question's garbled ending meant c36) (operator go, 2026-10-24))
+- contradiction with c? (resolved: Malformed: recorded by a script bug that passed an empty claim id to --contradicts; points at no claim; the real issue is q10 (operator go, 2026-10-24))
 
 ## Open parks
 
 - [unknown_nonblocking] xteink feat/issue-1 is local-only (unpushed; xteink#3 asks for it to be pushed/merged) — the code culture-library would cite exists only on this host and may move under it
 - [unknown_nonblocking] Transcript EPUB format is unseen (embodiment v3; no transcript in the 2026-10-24 catalog) — whether segment start/end/speaker survive decides if the library reader can jump to a moment like pocketchat does
+- [unknown_nonblocking] The 50 MiB upload cap is xteink's e-reader limit; large PDFs and scanned books may exceed it, and no size distribution of the operator's PDFs was measured

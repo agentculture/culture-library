@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-23T23:06:01Z",
-  "updated": "2026-10-24T00:01:24Z",
+  "updated": "2026-10-24T00:03:49Z",
   "claims": [
     {
       "id": "c1",
@@ -360,13 +360,19 @@
     {
       "id": "c16",
       "kind": "requirement",
-      "text": "Frame and plan JSON (schema_version 5 per devague docs/spec-contract.md) is rendered as readable pages \u2014 claims with status, honesty conditions, scope entries, open questions, plan waves \u2014 rather than served as raw JSON only; the raw file stays downloadable",
+      "text": "Frame and plan JSON (every schema_version devague has written, 1 through 6, and files with no schema_version) is rendered as readable pages \u2014 claims with status, honesty conditions, scope entries, open questions, plan waves \u2014 rather than served as raw JSON only; the raw file stays downloadable; a file with a schema newer than the renderer knows renders raw with a notice",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h14",
           "text": "Every frame/plan JSON with schema_version \u2264 5 in ~/git renders without error (a corpus test over the real files); unknown future schema renders raw with a notice instead of failing",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h43",
+          "text": "A corpus test renders all 1,230 frame/plan files from ~/git without error, covering versions 1\u20136 and the unversioned ones; a synthetic version-7 file renders raw with a notice",
           "status": "confirmed",
           "instruction": ""
         }
@@ -375,21 +381,27 @@
         {
           "id": "q10",
           "text": "c16 and h14 say schema_version \u2264 5; the corpus has v6 (this frame too). Amend c16/h14 to 'versions 1\u20136 and unversioned', or keep c16 and let c supersede it?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Amended c16 in place to cover schema versions 1\u20136 and unversioned files, with corpus-test honesty h43; h14 rejected; c36 rejected as its duplicate (the question's garbled ending meant c36) (operator go, 2026-10-24)"
         },
         {
           "id": "q11",
           "text": "contradiction with c?",
-          "resolved": false,
+          "resolved": true,
           "blocking": true,
-          "resolution": ""
+          "resolution": "Malformed: recorded by a script bug that passed an empty claim id to --contradicts; points at no claim; the real issue is q10 (operator go, 2026-10-24)"
         }
       ],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Frame and plan JSON (schema_version 5 per devague docs/spec-contract.md) is rendered as readable pages \u2014 claims with status, honesty conditions, scope entries, open questions, plan waves \u2014 rather than served as raw JSON only; the raw file stays downloadable",
+          "kind": "requirement",
+          "reason": "challenge c36/q10: corpus has schema 1-6 and unversioned (operator go 2026-10-24)"
+        }
+      ]
     },
     {
       "id": "c17",
@@ -656,12 +668,12 @@
       "kind": "requirement",
       "text": "Migration preserves xteink item ids, not only sha256 (amends c9): xteink's queue rows reference items 1\u201320 by item_id with ON DELETE CASCADE, culture-rules records the pushed item_id per newspaper date in its own store, and Gwen reconciles by (id, sha256); ids are never reused afterwards (AUTOINCREMENT)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h23",
           "text": "After migration, every xteink queue row and every culture-rules newspaper record resolves to the same item (same id, same sha256) in the library; a test inserts after migration and gets an id above the old maximum",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -675,12 +687,12 @@
       "kind": "requirement",
       "text": "Pullers can see deletions and changes: the library exposes a change feed (or since-cursor on GET /api/library) carrying created/updated/deleted events with item id and sha256, so xteink's mirror mode, Gwen's index reconcile (embodiment c33) and culture-rules re-pull without rescanning the catalog",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h24",
           "text": "A test deletes and replaces items and a client reading the feed from a saved cursor sees exactly those events in order, with no full-catalog scan",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -694,12 +706,12 @@
       "kind": "requirement",
       "text": "The store tolerates concurrent writers: SQLite in WAL mode with a busy timeout (xteink runs journal_mode=delete, timeout 30 s) and one write path, because culture-rules pushes, Gwen's diary writes, human uploads and bulk repo-record pushes (~3,000 files) land at the same time",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h25",
           "text": "A load test runs a bulk push of 3,000 repo records, 10 diary writes and an upload at once with zero 'database is locked' errors",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -713,12 +725,12 @@
       "kind": "requirement",
       "text": "The frame/plan renderer covers schema_version 1 through 6 and files with no schema_version (corrects c16/h14 which say \u2264 5): ~/git holds 1,230 frame/plan JSON files at versions 1\u20136 (148 frames at v6, this frame included) and 3 without a version; a corpus test renders every one",
       "origin": "llm",
-      "status": "proposed",
+      "status": "rejected",
       "honesty_conditions": [
         {
           "id": "h26",
           "text": "A corpus test renders all 1,230 frame/plan files from ~/git without error, including versions 1\u20136 and the unversioned ones",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         }
       ],
@@ -732,12 +744,12 @@
       "kind": "requirement",
       "text": "Repo identity and 'current version' survive clones and remote-less repos: identity is the normalized remote URL (5 folders clone agentculture/lobes-cli, 2 clone culture-guide), a repo with no remote (transformer) gets a host:path identity, and 'current' is the newest commit on the default branch \u2014 a push from a stale clone or feature branch adds history but never rolls current back",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h27",
           "text": "Pushing the same repo file from a clone at an older commit leaves 'current' unchanged and adds a history entry; transformer's files get a stable identity",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -751,12 +763,12 @@
       "kind": "requirement",
       "text": "Ingested and uploaded content is untrusted: the site reader renders extracted text (or an allowlisted, sanitized subset) and never the EPUB/HTML as markup or script, under a CSP with no inline script from content; xteink's ingest caps (50 MiB, zip-bomb member/byte limits, 60 s conversion timeout) are kept",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h28",
           "text": "A test uploads an EPUB containing script, event handlers and a javascript: link; the reader shows its text and runs nothing, and the CSP blocks inline script",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -770,12 +782,12 @@
       "kind": "requirement",
       "text": "Hebrew and mixed-direction text render correctly: dir=auto on titles, cards, list rows, search snippets and reader paragraphs, logical CSS properties in the site styles, because culture-rules runs a Hebrew STT lane (stt-he, 0.24.0) and embodiment's specs already require dir=auto",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h29",
           "text": "A Hebrew transcript and a mixed Hebrew/English title render right-to-left in cards, rows, snippets and reader, checked in the Playwright run",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -789,12 +801,12 @@
       "kind": "requirement",
       "text": "Backups with a tested restore: the library becomes the only copy of Gwen's diary and the long-term home of everything else, and xteink has no library backup today (only 'device backup' of reader firmware); the DB and content files are backed up on a schedule to a second location, and a restore drill is run before ebooks.culture.dev is torn down",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h30",
           "text": "A restore drill from the latest backup onto a clean host reproduces the catalog (ids, sha256, visibility) and passes before teardown",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -808,12 +820,12 @@
       "kind": "requirement",
       "text": "Ingest never waits on indexing: an upload or push is accepted and stored even when the embedding service (lobes gateway) is down, indexing runs behind it with retries, and index lag, failures and per-source last push are shown on the site state page and an API status endpoint",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h31",
           "text": "With the gateway stopped, an upload returns 201 and appears in title search; full-text/semantic search catches up after the gateway returns, and the lag is visible meanwhile",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -827,12 +839,12 @@
       "kind": "boundary",
       "text": "ebooks.culture.dev is torn down only after: xteink devices sync from the library, culture-rules has pushed 7 consecutive newspapers to library.culture.dev, and the c9 migration report is 17/17; teardown runs cultureflare remote-login teardown dry-run first, then --apply",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h32",
           "text": "The teardown is not run until the three conditions are recorded as evidence, and the dry-run output is reviewed first",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -846,12 +858,12 @@
       "kind": "requirement",
       "text": "Missing visibility fails closed: an item pushed without an explicit visibility is private, so a culture-rules rule that forgets the field (e.g. for one of the 17 private repos) cannot publish it",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h33",
           "text": "A push with no visibility field is invisible to a shared-scope key; a test pins it",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -913,18 +925,18 @@
       "kind": "requirement",
       "text": "Send to device ends at an event: POST /api/library/{id}/send {target}, the MCP tool send_to_device and the reader's 'Send to device' button each publish library.item.send_requested through events-cli carrying the item reference (id, sha256, kind, title, format, size, a content URL on the local address) plus target and requester, and return 202; the library makes no call to any device or device service",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h34",
           "text": "An end-to-end test sends an EPUB from the site to x3-ori: one send request, one event, one xteink queue entry, and the request turns delivered after the reader's next sync; the library itself makes no call to xteink",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h38",
           "text": "A test presses Send, calls the API and the MCP tool: each publishes exactly one library.item.send_requested event with the item reference and returns 202; a grep finds no HTTP client call from the library to xteink or reterminal",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -944,18 +956,18 @@
       "kind": "requirement",
       "text": "Rules can fetch what they deliver: any rule holding a read-scoped key can GET the item's metadata and bytes (GET /api/library/{id}, GET /api/library/{id}/file) by the reference in the event, so culture-rules can pass either the content or the reference on to another service",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h35",
           "text": "A grep/schema test finds no device key, token or xteink device id stored in the library; disabling a target hides it from the send menu",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h39",
           "text": "A rule with a read-scoped key fetches metadata and bytes for the referenced id and gets identical bytes (sha256 matches the event)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -975,18 +987,18 @@
       "kind": "requirement",
       "text": "Send targets are a plain list of names in the library's config (label, enabled) used only to fill the menu and the event's target field; the library stores no device ids, keys or delivery mapping",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h36",
           "text": "The reTerminal target appears as unavailable in the menu and the API refuses sends to it with a clear code until a rule is enabled",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h40",
           "text": "Changing the target list in config changes the menu and the event's target field; no device identifier appears in the library's database",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -1006,18 +1018,18 @@
       "kind": "requirement",
       "text": "The site confirms only what the library did: a toast and a 'Sent to <target> at <time>' line once the event is published, an error with a retry when publishing fails, and nothing about delivery, which happens outside this repo",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h37",
           "text": "A failed delivery shows its reason and a working retry; a double send creates one queue entry; a Playwright check covers toast, status line and retry",
-          "status": "proposed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h41",
           "text": "With the event broker down, Send shows an error and a working retry; with it up, the toast and the sent line appear; no delivered/failed delivery state exists in the library",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -1042,7 +1054,7 @@
         {
           "id": "h42",
           "text": "The plan has no culture-library task that delivers to a device, maps targets to devices, or tracks delivery status; those land as issues on culture-rules (c10)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -1376,7 +1388,7 @@
         "docs/design/reference/*-state.png"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -1388,7 +1400,7 @@
         "h14"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1402,7 +1414,7 @@
         "c36"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
@@ -1413,7 +1425,7 @@
       "behavior": "The built site renders the same 22 reference views (desktop 1680x1000 and phone 400x860; light and dark; home, newspaper/spec/frame readers, list hidden, list drawer, site state, upload) with the same layout, components, spacing, colors and type as the reference screenshots; a Playwright visual test with the same viewports, fixture data and reduced motion fails on any layout, color or component difference beyond font antialiasing (pixel-diff threshold set in the test, at most 1% of pixels)",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o2",
@@ -1422,7 +1434,7 @@
       "behavior": "Every color, radius and font token in the site stylesheet equals docs/design/library-site.md and docs/design/prototype.html exactly (cream light: --bg #faf5e8, --accent #00684a; dark blue: --bg #172b47, --accent #5fd897; the six kind colors in fixed order); a test parses the stylesheet and compares",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o3",
@@ -1431,7 +1443,7 @@
       "behavior": "Only Lato is used (computed font-family on every visible element), at weights 300/400/700/900 as specified; no serif or other face, checked in the Playwright run after document.fonts.ready",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o4",
@@ -1440,7 +1452,7 @@
       "behavior": "Content max width 1760px with 32px/16px gutters; reader list pane 340px with Hide/Show list; at <= 900px the pane is a closed-by-default drawer over a scrim that closes on scrim tap and Escape; at <= 720px search takes its own row and Upload becomes an icon; document scrollWidth equals viewport width at 400px on every view",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o5",
@@ -1449,7 +1461,7 @@
       "behavior": "Home opens with nothing selected (Continue reading / Start with the newest + Latest cards with kind filters); opening a card shows the reader with list, filters, All cards, previous/next; theme toggle, last-read item, pane state and reading progress persist per browser; search highlights matches and opens the first full-text hit; Upload opens the dialog with file, title, kind, visibility and the API call, and a real upload lands via POST /api/library",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o6",
@@ -1458,7 +1470,7 @@
       "behavior": "Tiles, status rows (icon + label) and the chart grid match the reference; every chart has a hover tooltip, a Table toggle and a source line; kind colors pass scripts/validate_palette.js on both surfaces; numbers come from the live library, not hard-coded",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o7",
@@ -1467,7 +1479,7 @@
       "behavior": "The reader toolbar's Send to device button (icon-only at phone width) opens the target menu (enabled x3-ori, disabled reTerminal Sticky, the footer about events and send_to_device), and after sending shows the 'Sent to <target> at <time>. culture-rules takes it from here.' line and the toast, matching the 8 send reference views (desktop and phone, light and dark) under the same visual test as o1",
       "source_text": "The site UI follows the approved prototype (https://claude.ai/artifact/2z94SGy76vPeWT1jUGQafz, v3) as documented in docs/design/library-site.md: cream light / dark-blue dark themes with a toggle, Lato, forest-green accent, full-width layout, card home with continue-reading, reader with a collapsible filterable list pane (drawer on phones), upload button, and a site-state page with validated charts (operator, 2026-10-24)",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }

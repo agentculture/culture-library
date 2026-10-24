@@ -134,6 +134,15 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
   - The page says nothing about delivery, which happens outside this repo.
   - The button is disabled for items that are not in the library yet.
   - Escape or a click outside closes the menu.
+- **Hebrew and mixed-direction text** (claim c39) gets `dir=auto` on titles,
+  cards, list rows, search snippets and reader paragraphs.
+  - The stylesheet uses logical properties (`margin-inline`,
+    `border-inline-start`, `padding-inline`), so right-to-left content lays
+    out correctly.
+  - The prototype only had left-to-right content, so the reference
+    screenshots don't show this.
+- **Content is untrusted** (claim c38): the reader renders extracted text,
+  never markup or script taken from an item.
 - **Not-yet-ingested items** are labeled *Arriving*. Private items are labeled
   *Only me*.
 - **Per-browser state** (theme, last read item, pane state, reading position)
