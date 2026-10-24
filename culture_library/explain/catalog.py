@@ -120,7 +120,7 @@ dependencies and works without it.
 ## Verbs
 
 - `culture-library server serve [--host H] [--port N]` — start the server
-  (default 127.0.0.1:8780). `GET /api/health` reports status.
+  (default 127.0.0.1:8796). `GET /api/health` reports status.
 - `culture-library server overview` — describe this noun.
 
 If the extra is missing, `serve` exits 2 with a hint to install

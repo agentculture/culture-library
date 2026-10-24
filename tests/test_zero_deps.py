@@ -49,3 +49,27 @@ def test_base_dependencies_empty_and_server_extra() -> None:
 
 def test_claude_md_records_server_extra() -> None:
     assert "[server]" in (ROOT / "CLAUDE.md").read_text()
+
+
+_FRESH = """
+import importlib, importlib.util, pkgutil, sys
+sys.path.insert(0, sys.argv[1])
+assert importlib.util.find_spec('fastapi') is None, 'fresh venv must not have the [server] extra'
+import culture_library.cli as cli
+for m in pkgutil.walk_packages(cli.__path__, 'culture_library.cli.'):
+    importlib.import_module(m.name)
+from culture_library.cli import main
+sys.exit(0 if main(['server', 'serve', '--port', '1']) == 2 else 99)
+"""
+
+
+def test_cli_imports_in_fresh_venv_without_extra(tmp_path: Path) -> None:
+    """A venv with nothing installed (so no [server] extra) imports and runs the CLI."""
+    venv = tmp_path / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+    py = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    proc = subprocess.run(
+        [str(py), "-c", _FRESH, str(ROOT)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "culture-library[server]" in proc.stderr

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8780
+DEFAULT_PORT = 8796
 
 
 @dataclass(frozen=True)
