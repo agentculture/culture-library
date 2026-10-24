@@ -133,7 +133,8 @@ def _rebuild_items(conn: sqlite3.Connection, old_sql: str) -> str:
     if problems:
         raise MigrationError(f"items rebuild left foreign-key violations: {problems[:5]}")
     after = _item_counts(conn)
-    if after != before or _items_seq(conn) != seq:
+    # A never-used table has no sqlite_sequence row; the rebuild may leave a 0 row instead.
+    if after != before or (_items_seq(conn) or 0) != (seq or 0):
         raise MigrationError(
             f"items rebuild changed the data (before {before}, seq {seq}; "
             f"after {after}, seq {_items_seq(conn)}); rolled back"

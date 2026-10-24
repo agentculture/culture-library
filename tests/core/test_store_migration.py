@@ -230,6 +230,18 @@ def test_sqlite_sequence_preserved(tmp_path):
     assert _insert_todo(store).item.id == 6
 
 
+def test_empty_old_db_migrates(tmp_path):
+    # Never-used old store: no sqlite_sequence row before, a 0 row after the rebuild.
+    data = tmp_path / "data"
+    db = _make_old_db(data, n_items=0)
+    assert _snapshot(db)["seq"] is None
+
+    store = Store(data)
+
+    assert "'todo'" in _items_sql(db)
+    assert _insert_todo(store).item.id == 1
+
+
 def test_second_open_does_not_rebuild(tmp_path, capsys):
     data = tmp_path / "data"
     db = _make_old_db(data)
