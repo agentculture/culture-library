@@ -2,9 +2,12 @@
 
 Adding an item never depends on this module's work: the API calls :func:`index_on_add`
 inside the add transaction (title index + queue row, no network). The :class:`Indexer`
-later fills in the body full-text row (no gateway needed) and the embeddings (gateway).
-A gateway outage only delays embeddings; the job is retried with backoff and caught up
-once the gateway is back. :func:`status` exposes lag/failures/last success as plain data
+later fills in the body full-text row (no gateway needed: text comes from
+:func:`culture_library.core.ingest.extract_text`, so EPUB and PDF bodies are searchable) and
+the embeddings (gateway). Without an embedder a job completes after its body (full-text
+only, not a failure); :func:`requeue_unembedded` re-opens those jobs once an embedder is
+configured. A gateway outage only delays embeddings; the job is retried with backoff and
+caught up once the gateway is back. :func:`status` exposes lag/failures/last success as plain data
 for the status endpoint.
 """
 
@@ -15,11 +18,10 @@ import threading
 import time
 from typing import Callable
 
-from . import search
+from . import ingest, search
+from .errors import ValidationError
 from .models import Item
 from .store import Store, register_schema
-
-TEXT_FORMATS = {"md", "markdown", "txt", "text", "json"}
 
 register_schema("""
 CREATE TABLE IF NOT EXISTS index_queue (
@@ -40,13 +42,24 @@ CREATE TABLE IF NOT EXISTS index_meta (
 TextFor = Callable[[Item], str]
 
 
-def default_text_for(store: Store) -> TextFor:
-    """Decode plain-text formats; everything else is empty until ingest is wired in."""
+def default_text_for(store: Store, limits: ingest.IngestLimits = ingest.DEFAULT_LIMITS) -> TextFor:
+    """Plain text via :func:`ingest.extract_text` (EPUB, PDF via pdftotext, md, txt, json).
+
+    Unsupported formats and content that cannot be extracted (bad encoding, broken EPUB)
+    index as an empty body: retrying would not change the bytes. A PDF timeout is raised so
+    the job is retried with backoff.
+    """
 
     def text_for(item: Item) -> str:
-        if item.format.lower() not in TEXT_FORMATS:
+        fmt = item.format.lower()
+        if fmt not in ingest.SUPPORTED_FORMATS:
             return ""
-        return store.read_bytes(item.id).decode("utf-8", errors="replace")
+        try:
+            return ingest.extract_text(store.read_bytes(item.id), fmt, limits)
+        except ValidationError as exc:
+            if exc.code == "conversion_timeout":
+                raise
+            return ""
 
     return text_for
 
@@ -85,6 +98,19 @@ def requeue_failed(store: Store) -> int:
         cur = conn.execute(
             "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0 "
             "WHERE state='failed'"
+        )
+        return cur.rowcount
+
+
+def requeue_unembedded(store: Store) -> int:
+    """Re-open finished jobs that have no embeddings (indexed while no embedder was set).
+
+    The body stays indexed (``body_done`` is kept), so only the embeddings are computed.
+    """
+    with store.connect() as conn:
+        cur = conn.execute(
+            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0 "
+            "WHERE state='done' AND item_id NOT IN (SELECT DISTINCT item_id FROM embeddings)"
         )
         return cur.rowcount
 
@@ -201,8 +227,8 @@ class Indexer:
             conn.execute("UPDATE index_queue SET body_done=1 WHERE item_id=?", (item.id,))
 
     def _index_embeddings(self, item: Item) -> None:
-        if self.embed is None:
-            raise search.EmbeddingError("no embedder configured (GATEWAY_API_KEY unset)")
+        if self.embed is None:  # full-text only: no gateway configured, not a failure
+            return
         with self.store.reader() as conn:
             body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (item.id,)).fetchone()
         header = f"{item.title}\n{item.author}".strip()

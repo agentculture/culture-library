@@ -13,10 +13,11 @@ was requested/defaulted; ``source`` on each hit says what produced it). ``semant
 an embedder, or when the query cannot be embedded, answers 503 ``semantic_unavailable``.
 ``kind`` filtering is applied after ranking over a widened candidate window.
 
-Indexer ownership: this module starts the background :class:`Indexer` (default
-``text_for``) on app startup when an embedder is configured in the environment, and stops it
-on shutdown. Without ``GATEWAY_API_KEY`` nothing starts and titles stay searchable through
-full-text (they are indexed at add time). Optional by construction.
+Indexer ownership: this module always starts the background :class:`Indexer` (default
+``text_for``, i.e. ingest's text extraction) on app startup and stops it on shutdown. With
+an embedder configured in the environment it also computes embeddings (and re-opens jobs
+finished while none was configured); without ``GATEWAY_API_KEY`` it indexes item bodies for
+full-text only.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 
 from culture_library.core import KINDS, Store
 from culture_library.core import search as sr
-from culture_library.core.indexer import Indexer, enqueue_missing
+from culture_library.core.indexer import Indexer, enqueue_missing, requeue_unembedded
 from culture_library.gateway import GatewayEmbedder
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
@@ -40,12 +41,10 @@ _UNSET = object()
 _FILTER_WINDOW = 200
 
 
-def start_indexer(store: Store, embedder: sr.Embedder | None | object = _UNSET) -> Indexer | None:
-    """Start (once per store) the background indexer; ``None`` when no embedder is configured."""
+def start_indexer(store: Store, embedder: sr.Embedder | None | object = _UNSET) -> Indexer:
+    """Start (once per store) the background indexer; without an embedder it is full-text only."""
     if embedder is _UNSET:
         embedder = GatewayEmbedder.from_env()
-    if embedder is None:
-        return None
     with _lock:
         for existing in _indexers:
             if existing.store is store:
@@ -81,6 +80,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     indexer = start_indexer(store)
     if indexer is not None:
         enqueue_missing(store)
+        if getattr(indexer, "embed", None) is not None:
+            requeue_unembedded(store)
         indexer.notify()
     try:
         yield
