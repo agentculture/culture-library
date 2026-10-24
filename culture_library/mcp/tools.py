@@ -196,7 +196,7 @@ def _own_diary_entry(client: Client, entry_id: int) -> dict:
         raise ToolError(
             f"not_a_diary_entry: item {entry_id} is a {item['kind']}, not a diary entry"
         )
-    if client.uploader_of(entry_id) != client.key_id:
+    if not client.uploaded_by_me(entry_id, item):
         raise ToolError(f"not_owner: diary entry {entry_id} was not written by this key")
     return item
 

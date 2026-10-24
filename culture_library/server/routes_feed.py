@@ -1,4 +1,8 @@
-"""``GET /api/feed?since=<cursor>``: ordered change events (read scope)."""
+"""``GET /api/feed?since=<cursor>[&item_id=N]``: ordered change events (read scope).
+
+``item_id`` keeps only that item's events (served from the ``feed(item_id)`` index). Events
+about private items appear to callers with private access and to the key that uploaded them.
+"""
 
 from __future__ import annotations
 
@@ -23,8 +27,16 @@ def feed(
     request: Request,
     since: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    item_id: int | None = Query(None, ge=1),
     principal: Principal = Depends(current_principal),
 ) -> dict:
     check(principal, "read")
     with _store(request).reader() as conn:
-        return read_since(conn, since, limit=limit, include_private=principal.private)
+        return read_since(
+            conn,
+            since,
+            limit=limit,
+            include_private=principal.private,
+            owner=principal.key_id,
+            item_id=item_id,
+        )

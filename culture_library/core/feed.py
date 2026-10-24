@@ -2,7 +2,9 @@
 
 Later tasks call :func:`append` with the connection of the transaction that changes an
 item, so the change and its event commit (or roll back) together. Readers poll
-:func:`read_since` with a saved cursor; it reads only the ``feed`` table, never ``items``.
+:func:`read_since` with a saved cursor; it reads only the ``feed`` table (and, for an
+``owner``, :mod:`~culture_library.core.uploaders`), never ``items``. ``item_id`` narrows it to
+one item through the ``feed(item_id)`` index, so no catalog or log scan is needed.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import json
 import sqlite3
 from typing import Any
 
+from . import uploaders
 from .errors import ValidationError
 from .models import KINDS, VISIBILITIES
 from .store import now, register_schema
@@ -31,6 +34,7 @@ CREATE TABLE IF NOT EXISTS feed (
     data TEXT
 )
 """)
+register_schema("CREATE INDEX IF NOT EXISTS feed_item_id ON feed(item_id)")
 
 
 def append(conn: sqlite3.Connection, event: dict[str, Any]) -> int:
@@ -73,23 +77,30 @@ def read_since(
     *,
     limit: int = DEFAULT_LIMIT,
     include_private: bool = True,
+    owner: str | None = None,
+    item_id: int | None = None,
 ) -> dict[str, Any]:
     """Events with ``cursor > since`` in order: ``{events, cursor, more}``.
 
     ``limit`` bounds the raw rows scanned. With ``include_private=False`` events about
-    private items are omitted, but ``cursor`` still advances past them.
+    private items are omitted unless ``owner`` (a key id) uploaded the item, but ``cursor``
+    still advances past them. ``item_id`` keeps only that item's events (indexed).
     """
     limit = max(1, min(int(limit), MAX_LIMIT))
+    vis, vis_params = uploaders.visible_sql(include_private, owner, item_id="item_id")
+    where, params = "cursor > ?", [since]
+    if item_id is not None:
+        where, params = "item_id = ? AND cursor > ?", [int(item_id), since]
     rows = conn.execute(
-        "SELECT cursor, type, item_id, sha256, kind, visibility, at, data FROM feed"
-        " WHERE cursor > ? ORDER BY cursor LIMIT ?",
-        (since, limit + 1),
+        f"SELECT cursor, type, item_id, sha256, kind, visibility, at, data, {vis} AS shown"
+        f" FROM feed WHERE {where} ORDER BY cursor LIMIT ?",  # nosec B608 - fixed fragments
+        (*vis_params, *params, limit + 1),
     ).fetchall()
     more = len(rows) > limit
     rows = rows[:limit]
     events = []
     for r in rows:
-        if not include_private and r[5] != "public":
+        if not r[8]:
             continue
         events.append(
             {

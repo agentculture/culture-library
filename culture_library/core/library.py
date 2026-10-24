@@ -17,8 +17,12 @@ flight). For bytes already stored, a follow-up transaction heals a missing ``cre
 for it back - but only for a caller who may see it: bytes matching a private item raise
 :class:`ConflictError` (opaque, no id) for callers without private access, and that item is
 never touched. One exception keeps a write-only pusher's retries idempotent: the key that
-created the private item (``uploader``, recorded in its ``created`` event) gets it back while
-it is live.
+created the private item (``uploader``, recorded in its ``created`` event and in
+:mod:`~culture_library.core.uploaders`) gets it back while it is live.
+
+**Visibility (d4).** Every read and change takes ``include_private`` and ``owner`` (the
+caller's key id): an item is visible if it is public, or ``include_private``, or ``owner``
+uploaded it. ``owner`` widens nothing else (kind limits are the API's ``check``).
 
 **Archive/purge (c45).** ``archive`` stamps ``archived_at`` and appends ``archived`` (with
 ``purge_after``); archived items vanish from list, search, get and file (except
@@ -36,18 +40,25 @@ Stdlib only, no network.
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
-from . import feed, indexer, search  # noqa: F401 - search/indexer/feed register their schema
+from . import feed, indexer, search, uploaders  # noqa: F401 - they register their schema
 from .errors import CoreError, NotFoundError, ValidationError
 from .ingest import DEFAULT_LIMITS, IngestLimits, ingest
 from .models import KINDS, VISIBILITIES, Item
-from .store import Store
+from .store import Store, register_schema
+
+# Backfill item_uploaders from the feed's created events (databases from before d4). Runs on
+# every Store open; INSERT OR IGNORE keeps it idempotent and never overrides a recorded row.
+register_schema("""
+INSERT OR IGNORE INTO item_uploaders (item_id, key_id)
+SELECT item_id, json_extract(data, '$.uploader') FROM feed
+WHERE type = 'created' AND data IS NOT NULL AND json_extract(data, '$.uploader') IS NOT NULL
+ORDER BY cursor
+""")
 
 RETENTION = timedelta(days=30)
 PURGE_INTERVAL_ENV = "CULTURE_LIBRARY_PURGE_INTERVAL_S"
@@ -138,17 +149,15 @@ def _announce(conn: sqlite3.Connection, item: Item, uploader: str | None = None)
         _event(conn, "created", item, {"uploader": uploader} if uploader else None)
 
 
-def _uploaded_by(conn: sqlite3.Connection, item_id: int, uploader: str | None) -> bool:
-    """True when ``uploader`` is the key whose upload created ``item_id``."""
-    if not uploader:
-        return False
-    row = conn.execute(
-        "SELECT data FROM feed WHERE item_id = ? AND type = 'created' ORDER BY cursor LIMIT 1",
-        (item_id,),
-    ).fetchone()
-    if row is None or row[0] is None:
-        return False
-    return json.loads(row[0]).get("uploader") == uploader
+def uploader_of(store: Store, item_id: int) -> str | None:
+    """The key id whose upload created ``item_id`` (``None`` when unknown)."""
+    with store.reader() as conn:
+        return uploaders.uploader(conn, item_id)
+
+
+def uploaded_by(store: Store, item_id: int, key_id: str | None) -> bool:
+    with store.reader() as conn:
+        return uploaders.uploaded_by(conn, item_id, key_id)
 
 
 def add(
@@ -180,6 +189,7 @@ def add(
     def on_insert(conn: sqlite3.Connection, item: Item) -> None:
         if not store.blob_path(item.sha256).exists():  # a racing purge removed the bytes
             store.write_blob(data)
+        uploaders.record(conn, item.id, uploader)
         _announce(conn, item, uploader)
 
     item, created, _text = ingest(
@@ -198,7 +208,7 @@ def add(
     if item.visibility != "public" and not include_private:
         with store.reader() as conn:
             current = _row(conn, item.id)
-            own = _uploaded_by(conn, item.id, uploader)
+            own = uploaders.uploaded_by(conn, item.id, uploader)
         if current is not None and current.archived_at is None and own:
             return current, False
         raise ConflictError(CONFLICT_DETAIL)
@@ -243,12 +253,12 @@ def list_items(
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
     include_private: bool = False,
+    owner: str | None = None,
 ) -> list[Item]:
     """Live (unarchived) items in id order; ``q`` matches title/author substrings."""
-    where = ["archived_at IS NULL"]
-    params: list[Any] = []
-    if not include_private:
-        where.append("visibility = 'public'")
+    vis, params = uploaders.visible_sql(include_private, owner)
+    where = ["archived_at IS NULL", vis]
+    params = list(params)
     if kind is not None:
         where.append("kind = ?")
         params.append(check_kind(kind))
@@ -262,10 +272,16 @@ def list_items(
         return [_item(r) for r in conn.execute(sql, (*params, limit, max(0, int(offset))))]
 
 
-def _visible(item: Item | None, include_private: bool, include_archived: bool) -> bool:
+def _visible(
+    conn: sqlite3.Connection,
+    item: Item | None,
+    include_private: bool,
+    include_archived: bool,
+    owner: str | None = None,
+) -> bool:
     if item is None:
         return False
-    if item.visibility != "public" and not include_private:
+    if not uploaders.is_visible(conn, item.id, item.visibility, include_private, owner):
         return False
     return item.archived_at is None or include_archived
 
@@ -276,11 +292,13 @@ def get(
     *,
     include_private: bool = False,
     include_archived: bool = False,
+    owner: str | None = None,
 ) -> Item:
     """The item, or :class:`NotFoundError` when absent *or not visible to this caller*."""
     with store.reader() as conn:
         item = _row(conn, item_id)
-    if not _visible(item, include_private, include_archived):
+        visible = _visible(conn, item, include_private, include_archived, owner)
+    if not visible:
         raise NotFoundError(f"item {item_id} not found")
     return item  # type: ignore[return-value]
 
@@ -289,13 +307,18 @@ def get(
 
 
 def archive(
-    store: Store, item_id: int, *, include_private: bool = False, now: datetime | None = None
+    store: Store,
+    item_id: int,
+    *,
+    include_private: bool = False,
+    owner: str | None = None,
+    now: datetime | None = None,
 ) -> Item:
     """Archive (soft-delete) a visible item; idempotent for an already-archived one."""
     when = _now(now)
     with store.connect() as conn:
         item = _row(conn, item_id)
-        if item is None or not _visible(item, include_private, include_archived=True):
+        if not _visible(conn, item, include_private, True, owner):
             raise NotFoundError(f"item {item_id} not found")
         if item.archived_at is not None:
             return item
@@ -308,7 +331,12 @@ def archive(
 
 
 def restore(
-    store: Store, item_id: int, *, include_private: bool = False, now: datetime | None = None
+    store: Store,
+    item_id: int,
+    *,
+    include_private: bool = False,
+    owner: str | None = None,
+    now: datetime | None = None,
 ) -> Item:
     """Un-archive an item within :data:`RETENTION`; :class:`NotFoundError` otherwise."""
     when = _now(now)
@@ -316,7 +344,7 @@ def restore(
         item = _row(conn, item_id)
         if (
             item is None
-            or not _visible(item, include_private, include_archived=True)
+            or not _visible(conn, item, include_private, True, owner)
             or item.archived_at is None
             or when >= _parse(item.archived_at) + RETENTION
         ):
@@ -436,4 +464,6 @@ __all__ = [
     "purge_expired",
     "purge_interval_from_env",
     "restore",
+    "uploaded_by",
+    "uploader_of",
 ]

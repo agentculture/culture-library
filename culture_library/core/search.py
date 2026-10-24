@@ -18,6 +18,7 @@ from array import array
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
+from . import uploaders
 from .errors import CoreError
 from .models import Item
 from .store import Store, register_schema
@@ -159,27 +160,36 @@ def _fts_query(q: str) -> str:
     return " ".join(quoted)
 
 
-def _visible(include_private: bool) -> str:
-    base = "i.archived_at IS NULL"
-    return base if include_private else base + " AND i.visibility = 'public'"
+def _visible(include_private: bool, owner: str | None) -> tuple[str, list[str]]:
+    """Live items the caller may see: public, private access, or uploaded by ``owner``."""
+    vis, params = uploaders.visible_sql(
+        include_private, owner, visibility="i.visibility", item_id="i.id"
+    )
+    return f"i.archived_at IS NULL AND {vis}", params
 
 
 def fulltext(
-    store: Store, query: str, *, include_private: bool = False, limit: int = 20
+    store: Store,
+    query: str,
+    *,
+    include_private: bool = False,
+    owner: str | None = None,
+    limit: int = 20,
 ) -> list[Hit]:
     """FTS5 search (porter stemming, prefix on the last term) with highlighted snippets."""
     match = _fts_query(query)
     if not match:
         return []
+    vis, params = _visible(include_private, owner)
     sql = (
         "SELECT i.id, i.title, i.kind, i.visibility, bm25(search_fts, 5.0, 1.0) AS rank, "
         "snippet(search_fts, -1, '[', ']', '…', 12) AS snip "
         "FROM search_fts JOIN items i ON i.id = search_fts.rowid "
-        f"WHERE search_fts MATCH ? AND {_visible(include_private)} "  # nosec B608
+        f"WHERE search_fts MATCH ? AND {vis} "  # nosec B608
         "ORDER BY rank LIMIT ?"
     )
     with store.reader() as conn:
-        rows = conn.execute(sql, (match, limit)).fetchall()
+        rows = conn.execute(sql, (match, *params, limit)).fetchall()
     return [Hit(r[0], r[1], r[2], r[3], -float(r[4]), r[5], "fulltext") for r in rows]
 
 
@@ -189,6 +199,7 @@ def semantic(
     embed: Embedder,
     *,
     include_private: bool = False,
+    owner: str | None = None,
     limit: int = 20,
 ) -> list[Hit]:
     """Cosine similarity of the query embedding against stored chunk vectors (best chunk wins).
@@ -198,13 +209,14 @@ def semantic(
     if not query.strip():
         return []
     qvec = _embed(embed, [query])[0]
+    vis, params = _visible(include_private, owner)
     sql = (
         "SELECT i.id, i.title, i.kind, i.visibility, e.text, e.vec "
         "FROM embeddings e JOIN items i ON i.id = e.item_id "
-        f"WHERE {_visible(include_private)}"  # nosec B608
+        f"WHERE {vis}"  # nosec B608
     )
     with store.reader() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     best: dict[int, Hit] = {}
     for r in rows:
         score = _cosine(qvec, unpack_vec(r[5]))
@@ -220,13 +232,15 @@ def hybrid(
     embed: Embedder,
     *,
     include_private: bool = False,
+    owner: str | None = None,
     limit: int = 20,
 ) -> list[Hit]:
     """Reciprocal-rank fusion of full-text and semantic; degrades to full-text if the
     embedder is down."""
-    ft = fulltext(store, query, include_private=include_private, limit=limit * 2)
+    vis = {"include_private": include_private, "owner": owner}
+    ft = fulltext(store, query, **vis, limit=limit * 2)
     try:
-        sem = semantic(store, query, embed, include_private=include_private, limit=limit * 2)
+        sem = semantic(store, query, embed, **vis, limit=limit * 2)
     except EmbeddingError:
         return ft[:limit]
     fused: dict[int, float] = {}

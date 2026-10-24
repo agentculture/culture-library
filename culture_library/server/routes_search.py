@@ -3,7 +3,7 @@
 ``GET /api/search?q=&mode=fulltext|semantic|hybrid&kind=&limit=`` returns
 ``{query, mode, hits: [{item_id, title, kind, visibility, snippet, score, source}]}``.
 Snippets mark matches with ``[ ]``. Private hits appear only for ``Principal.private``
-callers; archived items never appear.
+callers and for the key that uploaded them; archived items never appear.
 
 The embedder is ``app.state.embedder`` when set (tests, or a deployment that injects one),
 else :meth:`GatewayEmbedder.from_env` (``None`` unless ``GATEWAY_API_KEY`` is set), cached.
@@ -117,20 +117,20 @@ def search(
     embed = _embedder(request)
     mode = mode or ("hybrid" if embed else "fulltext")
     window = _FILTER_WINDOW if kind else limit
-    private = principal.private
+    vis = {"include_private": principal.private, "owner": principal.key_id}
     if mode == "fulltext":
-        hits = sr.fulltext(store, q, include_private=private, limit=window)
+        hits = sr.fulltext(store, q, **vis, limit=window)
     elif mode == "semantic":
         if embed is None:
             raise _unavailable("no embedding gateway is configured")
         try:
-            hits = sr.semantic(store, q, embed, include_private=private, limit=window)
+            hits = sr.semantic(store, q, embed, **vis, limit=window)
         except sr.EmbeddingError:
             raise _unavailable("the embedding gateway is unavailable") from None
     elif embed is None:
-        hits = sr.fulltext(store, q, include_private=private, limit=window)
+        hits = sr.fulltext(store, q, **vis, limit=window)
     else:
-        hits = sr.hybrid(store, q, embed, include_private=private, limit=window)
+        hits = sr.hybrid(store, q, embed, **vis, limit=window)
     if kind:
         hits = [h for h in hits if h.kind == kind]
     return {
