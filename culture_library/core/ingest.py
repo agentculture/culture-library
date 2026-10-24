@@ -222,23 +222,21 @@ def _pdf_text(data: bytes, limits: IngestLimits) -> Extraction:
     exe = shutil.which("pdftotext")
     if exe is None:
         return Extraction("", "pdftotext_missing")
-    with tempfile.TemporaryDirectory(prefix="culture-library-ingest-") as tmp:
-        src = Path(tmp) / "in.pdf"
-        src.write_bytes(data)
-        argv = [exe, "-q", "-enc", "UTF-8", str(src), "-"]
-        try:
-            proc = subprocess.run(  # nosec B603 - shell=False, fixed argv, no network
-                argv,
-                shell=False,
-                capture_output=True,
-                timeout=limits.convert_timeout_s,
-                check=False,
-                stdin=subprocess.DEVNULL,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ValidationError("PDF text extraction timed out", "conversion_timeout") from exc
-        except OSError:
-            return Extraction("", "pdftotext_unavailable")
+    # The PDF goes in on stdin (poppler's ``fd://0``): no temp file, no path built from input.
+    argv = [exe, "-q", "-enc", "UTF-8", "fd://0", "-"]
+    try:
+        proc = subprocess.run(  # nosec B603 - shell=False, fixed argv, no network
+            argv,
+            shell=False,
+            input=data,
+            capture_output=True,
+            timeout=limits.convert_timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValidationError("PDF text extraction timed out", "conversion_timeout") from exc
+    except OSError:
+        return Extraction("", "pdftotext_unavailable")
     if proc.returncode != 0:
         return Extraction("", "pdftotext_failed")
     return Extraction(_collapse(proc.stdout.decode("utf-8", errors="replace").replace("\f", "\n")))

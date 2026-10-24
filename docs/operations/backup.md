@@ -45,7 +45,8 @@ culture-library backup schedule --print --kind cron --data-dir /srv/culture-libr
 ```
 
 For systemd, save the two units from the output as
-`~/.config/systemd/user/culture-library-backup.service` and `.timer`, then
+`culture-library-backup.service` and `.timer` in your systemd user unit
+directory (see `man systemd.unit`), then
 `systemctl --user enable --now culture-library-backup.timer`. Check it with
 `systemctl --user list-timers` and by confirming a new snapshot each day.
 

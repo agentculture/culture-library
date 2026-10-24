@@ -34,15 +34,31 @@ export const kindKey = k => KIND_OF[k] || (KINDS[k] ? k : 'document');
 export const kc = k => `var(--k-${k})`;
 export const fmtSize = b => b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : (b / 1024).toFixed(1) + ' KB';
 export const fmtN = n => Number(n || 0).toLocaleString('en-US');
-export const store = {
-  get(k) { try { return localStorage.getItem('lib.' + k); } catch (e) { return null; } },
-  set(k, v) { try { localStorage.setItem('lib.' + k, v); } catch (e) { /* storage unavailable */ } },
-};
-export const session = {
-  get(k) { try { return sessionStorage.getItem('lib.' + k); } catch (e) { return null; } },
-  set(k, v) { try { sessionStorage.setItem('lib.' + k, v); } catch (e) { /* storage unavailable */ } },
-  del(k) { try { sessionStorage.removeItem('lib.' + k); } catch (e) { /* storage unavailable */ } },
-};
+// Browser storage holds per-viewer conveniences only: keys come from a fixed vocabulary and
+// values are short strings, so nothing read back can carry markup or grow unbounded.
+const KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+const VALUE_MAX = 512;
+const safeKey = k => (KEY_RE.test(String(k)) ? 'lib.' + k : null);
+const safeValue = v => String(v).slice(0, VALUE_MAX);
+const wrap = area => ({
+  get(k) {
+    const key = safeKey(k);
+    if (!key) return null;
+    try { const v = area().getItem(key); return v === null ? null : safeValue(v); } catch (e) { return null; }
+  },
+  set(k, v) {
+    const key = safeKey(k);
+    if (!key) return;
+    try { area().setItem(key, safeValue(v)); } catch (e) { /* storage unavailable */ }
+  },
+  del(k) {
+    const key = safeKey(k);
+    if (!key) return;
+    try { area().removeItem(key); } catch (e) { /* storage unavailable */ }
+  },
+});
+export const store = wrap(() => localStorage);
+export const session = wrap(() => sessionStorage);
 
 export const SVG = {
   sun: '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M9 1.5v1.8M9 14.7v1.8M1.5 9h1.8M14.7 9h1.8M3.7 3.7l1.3 1.3M13 13l1.3 1.3M3.7 14.3L5 13M13 5l1.3-1.3"/></g></svg>',
@@ -268,7 +284,7 @@ export function setPane(open) {
 export function show(view) {
   for (const v of ['home', 'read', 'state']) $('view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === (view === 'read' ? 'home' : view))));
-  if (view === 'state') siteState.draw();
+  if (view === 'state') void siteState.draw();
 }
 export function openItem(key, keepScroll) {
   const i = byKey(key); if (!i) return goHome();
@@ -345,4 +361,4 @@ async function load() {
 initConnect();
 home.init(); search.init(); send.init(); upload.init(); siteState.init();
 home.drawShelf(); home.drawHome();
-load();
+void load();

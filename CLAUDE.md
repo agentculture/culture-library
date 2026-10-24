@@ -70,7 +70,7 @@ uv run black --check culture_library tests
 uv run isort --check-only culture_library tests
 uv run flake8 culture_library tests
 uv run bandit -c pyproject.toml -r culture_library
-markdownlint-cli2 "**/*.md" "#node_modules" "#.local" "#.claude/skills" "#.teken"
+markdownlint-cli2 "**/*.md" "#node_modules" "#.local" "#.claude/skills" "#.teken" "#.venv"
 python3 scripts/scan-secrets.py                 # committed secrets / non-localhost endpoints
 uv run teken cli doctor . --strict              # agent-first rubric gate
 

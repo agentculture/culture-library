@@ -36,11 +36,11 @@ from culture_library.server.auth import Principal, check, current_principal, get
 
 PAGE_SIZE = 50
 REALM = "culture-library"
-ATOM_NS = "http://www.w3.org/2005/Atom"
+ATOM_NS = "http://www.w3.org/2005/Atom"  # NOSONAR - an XML namespace name, not a URL fetched
 OPDS_CATALOG = "application/atom+xml;profile=opds-catalog"
 NAV_TYPE = f"{OPDS_CATALOG};kind=navigation"
 ACQ_TYPE = f"{OPDS_CATALOG};kind=acquisition"
-REL_ACQ = "http://opds-spec.org/acquisition"
+REL_ACQ = "http://opds-spec.org/acquisition"  # NOSONAR - an OPDS link relation, not a URL
 MEDIA_TYPES = {
     "epub": "application/epub+zip",
     "pdf": "application/pdf",

@@ -92,17 +92,17 @@ async function doSend(key, target) {
   }
 }
 export function init() {
-  sendBtn.addEventListener('click', e => { e.stopPropagation(); if (sendMenu.hidden) openSendMenu(); else closeSendMenu(); });
+  sendBtn.addEventListener('click', e => { e.stopPropagation(); if (sendMenu.hidden) void openSendMenu(); else closeSendMenu(); });
   sendMenu.addEventListener('click', e => {
     const b = e.target.closest('[data-send]'); if (!b || b.disabled) return;
     const key = S.current;
     closeSendMenu();
-    doSend(key, b.dataset.send);
+    void doSend(key, b.dataset.send);
   });
   $('reader').addEventListener('click', e => {
     const b = e.target.closest('[data-send-retry]'); if (!b) return;
     b.disabled = true;
-    doSend(S.current, b.dataset.sendRetry);
+    void doSend(S.current, b.dataset.sendRetry);
   });
   document.addEventListener('click', e => { if (!sendMenu.hidden && !e.target.closest('.sendwrap')) closeSendMenu(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sendMenu.hidden) { closeSendMenu(); sendBtn.focus(); } });

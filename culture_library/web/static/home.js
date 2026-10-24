@@ -65,7 +65,9 @@ export function drawHome() {
   fill($('cards'), shown.slice(0, limit).map(i => card(i)));
   const more = shown.length - limit;
   fill(moreBox(), more > 0 ? h('button', { class: 'btn' }, `Show ${fmtN(Math.min(more, PAGE))} more`) : null);
-  fetchExcerpts([lead, ...others, ...shown.slice(0, limit)]).then(got => { if (got && !$('view-home').hidden) drawHome(); });
+  fetchExcerpts([lead, ...others, ...shown.slice(0, limit)])
+    .then(got => { if (got && !$('view-home').hidden) drawHome(); })
+    .catch(() => { /* excerpts are optional; cards keep their placeholder text */ });
 }
 export function drawShelf() {
   const asc = (a, b) => a.at.localeCompare(b.at) || a.id - b.id;
