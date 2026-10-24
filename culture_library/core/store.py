@@ -18,7 +18,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from .errors import ValidationError
 from .models import KINDS, VISIBILITIES, AddResult, Item
@@ -139,8 +139,14 @@ class Store:
         visibility: str | None = None,
         item_id: int | None = None,
         created_at: str | None = None,
+        on_insert: Callable[[sqlite3.Connection, Item], None] | None = None,
     ) -> AddResult:
-        """Insert an item (dedup on sha256). ``item_id`` preserves explicit ids (migration)."""
+        """Insert an item (dedup on sha256). ``item_id`` preserves explicit ids (migration).
+
+        ``on_insert(conn, item)`` runs inside the insert's transaction, after the insert and
+        before the commit (index rows, feed events); if it raises, the insert rolls back. It
+        is not called when the bytes were already stored (``created`` is False).
+        """
         if kind not in KINDS:
             raise ValidationError(f"kind must be one of {', '.join(KINDS)}")
         if not title.strip():
@@ -165,7 +171,10 @@ class Store:
                 f"INSERT INTO items ({', '.join(cols)}) VALUES ({marks})", vals  # nosec B608
             )
             row = conn.execute("SELECT * FROM items WHERE id = ?", (cur.lastrowid,)).fetchone()
-            return AddResult(Item(**dict(row)), True)
+            item = Item(**dict(row))
+            if on_insert is not None:
+                on_insert(conn, item)
+            return AddResult(item, True)
 
     def get_item(self, item_id: int) -> Item | None:
         with self.reader() as conn:

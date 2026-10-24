@@ -285,3 +285,13 @@ def test_json_roundtrip_file_fixture(store, tmp_path):
     payload = json.dumps({"x": 1}).encode()
     item, _, _ = ingest(store, payload, "x.json", kind="document", visibility="public")
     assert item.visibility == "public" and store.read_bytes(item.id) == payload
+
+
+def test_ingest_threads_on_insert_to_the_store(store):
+    calls = []
+    item, created, _ = ingest(
+        store, b"hello", "h.txt", kind="document", on_insert=lambda c, i: calls.append(i.id)
+    )
+    assert created and calls == [item.id]
+    ingest(store, b"hello", "h.txt", kind="document", on_insert=lambda c, i: calls.append(0))
+    assert calls == [item.id]

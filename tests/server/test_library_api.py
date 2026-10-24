@@ -416,3 +416,144 @@ def test_router_lifespan_starts_purger(tmp_path, monkeypatch):
     app.state.store = Store(tmp_path / "data2")
     with TestClient(app):
         assert getattr(app.state, "library_purger", None) is None
+
+
+# ------------------------------------------------------------------ dedup vs visibility
+
+
+def test_dedup_against_private_item_is_opaque_conflict_for_non_private(api):
+    priv = api.upload(b"my diary", "d.txt", title="Diary", kind="diary").json()["item"]
+    api.as_(WRITER)
+    r = api.upload(b"my diary", "copy.txt", title="Copy")
+    assert r.status_code == 409
+    assert r.json() == {"detail": "an item with these bytes already exists", "code": "conflict"}
+    assert str(priv["id"]) not in r.text and priv["sha256"] not in r.text
+    assert [e["type"] for e in _events(api.store)] == ["created"]
+
+
+def test_conflict_never_restores_an_archived_private_item(api):
+    priv = api.upload(b"my diary", "d.txt", title="Diary").json()["item"]
+    api.c.delete(f"/api/library/{priv['id']}")
+    api.as_(WRITER)
+    assert api.upload(b"my diary", "d.txt").status_code == 409
+    assert api.store.get_item(priv["id"]).archived_at is not None
+    assert [e["type"] for e in _events(api.store)] == ["created", "archived"]
+
+
+def test_private_caller_keeps_dedup_and_restore_on_private_item(api):
+    priv = api.upload(b"my diary", "d.txt", title="Diary").json()["item"]
+    api.c.delete(f"/api/library/{priv['id']}")
+    r = api.upload(b"my diary", "d.txt")
+    assert r.status_code == 200 and r.json()["created"] is False
+    assert r.json()["item"]["id"] == priv["id"] and r.json()["item"]["archived_at"] is None
+
+
+def test_public_existing_item_dedups_for_everyone(api):
+    pub = api.upload(b"open", "o.txt", title="Open", visibility="public").json()["item"]
+    for who in (WRITER, OWNER):
+        r = api.as_(who).upload(b"open", "o.txt")
+        assert r.status_code == 200 and r.json() == {"item": pub, "created": False}
+
+
+# ------------------------------------------------------------------ body cap
+
+
+def test_declared_oversize_body_is_413_before_reading(api, monkeypatch):
+    monkeypatch.setattr(routes_library, "_FORM_SLACK", 0)
+    monkeypatch.setattr(routes_library, "UPLOAD_LIMITS", library.IngestLimits(max_bytes=100))
+    r = api.upload(b"x" * 500, "big.txt")
+    assert r.status_code == 413 and r.json() == {
+        "detail": "file exceeds the size limit",
+        "code": "too_large",
+    }
+
+
+def test_chunked_oversize_body_is_413_while_streaming(api, monkeypatch):
+    monkeypatch.setattr(routes_library, "_FORM_SLACK", 0)
+    monkeypatch.setattr(routes_library, "UPLOAD_LIMITS", library.IngestLimits(max_bytes=100))
+    sent = []
+
+    def body():
+        yield b'--b\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\n\r\n'
+        for _ in range(50):
+            sent.append(1)
+            yield b"y" * 64
+        yield b"\r\n--b--\r\n"
+
+    r = api.c.post(
+        "/api/library", content=body(), headers={"Content-Type": "multipart/form-data; boundary=b"}
+    )
+    assert r.status_code == 413 and r.json()["code"] == "too_large"
+    assert "content-length" not in {k.lower() for k in r.request.headers}
+
+
+def test_non_multipart_body_is_invalid_request(api):
+    r = api.c.post("/api/library", json={"file": "x"})
+    assert r.status_code == 422 and r.json()["code"] == "invalid_request"
+
+
+# ------------------------------------------------------------------ indexer wake
+
+
+class _FakeIndexer:
+    def __init__(self, store):
+        self.store = store
+        self.woken = 0
+
+    def notify(self):
+        self.woken += 1
+
+
+def test_upload_wakes_the_running_indexer_for_its_store(api, monkeypatch):
+    import types
+
+    mine, other = _FakeIndexer(api.store), _FakeIndexer(object())
+    owner = types.ModuleType("culture_library.server.routes_search")
+    owner._indexers = [mine, other]
+    monkeypatch.setitem(__import__("sys").modules, owner.__name__, owner)
+    api.upload(b"wake", "w.txt")
+    assert (mine.woken, other.woken) == (1, 0)
+    api.upload(b"bad", "w.exe")
+    assert mine.woken == 1  # refused uploads do not wake it
+
+    calls = []
+    owner.notify_indexer = calls.append
+    api.upload(b"wake2", "w.txt")
+    assert calls == [api.store] and mine.woken == 1
+
+
+def test_upload_without_search_module_still_works(api, monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "culture_library.server.routes_search", None)
+    assert api.upload(b"lonely", "l.txt").status_code == 201
+
+
+def test_uploader_key_gets_its_own_private_item_back_but_others_conflict(api):
+    pusher = Principal("pusher", frozenset({"write"}))
+    first = api.as_(pusher).upload(b"newspaper", "n.epub.txt", title="Paper").json()
+    assert first["created"] is True and first["item"]["visibility"] == "private"
+    again = api.upload(b"newspaper", "n.epub.txt")
+    assert again.status_code == 200 and again.json() == {"item": first["item"], "created": False}
+    assert (
+        api.as_(Principal("other", frozenset({"write"}))).upload(b"newspaper", "n.txt").status_code
+        == 409
+    )
+    # archived: even the uploader cannot restore it without private access
+    api.as_(OWNER).c.delete(f"/api/library/{first['item']['id']}")
+    assert api.as_(pusher).upload(b"newspaper", "n.txt").status_code == 409
+    assert api.store.get_item(first["item"]["id"]).archived_at is not None
+
+
+def test_add_retries_when_item_vanishes_before_the_follow_up(tmp_path, monkeypatch):
+    store = Store(tmp_path / "d")
+    item = _add(store, b"gone", title="gone")
+    real_row = library._row
+    seen = []
+
+    def flaky_row(conn, item_id):  # first follow-up lookup sees it purged
+        seen.append(item_id)
+        return None if len(seen) == 1 else real_row(conn, item_id)
+
+    monkeypatch.setattr(library, "_row", flaky_row)
+    again, created = library.add(store, b"gone", "g.txt")
+    assert seen == [item.id, item.id]  # retried once, outside the first transaction
+    assert created is False and again.id == item.id

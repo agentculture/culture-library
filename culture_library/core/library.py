@@ -7,14 +7,18 @@ visibility-aware (``include_private``); delete became *archive* with a 30-day re
 and a purge job (decision c45); every change appends a :mod:`~culture_library.core.feed`
 event in the same transaction; search keeps xteink's title/author substring semantics.
 
-**Add is one transaction.** :func:`add` hands :func:`~culture_library.core.ingest.ingest` a
-thin store wrapper whose ``connect()`` runs a hook inside the same ``BEGIN IMMEDIATE``
-transaction as the item insert, before it commits: title index + index queue
-(:func:`~culture_library.core.indexer.index_on_add`) and the ``created`` feed event. The hook
-is keyed on "this item has no ``created`` event yet", so it also heals an item that was stored
-by another path (``Store.add_item`` directly), and it re-writes a missing blob (a purge that
-removed the bytes while a same-bytes upload was in flight). Re-uploading the bytes of an
-archived item restores it (``created: false``) - a pusher retrying is asking for it back.
+**Add is one transaction.** :func:`add` passes an ``on_insert`` hook through
+:func:`~culture_library.core.ingest.ingest` to ``Store.add_item``; it runs inside the insert's
+``BEGIN IMMEDIATE`` transaction before the commit: title index + index queue
+(:func:`~culture_library.core.indexer.index_on_add`) and the ``created`` feed event, and it
+re-writes a missing blob (a purge that removed the bytes while a same-bytes upload was in
+flight). For bytes already stored, a follow-up transaction heals a missing ``created`` event
+(an item stored by another path) and restores an archived item - a pusher retrying is asking
+for it back - but only for a caller who may see it: bytes matching a private item raise
+:class:`ConflictError` (opaque, no id) for callers without private access, and that item is
+never touched. One exception keeps a write-only pusher's retries idempotent: the key that
+created the private item (``uploader``, recorded in its ``created`` event) gets it back while
+it is live.
 
 **Archive/purge (c45).** ``archive`` stamps ``archived_at`` and appends ``archived`` (with
 ``purge_after``); archived items vanish from list, search, get and file (except
@@ -32,17 +36,17 @@ Stdlib only, no network.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, Iterator
+from typing import Any
 
 from . import feed, indexer, search  # noqa: F401 - search/indexer/feed register their schema
-from .errors import NotFoundError, ValidationError
+from .errors import CoreError, NotFoundError, ValidationError
 from .ingest import DEFAULT_LIMITS, IngestLimits, ingest
-from .models import KINDS, VISIBILITIES, AddResult, Item
+from .models import KINDS, VISIBILITIES, Item
 from .store import Store
 
 RETENTION = timedelta(days=30)
@@ -113,43 +117,38 @@ def check_visibility(visibility: str | None) -> str | None:
 # ------------------------------------------------------------------ add
 
 
-class _AddTxn:
-    """A Store stand-in for :func:`ingest`: the item insert's transaction also runs
-    :meth:`_finish` (index, feed, blob, restore) before it commits."""
+class ConflictError(CoreError):
+    """The bytes are already stored as an item this caller may not see (opaque: no id)."""
 
-    def __init__(self, store: Store, data: bytes) -> None:
-        self._store = store
-        self._data = data
-        self.restored = False
+    code = "conflict"
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._store, name)
 
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        with self._store.connect() as conn:
-            yield conn
-            self._finish(conn)
+CONFLICT_DETAIL = "an item with these bytes already exists"
 
-    def add_item(self, data: bytes, **kw: Any) -> AddResult:
-        return Store.add_item(self, data, **kw)  # type: ignore[arg-type]
 
-    def _finish(self, conn: sqlite3.Connection) -> None:
-        sha = self._store.write_blob(self._data)  # idempotent; re-creates a purged blob
-        row = conn.execute(_SEL + " WHERE sha256 = ?", (sha,)).fetchone()
-        if row is None:  # pragma: no cover - add_item always leaves the row
-            return
-        item = _item(row)
-        announced = conn.execute(
-            "SELECT 1 FROM feed WHERE item_id = ? AND type = 'created' LIMIT 1", (item.id,)
-        ).fetchone()
-        if announced is None:
-            indexer.index_on_add(conn, item)
-            _event(conn, "created", item)
-        if item.archived_at is not None:
-            conn.execute("UPDATE items SET archived_at = NULL WHERE id = ?", (item.id,))
-            _event(conn, "updated", item, {"restored": True})
-            self.restored = True
+def _announce(conn: sqlite3.Connection, item: Item, uploader: str | None = None) -> None:
+    """Index + ``created`` event, once per item (heals items stored by another path).
+
+    ``uploader`` (the creating key's id) is recorded in the event's data."""
+    announced = conn.execute(
+        "SELECT 1 FROM feed WHERE item_id = ? AND type = 'created' LIMIT 1", (item.id,)
+    ).fetchone()
+    if announced is None:
+        indexer.index_on_add(conn, item)
+        _event(conn, "created", item, {"uploader": uploader} if uploader else None)
+
+
+def _uploaded_by(conn: sqlite3.Connection, item_id: int, uploader: str | None) -> bool:
+    """True when ``uploader`` is the key whose upload created ``item_id``."""
+    if not uploader:
+        return False
+    row = conn.execute(
+        "SELECT data FROM feed WHERE item_id = ? AND type = 'created' ORDER BY cursor LIMIT 1",
+        (item_id,),
+    ).fetchone()
+    if row is None or row[0] is None:
+        return False
+    return json.loads(row[0]).get("uploader") == uploader
 
 
 def add(
@@ -161,18 +160,30 @@ def add(
     title: str | None = None,
     author: str = "",
     visibility: str | None = None,
+    include_private: bool = True,
+    uploader: str | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
 ) -> tuple[Item, bool]:
     """Validate, store, index and announce an upload; return ``(item, created)``.
 
-    ``created`` is False when the same sha256 was already stored (that item is returned,
-    unarchived if it was archived). Refusals raise :class:`ValidationError` with ``.code``.
+    A new item is indexed and announced (``created``, recording ``uploader``) inside its
+    insert transaction via ``Store.add_item(on_insert=...)``. For bytes already stored,
+    ``created`` is False and, for a caller without private access (``include_private=False``)
+    and a private existing item: if ``uploader`` created it and it is not archived, it is
+    returned (the uploader's idempotent retry); otherwise :class:`ConflictError` is raised
+    and the item is left untouched (never restored). Every other caller gets the existing
+    item, restored first if it was archived. Refusals raise :class:`ValidationError`.
     """
     kind = check_kind(kind or default_kind(filename))
     check_visibility(visibility)
-    txn = _AddTxn(store, data)
+
+    def on_insert(conn: sqlite3.Connection, item: Item) -> None:
+        if not store.blob_path(item.sha256).exists():  # a racing purge removed the bytes
+            store.write_blob(data)
+        _announce(conn, item, uploader)
+
     item, created, _text = ingest(
-        txn,  # type: ignore[arg-type]
+        store,
         data,
         filename,
         kind=kind,
@@ -180,10 +191,41 @@ def add(
         author=(author or "").strip(),
         visibility=visibility,
         limits=limits,
+        on_insert=on_insert,
     )
-    if txn.restored:
-        item = store.get_item(item.id) or item
-    return item, created
+    if created:
+        return item, True
+    if item.visibility != "public" and not include_private:
+        with store.reader() as conn:
+            current = _row(conn, item.id)
+            own = _uploaded_by(conn, item.id, uploader)
+        if current is not None and current.archived_at is None and own:
+            return current, False
+        raise ConflictError(CONFLICT_DETAIL)
+    with store.connect() as conn:
+        current = _row(conn, item.id)
+        if current is not None:
+            if not store.blob_path(current.sha256).exists():
+                store.write_blob(data)
+            _announce(conn, current)
+            if current.archived_at is not None:
+                conn.execute("UPDATE items SET archived_at = NULL WHERE id = ?", (current.id,))
+                _event(conn, "updated", current, {"restored": True})
+                current = _row(conn, current.id) or current
+    if current is None:  # purged between the dedup and now: store it afresh
+        return add(
+            store,
+            data,
+            filename,
+            kind=kind,
+            title=title,
+            author=author,
+            visibility=visibility,
+            include_private=include_private,
+            uploader=uploader,
+            limits=limits,
+        )
+    return current, False
 
 
 # ------------------------------------------------------------------ reads
@@ -374,6 +416,8 @@ class Purger(threading.Thread):
 
 
 __all__ = [
+    "CONFLICT_DETAIL",
+    "ConflictError",
     "DEFAULT_LIMIT",
     "IngestLimits",
     "MAX_LIMIT",

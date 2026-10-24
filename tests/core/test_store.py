@@ -147,3 +147,30 @@ def test_provenance_headers():
     for name in ("store", "models", "errors"):
         src = (Path(culture_library.core.__file__).parent / f"{name}.py").read_text()
         assert "ea2f643" in src and f"xteink/core/{name}.py" in src
+
+
+def test_add_item_on_insert_runs_in_the_insert_transaction(tmp_path):
+    store = Store(tmp_path / "hook")
+    seen = []
+
+    def hook(conn, item):
+        row = conn.execute("SELECT title FROM items WHERE id = ?", (item.id,)).fetchone()
+        seen.append((item.title, row[0]))
+
+    result = store.add_item(b"hooked", kind="book", title="Hooked", format="txt", on_insert=hook)
+    assert result.created and seen == [("Hooked", "Hooked")]
+    again = store.add_item(b"hooked", kind="book", title="Hooked", format="txt", on_insert=hook)
+    assert not again.created and len(seen) == 1  # not called for a duplicate
+
+
+def test_add_item_on_insert_raising_rolls_back_the_insert(tmp_path):
+    store = Store(tmp_path / "hook")
+
+    def boom(conn, item):
+        raise RuntimeError("hook failed")
+
+    with pytest.raises(RuntimeError, match="hook failed"):
+        store.add_item(b"doomed", kind="book", title="Doomed", format="txt", on_insert=boom)
+    with store.reader() as conn:
+        assert conn.execute("SELECT count(*) FROM items").fetchone()[0] == 0
+    assert store.add_item(b"doomed", kind="book", title="Doomed", format="txt").created

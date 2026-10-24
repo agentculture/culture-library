@@ -18,6 +18,10 @@ to callers without ``private``; DELETE *archives* (decision c45) and
 and file shows archived items to private-scope callers. Every error body on these routes,
 auth and request-shape errors included, is a flat ``{"detail": str, "code": str}``: ingest
 refusals are 413 (``too_large``), 415 (``unsupported_format``) or 400 (any other code).
+The upload body is capped while it streams (50 MiB + 1 MiB of form framing; a larger
+``Content-Length`` is refused before reading). Bytes matching a private item answer 409
+``conflict`` without an id to a caller lacking private access, unless that caller's key
+uploaded it (its idempotent retry). A successful upload wakes the search indexer, if running.
 
 The router's lifespan starts a :class:`~culture_library.core.library.Purger` that runs the
 30-day purge every ``CULTURE_LIBRARY_PURGE_INTERVAL_S`` seconds (default 3600; ``0`` turns it
@@ -26,20 +30,30 @@ off, e.g. when cron runs ``purge_expired`` instead).
 
 from __future__ import annotations
 
+import importlib
 import re
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from email.parser import BytesParser
-from email.policy import HTTP
 from typing import Any, AsyncIterator, Callable
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
-from culture_library.core import KINDS, VISIBILITIES, NotFoundError, Store, ValidationError, library
+from culture_library.core import NotFoundError, Store, ValidationError, library
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
 UPLOAD_LIMITS = library.IngestLimits()
@@ -68,18 +82,65 @@ def _validation_detail(exc: RequestValidationError) -> str:
     return "; ".join(parts) or "invalid request"
 
 
+class _BodyTooLarge(HTTPException):
+    """Raised from ``receive`` once a capped body grows past its cap (FastAPI re-raises
+    an HTTPException from body parsing unchanged)."""
+
+    def __init__(self) -> None:
+        super().__init__(413, {"detail": "file exceeds the size limit", "code": "too_large"})
+
+
+def _capped(request: Request, cap: int) -> Request:
+    """``request`` whose body stream raises :class:`_BodyTooLarge` past ``cap`` bytes.
+
+    A declared ``Content-Length`` over the cap is refused before anything is read; a chunked
+    body is refused as soon as the running total crosses the cap, while the form parser is
+    still streaming it (file parts spool to disk, they are never all held in memory).
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        raise _BodyTooLarge()
+    receive = request.receive
+    seen = 0
+
+    async def capped_receive():
+        nonlocal seen
+        message = await receive()
+        if message.get("type") == "http.request":
+            seen += len(message.get("body", b""))
+            if seen > cap:
+                raise _BodyTooLarge()
+        return message
+
+    return Request(request.scope, capped_receive)
+
+
+def max_body(cap: Callable[[], int]) -> Callable:
+    """Mark an endpoint so :class:`FlatErrorRoute` caps its request body at ``cap()``."""
+
+    def mark(endpoint: Callable) -> Callable:
+        endpoint.max_body_bytes = cap  # type: ignore[attr-defined]
+        return endpoint
+
+    return mark
+
+
 class FlatErrorRoute(APIRoute):
     """Render every error raised while handling a library route as ``{detail, code}``.
 
     The shared auth helpers raise ``HTTPException(detail={detail, code})``, which FastAPI
-    would nest under ``detail``; xteink clients read a top-level ``code``.
+    would nest under ``detail``; xteink clients read a top-level ``code``. Endpoints marked
+    with :func:`max_body` get their body capped while it is read.
     """
 
     def get_route_handler(self) -> Callable:
         handler = super().get_route_handler()
+        cap = getattr(self.endpoint, "max_body_bytes", None)
 
         async def route(request: Request) -> Response:
             try:
+                if cap is not None:
+                    request = _capped(request, cap())
                 return await handler(request)
             except HTTPException as exc:
                 detail: Any = exc.detail
@@ -149,124 +210,81 @@ def list_items(
     return {"items": [_item(i) for i in items]}
 
 
-_UPLOAD_SCHEMA = {
-    "requestBody": {
-        "required": True,
-        "content": {
-            "multipart/form-data": {
-                "schema": {
-                    "type": "object",
-                    "required": ["file"],
-                    "properties": {
-                        "file": {"type": "string", "format": "binary"},
-                        "title": {"type": "string"},
-                        "author": {"type": "string"},
-                        "kind": {"type": "string", "enum": list(KINDS)},
-                        "visibility": {"type": "string", "enum": list(VISIBILITIES)},
-                    },
-                }
-            }
-        },
-    }
-}
 _FORM_SLACK = 1024 * 1024  # room for the multipart framing and the text fields
 
 
-class _Form:
-    def __init__(self) -> None:
-        self.fields: dict[str, str] = {}
-        self.filename: str | None = None
-        self.data: bytes | None = None
+def _upload_cap() -> int:
+    return UPLOAD_LIMITS.max_bytes + _FORM_SLACK
 
 
-def _parse_form(content_type: str, body: bytes) -> _Form:
-    """Parse ``multipart/form-data`` with the stdlib ``email`` parser (binary-exact).
+def _notify_indexer(store: Store) -> None:
+    """Wake the background indexer for ``store`` if one is running (never starts one).
 
-    Stdlib on purpose: python-multipart is only in the ``[server]`` extra, and the route
-    module must import wherever ``create_app`` does. First occurrence of a name wins.
+    The indexer is owned by ``routes_search``: its ``notify_indexer(store)`` when it has one,
+    else the matching entry of its running indexers. Absent module: nothing to wake.
     """
-    head = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")
-    msg = BytesParser(policy=HTTP).parsebytes(head + body)
-    form = _Form()
-    if not msg.is_multipart():
-        return form
-    for part in msg.iter_parts():
-        name = part.get_param("name", header="content-disposition")
-        if not isinstance(name, str):
-            continue
-        payload = part.get_payload(decode=True) or b""
-        if name == "file" and part.get_filename() is not None:
-            if form.data is None:
-                form.filename, form.data = part.get_filename() or "", payload
-        elif name not in form.fields:
-            form.fields[name] = payload.decode("utf-8", errors="replace")
-    return form
+    try:
+        owner = importlib.import_module("culture_library.server.routes_search")
+    except ImportError:
+        return
+    notify = getattr(owner, "notify_indexer", None)
+    if callable(notify):
+        notify(store)
+        return
+    for running in list(getattr(owner, "_indexers", ())):
+        if getattr(running, "store", None) is store:
+            running.notify()
 
 
-async def _read_capped(request: Request, cap: int) -> bytes | None:
-    """The request body, or ``None`` once it grows past ``cap`` bytes."""
-    declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > cap:
-        return None
-    buf = bytearray()
-    async for chunk in request.stream():
-        buf += chunk
-        if len(buf) > cap:
-            return None
-    return bytes(buf)
-
-
-@router.post(
-    "",
-    status_code=201,
-    responses={200: {"description": "already in the library"}},
-    openapi_extra=_UPLOAD_SCHEMA,
-)
+@router.post("", status_code=201, responses={200: {"description": "already in the library"}})
+@max_body(_upload_cap)
 async def upload_item(
-    request: Request,
     response: Response,
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    author: str = Form(""),
+    kind: str | None = Form(None),
+    visibility: str | None = Form(None),
     principal: Principal = Depends(current_principal),
     store: Store = Depends(get_store),
 ):
     """Upload one file (EPUB, PDF, Markdown, text or JSON), stored as-is.
 
-    Multipart fields: ``file`` (required), ``title`` (default: the filename stem),
-    ``author``, ``kind`` (default ``book`` for EPUB, else ``document``), ``visibility``
-    (default ``private``).
+    ``title`` defaults to the filename stem, ``kind`` to ``book`` for EPUB else
+    ``document``, ``visibility`` to ``private``. Bytes matching a private item answer 409
+    ``conflict`` (no id) to callers without private access, except the key that uploaded it.
     """
     check(principal, "write")
-    content_type = request.headers.get("content-type", "")
-    if not content_type.lower().startswith("multipart/form-data"):
-        return _flat(422, "expected multipart/form-data with a file field", "invalid_request")
-    body = await _read_capped(request, UPLOAD_LIMITS.max_bytes + _FORM_SLACK)
-    if body is None:
-        return _flat(413, "file exceeds the size limit", "too_large")
-    form = await run_in_threadpool(_parse_form, content_type, body)
-    if form.data is None:
-        return _flat(422, "file: field required", "invalid_request")
-    filename = form.filename or ""
-    kind = form.fields.get("kind") or None
-    visibility = form.fields.get("visibility") or None
+    filename = file.filename or ""
+    kind = kind or None
+    visibility = visibility or None
     try:
         kind = library.check_kind(kind or library.default_kind(filename))
         library.check_visibility(visibility)
     except ValidationError as exc:
         return _refused(exc)
     check(principal, "write", kind)
+    # Read at most one byte past the cap so an oversize file is refused as too_large.
+    data = await file.read(UPLOAD_LIMITS.max_bytes + 1)
     try:
         item, created = await run_in_threadpool(
             library.add,
             store,
-            form.data,
+            data,
             filename,
             kind=kind,
-            title=form.fields.get("title"),
-            author=form.fields.get("author", ""),
+            title=title,
+            author=author,
             visibility=visibility,
+            include_private=principal.private,
+            uploader=principal.key_id,
             limits=UPLOAD_LIMITS,
         )
+    except library.ConflictError as exc:
+        return _flat(409, str(exc), exc.code)
     except ValidationError as exc:
         return _refused(exc)
+    _notify_indexer(store)
     if not created:
         response.status_code = 200
     return {"item": _item(item), "created": created}
