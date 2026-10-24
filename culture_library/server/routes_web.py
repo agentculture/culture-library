@@ -9,7 +9,7 @@ for data goes to ``/api/...`` and is authenticated there (Cloudflare Access in p
 key kept in ``sessionStorage`` for local development).
 
 Every response carries a strict Content-Security-Policy: scripts and styles only from this
-origin (plus Google Fonts' stylesheet and font files for Lato), no inline script or
+origin (Lato is self-hosted under ``/static/fonts``), no inline script or
 ``style=`` attribute, no plugins, no ``<base>``, no framing. Item text reaches the page
 through ``textContent``; the CSP is the second wall if that ever slips.
 """
@@ -27,8 +27,8 @@ CSP = "; ".join(
     (
         "default-src 'self'",
         "script-src 'self'",
-        "style-src 'self' https://fonts.googleapis.com",
-        "font-src https://fonts.gstatic.com",
+        "style-src 'self'",
+        "font-src 'self'",
         "img-src 'self' data:",
         "connect-src 'self'",
         "object-src 'none'",
@@ -52,7 +52,10 @@ _TYPES = {
     ".svg": "image/svg+xml",
     ".png": "image/png",
     ".ico": "image/x-icon",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
 }
+_FONTS = "fonts/"
 
 router = APIRouter(tags=["site"], include_in_schema=False)
 
@@ -62,11 +65,15 @@ def _headers(cache: str) -> dict[str, str]:
 
 
 def _static_file(name: str) -> Path | None:
-    """The file ``name`` directly under :data:`STATIC_DIR`, or ``None`` (no subpaths)."""
-    if not name or "/" in name or "\\" in name or name.startswith("."):
+    """The file ``name`` in :data:`STATIC_DIR` or its ``fonts/``, or ``None`` (nothing deeper)."""
+    if name.startswith(_FONTS):  # the one subdirectory: the self-hosted Lato files
+        base, leaf = STATIC_DIR / "fonts", name[len(_FONTS) :]
+    else:
+        base, leaf = STATIC_DIR, name
+    if not leaf or "/" in leaf or "\\" in leaf or leaf.startswith("."):
         return None
-    path = (STATIC_DIR / name).resolve()
-    if path.parent != STATIC_DIR.resolve() or not path.is_file():
+    path = (base / leaf).resolve()
+    if path.parent != base.resolve() or not path.is_file():
         return None
     if path.suffix not in _TYPES:
         return None

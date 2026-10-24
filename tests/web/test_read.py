@@ -235,3 +235,44 @@ def test_excerpts_validate_ids(site: Site) -> None:
 
 def test_owner_fixture_is_private() -> None:
     assert OWNER.private
+
+
+_NEWS_CH = (
+    '<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Daily newspaper</h1><p>2026-10-23</p>'
+    "<h2>Jetson optimization</h2><p>Models | Jetson AI Lab: benchmarks.</p>"
+    "<h2>Isaac ROS</h2><p>Second item.</p></body></html>"
+)
+_NAV = (
+    '<html xmlns="http://www.w3.org/1999/xhtml"><body><nav><h1>Contents</h1>'
+    "<p>Jetson optimization</p><p>Isaac ROS</p></nav></body></html>"
+)
+
+
+def _newspaper(site: Site) -> dict:
+    data = make_epub({"OEBPS/nav.xhtml": _NAV, "OEBPS/s01.xhtml": _NEWS_CH})
+    return site.upload(
+        data, "n.epub", title="Daily newspaper 2026-10-23", kind="newspaper", visibility="public"
+    )
+
+
+def test_masthead_section_is_dropped(site: Site) -> None:
+    item = _newspaper(site)
+    sections = site.c.get(f"/api/library/{item['id']}/text").json()["sections"]
+    assert [s["heading"] for s in sections] == ["Jetson optimization", "Isaac ROS"]
+
+
+def test_masthead_kept_when_it_has_real_content() -> None:
+    from culture_library.server.routes_read import drop_masthead
+
+    real = [{"heading": "Daily newspaper", "paragraphs": ["2026-10-23", "A real paragraph."]}]
+    assert drop_masthead(real, "Daily newspaper 2026-10-23") == real
+    other = [{"heading": "Chapter one", "paragraphs": ["2026-10-23"]}]
+    assert drop_masthead(other, "Daily newspaper 2026-10-23") == other
+
+
+def test_epub_excerpt_skips_nav_and_masthead(site: Site) -> None:
+    item = _newspaper(site)
+    got = site.c.get("/api/excerpts", params={"items": str(item["id"])}).json()
+    assert got["items"][str(item["id"])] == (
+        "Jetson optimization, Isaac ROS. Models | Jetson AI Lab: benchmarks."
+    )

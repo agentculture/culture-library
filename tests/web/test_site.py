@@ -19,8 +19,8 @@ MODULES = ("app", "home", "reader", "search", "upload", "send", "state")
 CSP_PARTS = (
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com",
+    "style-src 'self'",
+    "font-src 'self'",
     "img-src 'self' data:",
     "object-src 'none'",
     "base-uri 'none'",
@@ -96,7 +96,7 @@ def test_index_served_with_csp_and_no_inline_script(client: TestClient) -> None:
     assert p.handlers == [], "no inline event handlers"
     assert '<script type="module" src="/static/app.js">' in r.text
     assert 'href="/static/styles.css"' in r.text
-    assert "https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900" in r.text
+    assert "fonts.googleapis.com" not in r.text and "fonts.gstatic.com" not in r.text
 
 
 def test_index_keeps_the_prototype_markup(client: TestClient) -> None:
@@ -121,6 +121,25 @@ def test_static_modules_and_stylesheet_types(client: TestClient) -> None:
     assert css.status_code == 200
     assert css.headers["content-type"].startswith("text/css")
     assert "--accent: #00684a" in css.text and "--accent: #5fd897" in css.text
+
+
+def test_lato_is_self_hosted(client: TestClient) -> None:
+    css = client.get("/static/styles.css").text
+    assert "googleapis" not in css and "gstatic" not in css
+    for weight in (300, 400, 700, 900):
+        for subset in ("latin", "latin-ext"):
+            name = f"lato-{weight}-{subset}.woff2"
+            assert f"/static/fonts/{name}" in css, name
+            r = client.get(f"/static/fonts/{name}")
+            assert r.status_code == 200, name
+            assert r.headers["content-type"] == "font/woff2"
+            assert r.content[:4] == b"wOF2"
+            _assert_security_headers(r)
+    assert client.get("/static/fonts/OFL.txt").status_code == 200
+    assert client.get("/static/fonts/nope.woff2").status_code == 404
+    assert client.get("/static/fonts/..%2fapp.js").status_code == 404
+    assert client.get("/static/fonts/%2e%2e%2fapp.js").status_code == 404
+    assert client.get("/static/fonts/a/b.woff2").status_code == 404
 
 
 def test_static_refuses_traversal_and_unknown_files(client: TestClient) -> None:

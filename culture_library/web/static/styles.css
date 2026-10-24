@@ -2,6 +2,15 @@
    contract: docs/design/library-site.md). Physical left/right were converted to logical
    properties (claim c39) without changing the left-to-right look.
    Layout: sticky top bar. Home = intro + shelf, continue reading, card grid. Reader = collapsible list pane (drawer on phones) + wide reader. Site state = tiles, status, chart grid. */
+/* Lato 300/400/700/900, self-hosted (SIL OFL, see fonts/OFL.txt): latin-ext and latin subsets. */
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 300; font-display: swap; src: url(/static/fonts/lato-300-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 300; font-display: swap; src: url(/static/fonts/lato-300-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 400; font-display: swap; src: url(/static/fonts/lato-400-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 400; font-display: swap; src: url(/static/fonts/lato-400-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 700; font-display: swap; src: url(/static/fonts/lato-700-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 700; font-display: swap; src: url(/static/fonts/lato-700-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 900; font-display: swap; src: url(/static/fonts/lato-900-latin-ext.woff2) format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Lato"; font-style: normal; font-weight: 900; font-display: swap; src: url(/static/fonts/lato-900-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 :root {
   --bg: #faf5e8;         /* cream page */
   --surface: #fffcf3;    /* cards, reader */
@@ -133,7 +142,7 @@ mark { background: var(--hl); color: inherit; border-radius: 3px; padding: 0 2px
 .scrim { display: none; }
 
 .readerbox { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); min-width: 0; overflow-wrap: anywhere; }
-.rtool { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+.rtool { position: relative; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
 .rtool .sp { flex: 1; }
 .reader { padding: 28px clamp(18px, 4vw, 56px) 44px; }
 .reader-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; color: var(--muted); font-size: 13.5px; margin-bottom: 10px; }
@@ -241,6 +250,7 @@ dialog::backdrop { background: var(--scrim); }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .sendwrap { position: relative; }
 .menu { position: absolute; z-index: 25; top: calc(100% + 6px); inset-inline-start: 0; min-width: 280px; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 6px; display: grid; gap: 2px; }
+@media (max-width: 720px) { .sendwrap { position: static; } .menu { inset-inline: 12px; min-width: 0; } }
 .menu button { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 10px; align-items: center; text-align: start; border: 0; background: transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
 .menu button:hover:not(:disabled) { background: var(--surface-2); }
 .menu button:disabled { cursor: not-allowed; opacity: .55; }
