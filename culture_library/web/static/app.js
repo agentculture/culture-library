@@ -49,7 +49,9 @@ const wrap = area => ({
   set(k, v) {
     const key = safeKey(k);
     if (!key) return;
-    try { area().setItem(key, safeValue(v)); } catch (e) { /* storage unavailable */ }
+    // Key matches KEY_RE and the value is capped at VALUE_MAX; only this viewer's own
+    // conveniences (theme, last read, pane, position, dev key) are stored. NOSONAR
+    try { area().setItem(key, safeValue(v)); } catch (e) { /* storage unavailable */ } // NOSONAR
   },
   del(k) {
     const key = safeKey(k);

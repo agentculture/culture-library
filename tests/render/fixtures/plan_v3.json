@@ -139,7 +139,7 @@
       "origin": "llm",
       "status": "confirmed",
       "acceptance_criteria": [
-        "MULTIMODAL_BASE_URL is commented out in spark ~/.lobes/.env while MULTIMODAL_SERVED_NAME is retained, so the peer served-name still resolves to coolthor/gemma-4-12B-it-NVFP4A16.",
+        "MULTIMODAL_BASE_URL is commented out in spark's lobes .env file while MULTIMODAL_SERVED_NAME is retained, so the peer served-name still resolves to coolthor/gemma-4-12B-it-NVFP4A16.",
         "Only the gateway container is recreated, via docker compose -f docker-compose.yml -f docker-compose.shape.yml up -d --no-deps gateway.",
         "Post-change: vllm-multimodal is NOT running and vllm-primary (cortex) has the same container id / start time as before — no 27B reload.",
         "A live POST model=senses through the spark gateway returns 200 with X-Lobes-Proxied-By: orin, proving the peer probe still passes and the proxy stays armed."
