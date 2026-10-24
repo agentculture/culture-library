@@ -6,9 +6,10 @@ omitted) for a caller without ``Principal.private`` (an item's own uploader exce
 
 - ``GET /api/library/{id}/text`` -> ``{item_id, kind, format, title, text, sections, reason}``.
   ``text`` is :func:`culture_library.core.ingest.extract_text` output: plain text, never
-  markup. For EPUB, ``sections`` is ``[{heading, paragraphs: [str]}]``, split at
-  ``h1``-``h3`` by a stdlib parser that keeps character data only (``script``/``style``/
-  ``head``/``title`` bodies are dropped, attributes are never read); otherwise ``null``.
+  markup (the body already indexed for search when present, else extracted on request).
+  For EPUB, ``sections`` is ``[{heading, paragraphs: [str]}]``, split at ``h1``-``h3``
+  by a stdlib parser that keeps character data only (``script``/``style``/``head``/``title``
+  bodies are dropped, attributes are never read); otherwise ``null``.
   ``reason`` explains an empty text (e.g. ``pdftotext_missing``).
 - ``GET /api/repodocs/{id}/rendered?commit=`` -> ``{doc_id, repo, path, kind, format, title,
   html | text}``. A ``.json`` document that parses is rendered by
@@ -145,8 +146,8 @@ class _SectionParser(HTMLParser):
         self._flush()
 
 
-def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMITS) -> list[dict]:
-    """``[{heading, paragraphs}]`` for an EPUB, one or more per chapter file, nav/toc skipped.
+def _epub_members(data: bytes, limits: ingest.IngestLimits, *, skip_nav: bool):
+    """Yield ``(filename, markup)`` for each XHTML/HTML member of an EPUB, in name order.
 
     Uses ingest's EPUB opener and capped member reader, so the zip-bomb limits that guard
     ingest guard this too, and a damaged member raises ``ValidationError``
@@ -156,25 +157,49 @@ def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMI
     if zf is None:
         raise ValidationError("not a valid EPUB", "bad_magic")
     budget = limits.max_uncompressed_bytes
-    out: list[dict] = []
     with zf:
         names = sorted(
             (
                 i
                 for i in zf.infolist()
                 if i.filename.lower().endswith((".xhtml", ".html", ".htm"))
-                and not _NAV_FILE.search(i.filename)
+                and not (skip_nav and _NAV_FILE.search(i.filename))
             ),
             key=lambda i: i.filename,
         )
         for info in names:
             raw = ingest._read_member(zf, info, budget)  # noqa: SLF001
             budget -= len(raw)
-            parser = _SectionParser()
-            parser.feed(raw.decode("utf-8", errors="replace"))
-            parser.close()
-            out.extend(s for s in parser.sections if s["paragraphs"])
+            yield info.filename, raw.decode("utf-8", errors="replace")
+
+
+def _sections_of(markup: str) -> list[dict]:
+    parser = _SectionParser()
+    parser.feed(markup)
+    parser.close()
+    return [s for s in parser.sections if s["paragraphs"]]
+
+
+def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMITS) -> list[dict]:
+    """``[{heading, paragraphs}]`` for an EPUB, one or more per chapter file, nav/toc skipped."""
+    out: list[dict] = []
+    for _name, markup in _epub_members(data, limits, skip_nav=True):
+        out.extend(_sections_of(markup))
     return out
+
+
+def epub_text_and_sections(
+    data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMITS
+) -> tuple[str, list[dict]]:
+    """One pass over an EPUB: the plain text :func:`ingest.extract_text` gives it (every
+    chapter file, nav/toc included) and :func:`epub_sections` (nav/toc skipped)."""
+    chunks: list[str] = []
+    sections: list[dict] = []
+    for name, markup in _epub_members(data, limits, skip_nav=False):
+        chunks.append(ingest._html_to_text(markup))  # noqa: SLF001 - ingest's own text
+        if not _NAV_FILE.search(name):
+            sections.extend(_sections_of(markup))
+    return "\n\n".join(c for c in chunks if c), sections
 
 
 _TRAILING_DATE = re.compile(r"[\s,\-\u2013\u2014:]*\(?\d{4}-\d{2}-\d{2}\)?\s*$")
@@ -215,33 +240,46 @@ def _visible_item(store: Store, item_id: int, principal: Principal) -> Item:
 
 
 def _item_text(store: Store, item: Item) -> dict:
+    """Text for the reader: the body already indexed for search when there is one (the
+    same :func:`ingest.extract_text` output), else extracted now. An EPUB is parsed once:
+    for its sections only when indexed, for text and sections together otherwise."""
+    indexed = _indexed_body(store, item.id)
+    if indexed and item.format != "epub":
+        return {"text": indexed, "sections": None, "reason": ""}
     data = store.blob_path(item.sha256).read_bytes()
     try:
+        if item.format == "epub":
+            if indexed:
+                text, sections = indexed, epub_sections(data)
+            else:
+                text, sections = epub_text_and_sections(data)
+            return {"text": text, "sections": drop_masthead(sections, item.title), "reason": ""}
         extraction = ingest.extract_text_ex(data, item.format)
-        sections = drop_masthead(epub_sections(data), item.title) if item.format == "epub" else None
     except ValidationError as exc:
-        return {"text": "", "sections": None, "reason": exc.code}
-    return {"text": extraction.text, "sections": sections, "reason": extraction.reason}
+        return {"text": indexed, "sections": None, "reason": "" if indexed else exc.code}
+    return {"text": extraction.text, "sections": None, "reason": extraction.reason}
 
 
 @router.get("/api/library/{item_id}/text")
-async def item_text(
+def item_text(
     item_id: int,
     principal: Principal = Depends(current_principal),
     store: Store = Depends(get_store),
 ) -> dict:
-    """Extracted plain text of one item (and EPUB sections) for the reader."""
+    """Extracted plain text of one item (and EPUB sections) for the reader.
+
+    A plain ``def``: FastAPI runs it in its threadpool, so the database reads and any
+    extraction stay off the event loop."""
     check(principal, "read")
     item = _visible_item(store, item_id, principal)
     if not store.blob_path(item.sha256).is_file():
         raise _error(404, f"item {item_id} has no stored file", "file_missing")
-    body = await run_in_threadpool(_item_text, store, item)
     return {
         "item_id": item.id,
         "kind": item.kind,
         "format": item.format,
         "title": item.title,
-        **body,
+        **_item_text(store, item),
     }
 
 
