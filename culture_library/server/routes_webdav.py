@@ -6,7 +6,8 @@ ignored and every answer is allprop, so no client XML is ever parsed), ``GET``, 
 ``OPTIONS``. Every write method (PUT, DELETE, MKCOL, MOVE, COPY, PROPPATCH, LOCK, UNLOCK,
 POST, PATCH) answers 405 with ``Allow``; WebDAV stays read-only unless a later decision says
 otherwise. Visibility matches the rest of the API: private items only for callers with
-``private``, archived never. Auth is the same Bearer-or-Basic-with-key handling as OPDS
+``private`` or for the key that uploaded them, archived never. Auth is the same
+Bearer-or-Basic-with-key handling as OPDS
 (see :mod:`culture_library.server.routes_opds`); ``OPTIONS`` is unauthenticated so clients can
 probe the server.
 """
@@ -110,14 +111,18 @@ def _resolve_file(store: Store, principal: Principal, kind: str, name: str) -> I
     if not match or kind not in KINDS:
         return None
     try:
-        item = library.get(store, int(match.group(1)), include_private=principal.private)
+        item = library.get(
+            store, int(match.group(1)), include_private=principal.private, owner=principal.key_id
+        )
     except NotFoundError:
         return None
     return item if item.kind == kind else None
 
 
 def _kind_items(store: Store, principal: Principal, kind: str) -> list[Item]:
-    return visible_items(store, private=principal.private, kind=kind, limit=MAX_LISTING)
+    return visible_items(
+        store, private=principal.private, owner=principal.key_id, kind=kind, limit=MAX_LISTING
+    )
 
 
 @router.api_route("/dav", methods=["OPTIONS"])
@@ -148,7 +153,7 @@ def propfind(
     if not segs:
         _response(ms, "/dav/", "library", collection=True)
         if deep:
-            summary = kind_summary(store, private=principal.private)
+            summary = kind_summary(store, private=principal.private, owner=principal.key_id)
             for kind in KINDS:
                 latest = summary[kind][1] if kind in summary else None
                 _response(ms, _href(kind, collection=True), kind, collection=True, modified=latest)

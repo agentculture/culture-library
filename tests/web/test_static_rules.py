@@ -103,3 +103,13 @@ def test_no_framework_no_cdn_script() -> None:
     for path in HTML:
         for src in re.findall(r"<script[^>]*\bsrc=\"([^\"]+)\"", path.read_text()):
             assert src.startswith("/static/"), src
+
+
+def test_send_menu_shows_type_and_status_like_the_prototype() -> None:
+    """Prototype: ``<span class="ms">${t.type}. ${t.note}</span>`` (note Enabled / Not enabled
+    yet). The type is optional on a target, so without one only the status shows."""
+    js = (STATIC / "send.js").read_text(encoding="utf-8")
+    assert "const targetNote = t => " in js
+    assert "`${t.type}. ${status}`" in js
+    assert "'Enabled' : 'Not enabled yet'" in js
+    assert "h('span', { class: 'ms' }, targetNote(t))" in js

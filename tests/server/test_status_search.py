@@ -235,9 +235,14 @@ def test_search_validation_and_scope(tmp_path):
 # ------------------------------------------------------------------ indexer owner
 
 
-def test_indexer_not_started_without_embedder(tmp_path, monkeypatch):
+def test_indexer_started_without_embedder_for_body_fulltext(tmp_path, monkeypatch):
     monkeypatch.delenv("GATEWAY_API_KEY", raising=False)
-    assert routes_search.start_indexer(Store(tmp_path / "d")) is None
+    store = Store(tmp_path / "d")
+    idx = routes_search.start_indexer(store)
+    try:
+        assert idx is not None and idx.embed is None and idx._thread.is_alive()
+    finally:
+        routes_search.stop_indexer()
 
 
 def test_indexer_started_and_stopped_with_embedder(tmp_path):
@@ -249,3 +254,82 @@ def test_indexer_started_and_stopped_with_embedder(tmp_path):
     finally:
         routes_search.stop_indexer()
     assert not idx._thread.is_alive()
+
+
+# ------------------------------------------------------------------ body full-text, no gateway
+
+
+def _wait_done(store, n, timeout=10.0):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ix.status(store)["done"] >= n:
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"indexer did not finish: {ix.status(store)}")
+
+
+def test_epub_body_fulltext_without_gateway(tmp_path, monkeypatch):
+    from tests.core.test_ingest import make_epub
+
+    monkeypatch.delenv("GATEWAY_API_KEY", raising=False)
+    monkeypatch.setenv("CULTURE_LIBRARY_PURGE_INTERVAL_S", "0")
+    app = server_app.create_app()
+    store = app.state.store = Store(tmp_path / "data")
+    app.state.embedder = None
+    app.dependency_overrides[current_principal] = lambda: Principal(
+        "k", frozenset({"read", "write"}), private=True
+    )
+    epub = make_epub({"c1.xhtml": "<html><body><p>The mayor cut the ribbon</p></body></html>"})
+    with TestClient(app) as c:  # lifespan starts the indexer even without a gateway
+        r = c.post(
+            "/api/library",
+            files={"file": ("paper.epub", epub)},
+            data={"title": "Morning Post", "kind": "newspaper"},
+        )
+        assert r.status_code == 201, r.text
+        iid = r.json()["item"]["id"]
+        _wait_done(store, 1)
+        hits = c.get("/api/search?q=ribbon&mode=fulltext").json()["hits"]
+        assert [h["item_id"] for h in hits] == [iid]
+        assert "[ribbon]" in hits[0]["snippet"]
+        r = c.get("/api/search?q=ribbon&mode=semantic")
+        assert r.status_code == 503
+        assert r.json()["detail"]["code"] == "semantic_unavailable"
+    assert ix.status(store)["failed"] == 0 and ix.status(store)["last_error"] is None
+
+
+def test_fulltext_over_200_items_under_one_second(tmp_path):
+    import random
+    import time
+
+    store, c = _client(tmp_path, Principal("k", READ, private=True))
+    rnd = random.Random(7)
+    words = [f"w{n}" for n in range(3000)]
+    items = []
+    for n in range(200):
+        body = " ".join(rnd.choices(words, k=4000))  # ~20 KB, newspaper-sized
+        if n == 137:
+            body += " zeppelin"
+        res = store.add_item(
+            body.encode(), kind="newspaper", title=f"Issue {n}", format="txt", visibility="public"
+        )
+        items.append((res.item, body))
+    # Bodies go in exactly as the indexer writes them (search.set_body), in one transaction
+    # to keep the setup quick; the indexer path itself is covered by the EPUB test above.
+    with store.connect() as conn:
+        for item, body in items:
+            sr.set_body(conn, item, body)
+    start = time.perf_counter()
+    r = c.get("/api/search?q=zeppelin&mode=fulltext")
+    elapsed = time.perf_counter() - start
+    assert r.status_code == 200 and [h["title"] for h in r.json()["hits"]] == ["Issue 137"]
+    start = time.perf_counter()
+    r = c.get("/api/search?q=w42&mode=fulltext&limit=100")
+    broad = time.perf_counter() - start
+    print(
+        f"fulltext 200 items: rare-term {elapsed * 1000:.1f} ms, common-term {broad * 1000:.1f} ms"
+    )
+    assert r.status_code == 200 and r.json()["hits"]
+    assert elapsed < 1.0 and broad < 1.0

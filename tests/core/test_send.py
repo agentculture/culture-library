@@ -42,7 +42,7 @@ def test_targets_strip_unknown_fields(monkeypatch, tmp_path):
     monkeypatch.setenv(
         send.TARGETS_ENV, '[{"label":"a","enabled":true,"device_id":"SECRET","key":"k"}]'
     )
-    assert send.load_targets(tmp_path)[0].as_dict() == {"label": "a", "enabled": True}
+    assert send.load_targets(tmp_path)[0].as_dict() == {"label": "a", "type": "", "enabled": True}
 
 
 def test_targets_malformed(monkeypatch, tmp_path):
@@ -144,3 +144,27 @@ def test_no_device_http_calls():
         for bad in ("xteink.", "reterminal."):
             assert f"http://{bad}" not in text and f"https://{bad}" not in text, py
         assert "requests.post" not in text and "httpx" not in text, py
+
+
+# ------------------------------------------------------------------ type label (d4 item 3)
+
+
+def test_targets_carry_an_optional_free_text_type(monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        send.TARGETS_ENV,
+        '[{"label":"x3-ori","type":"Xteink X3 reader","enabled":true,"device_id":"SECRET"},'
+        '{"label":"reTerminal Sticky","type":"  e-paper board ","enabled":false},'
+        '{"label":"plain"}]',
+    )
+    got = [t.as_dict() for t in send.load_targets(tmp_path)]
+    assert got == [
+        {"label": "x3-ori", "type": "Xteink X3 reader", "enabled": True},
+        {"label": "reTerminal Sticky", "type": "e-paper board", "enabled": False},
+        {"label": "plain", "type": "", "enabled": True},
+    ]
+
+
+def test_target_type_must_be_text(monkeypatch, tmp_path):
+    monkeypatch.setenv(send.TARGETS_ENV, '[{"label":"a","type":42}]')
+    with pytest.raises(send.SendConfigError, match="type"):
+        send.load_targets(tmp_path)

@@ -2,7 +2,7 @@
 
 New module, written for plan task t15. Same auth and visibility rules as the item and
 repo-doc routes: the read scope, and private (or archived) content behaves as absent (404 /
-omitted) for a caller without ``Principal.private``.
+omitted) for a caller without ``Principal.private`` (an item's own uploader excepted, d4).
 
 - ``GET /api/library/{id}/text`` -> ``{item_id, kind, format, title, text, sections, reason}``.
   ``text`` is :func:`culture_library.core.ingest.extract_text` output: plain text, never
@@ -181,7 +181,9 @@ def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMI
 
 def _visible_item(store: Store, item_id: int, principal: Principal) -> Item:
     try:
-        return library.get(store, item_id, include_private=principal.private)
+        return library.get(
+            store, item_id, include_private=principal.private, owner=principal.key_id
+        )
     except NotFoundError:
         raise _not_found(f"item {item_id}") from None
 
@@ -361,7 +363,9 @@ def _excerpts(store: Store, item_ids: list[int], doc_ids: list[int], principal: 
     items: dict[str, str] = {}
     for item_id in item_ids:
         try:
-            item = library.get(store, item_id, include_private=principal.private)
+            item = library.get(
+                store, item_id, include_private=principal.private, owner=principal.key_id
+            )
         except NotFoundError:
             continue
         items[str(item.id)] = _item_excerpt(store, item)

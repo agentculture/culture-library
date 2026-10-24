@@ -60,3 +60,16 @@ def test_requires_read_scope_and_limit_bounds(tmp_path):
     _, c = _client(tmp_path / "x", Principal("k", frozenset({"read"})))
     assert c.get("/api/feed?limit=1001").status_code == 422
     assert c.get("/api/feed?limit=0").status_code == 422
+
+
+def test_feed_filtered_to_one_item(tmp_path):
+    store, c = _client(tmp_path, Principal("k", frozenset({"read"}), private=True))
+    _seed(store)
+    _seed(store)
+    body = c.get("/api/feed?item_id=2").json()
+    assert [e["item_id"] for e in body["events"]] == [2, 2]
+    assert c.get("/api/feed?item_id=0").status_code == 422
+    store2, pub = _client(tmp_path / "p", Principal("k", frozenset({"read"})))
+    _seed(store2)
+    assert pub.get("/api/feed?item_id=2").json()["events"] == []
+    assert [e["item_id"] for e in pub.get("/api/feed?item_id=3").json()["events"]] == [3]

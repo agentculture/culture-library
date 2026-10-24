@@ -89,3 +89,51 @@ def test_hide_private_keeps_cursor_advancing(store):
         out = read_since(conn, 0, include_private=False)
     assert [e["item_id"] for e in out["events"]] == [1]
     assert out["cursor"] == last
+
+
+# ------------------------------------------------------------------ one item (d4 item 4)
+
+
+def test_read_since_filters_one_item_using_the_index(store):
+    with store.connect() as conn:
+        for item_id in (1, 2, 1, 3, 1):
+            append(conn, _ev("updated", item_id=item_id, visibility="public"))
+    with store.reader() as conn:
+        page = read_since(conn, 0, item_id=1)
+        assert [e["item_id"] for e in page["events"]] == [1, 1, 1]
+        assert page["more"] is False and page["cursor"] == page["events"][-1]["cursor"]
+        first = read_since(conn, 0, item_id=1, limit=2)
+        assert len(first["events"]) == 2 and first["more"] is True
+        rest = read_since(conn, first["cursor"], item_id=1)
+        assert len(rest["events"]) == 1 and rest["more"] is False
+        assert read_since(conn, 0, item_id=99) == {"events": [], "cursor": 0, "more": False}
+        # the query read_since actually runs is answered from the feed(item_id) index
+        traced: list[str] = []
+        conn.set_trace_callback(traced.append)
+        read_since(conn, 0, item_id=1)
+        conn.set_trace_callback(None)
+        sql = next(t for t in traced if "FROM feed" in t)
+        plan = " ".join(str(r[-1]) for r in conn.execute("EXPLAIN QUERY PLAN " + sql))
+        assert "USING INDEX feed_item_id" in plan or "USING COVERING INDEX feed_item_id" in plan
+
+
+def test_read_since_one_private_item_needs_access(store):
+    with store.connect() as conn:
+        append(conn, _ev("created", item_id=5, visibility="private"))
+    with store.reader() as conn:
+        assert read_since(conn, 0, item_id=5, include_private=False)["events"] == []
+        assert len(read_since(conn, 0, item_id=5)["events"]) == 1
+
+
+def test_read_since_shows_private_events_to_their_uploader(store):
+    from culture_library.core import uploaders
+
+    with store.connect() as conn:
+        append(conn, _ev("created", item_id=7, visibility="private"))
+        append(conn, _ev("created", item_id=8, visibility="private"))
+        uploaders.record(conn, 7, "kid")
+    with store.reader() as conn:
+        mine = read_since(conn, 0, include_private=False, owner="kid")
+        assert [e["item_id"] for e in mine["events"]] == [7]
+        assert read_since(conn, 0, include_private=False, owner="other")["events"] == []
+        assert read_since(conn, 0, include_private=False)["cursor"] == mine["cursor"]

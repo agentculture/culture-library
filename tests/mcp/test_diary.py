@@ -82,3 +82,61 @@ def test_diary_errors_on_missing_entry_and_readonly_key(env, diary_key):
         call(env, ro, "diary_delete", entry_id=iid)
     with pytest.raises(tools.ToolError, match="invalid_arguments"):
         call(env, diary_key, "diary_write", text="  ")
+
+
+# -- a diary-scoped key WITHOUT private access (d4 item 2) ----------------------
+
+
+@pytest.fixture
+def plain_diary_key(env):
+    return env.key("plain-diary", ["read", "write"], kinds=["diary"], private=False)
+
+
+def test_non_private_diary_key_manages_its_own_entries(env, plain_diary_key):
+    k = plain_diary_key
+    item = call(env, k, "diary_write", text="Morning pages\nthe heron waits")["item"]
+    assert item["visibility"] == "private"
+    read = call(env, k, "read_item", item_id=item["id"])
+    assert read["text"].startswith("Morning pages")
+    listed = call(env, k, "list_library", kind="diary")["items"]
+    assert [i["id"] for i in listed] == [item["id"]]
+    edited = call(env, k, "diary_edit", entry_id=item["id"], text="Evening pages")
+    new = edited["item"]["id"]
+    assert edited["archived"] == item["id"] and edited["item"]["visibility"] == "private"
+    assert [i["id"] for i in call(env, k, "list_library")["items"]] == [new]
+    assert call(env, k, "read_item", item_id=new)["text"].startswith("Evening pages")
+    assert call(env, k, "diary_delete", entry_id=new)["archived"] == new
+    assert call(env, k, "list_library")["items"] == []
+
+
+def test_non_private_diary_key_cannot_see_others_private_entries(env, plain_diary_key):
+    other = env.key("other", ["read", "write"], kinds=["diary"], private=False)
+    theirs = call(env, other, "diary_write", text="their secret")["item"]["id"]
+    for name, extra in (
+        ("read_item", {"item_id": theirs}),
+        ("diary_edit", {"entry_id": theirs, "text": "hijack"}),
+        ("diary_delete", {"entry_id": theirs}),
+    ):
+        with pytest.raises(tools.ToolError, match="404"):
+            call(env, plain_diary_key, name, **extra)
+    assert call(env, plain_diary_key, "list_library")["items"] == []
+    assert env.store.get_item(theirs).archived_at is None
+    # identical bytes of another key's private entry: still the opaque 409
+    with pytest.raises(tools.ToolError, match="409"):
+        call(
+            env, plain_diary_key, "push_file", content="their secret", filename="d.md", kind="diary"
+        )
+
+
+def test_ownership_check_does_not_scan_the_feed(env, diary_key, monkeypatch):
+    iid = call(env, diary_key, "diary_write", text="x")["item"]["id"]
+    seen = []
+    real = env._send
+
+    def spy(method, url, headers, body):
+        seen.append(url)
+        return real(method, url, headers, body)
+
+    monkeypatch.setattr(env, "_send", spy)
+    call(env, diary_key, "diary_delete", entry_id=iid)
+    assert not any("/api/feed" in u for u in seen)

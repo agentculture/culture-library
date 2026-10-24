@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from culture_library.core import Store, send
+from culture_library.core import NotFoundError, Store, library, send
 from culture_library.core.feed import append
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
@@ -47,9 +47,12 @@ def send_item(
 ) -> dict:
     check(principal, "write")
     store = get_store(request)
-    item = store.get_item(item_id)
-    if item is None or item.archived_at or (item.visibility != "public" and not principal.private):
-        raise _error(404, f"item {item_id} not found", "not_found")
+    try:
+        item = library.get(
+            store, item_id, include_private=principal.private, owner=principal.key_id
+        )
+    except NotFoundError:
+        raise _error(404, f"item {item_id} not found", "not_found") from None
     try:
         send.resolve_target(_targets(store), body.target)
     except send.TargetRefused as exc:

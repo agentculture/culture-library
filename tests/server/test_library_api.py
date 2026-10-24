@@ -221,9 +221,11 @@ def test_private_item_hidden_from_callers_without_private(api):
     for path in (f"/api/library/{priv['id']}", f"/api/library/{priv['id']}/file"):
         r = api.c.get(path)
         assert r.status_code == 404 and r.json()["code"] == "not_found"
-    assert api.c.get(f"/api/library/{pub['id']}").json() == pub
+    # GET adds uploaded_by_you (d4) to the Item fields
+    assert api.c.get(f"/api/library/{pub['id']}").json() == {**pub, "uploaded_by_you": False}
     api.as_(OWNER)
-    assert api.c.get(f"/api/library/{priv['id']}").json() == priv
+    got = api.c.get(f"/api/library/{priv['id']}").json()
+    assert {k: v for k, v in got.items() if k != "uploaded_by_you"} == priv
 
 
 def test_get_missing_is_404(api):

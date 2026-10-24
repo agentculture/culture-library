@@ -4,8 +4,8 @@ Provenance: the shape (``Client``, ``ApiError``, ``from_env``, multipart upload)
 (cite-don't-import) from agentculture/xteink @ ea2f643, path ``xteink/client.py``; this copy is
 owned here. Modified: culture-library routes and error bodies (flat ``{detail, code}`` or
 FastAPI's nested ``{detail: {detail, code}}``), an injectable ``transport`` so tests run the real
-app in-process, and ``uploader_of`` (reads the feed's ``created`` event). It lives here, not in
-``core/``, because ``core`` is network-free.
+app in-process, and ``uploaded_by_me`` (the item's ``uploaded_by_you`` field). It lives here,
+not in ``core/``, because ``core`` is network-free.
 """
 
 from __future__ import annotations
@@ -213,17 +213,12 @@ class Client:
     def send_targets(self) -> list[dict]:
         return self._request("GET", "/api/send/targets")["targets"]
 
-    def uploader_of(self, item_id: int) -> str | None:
-        """The key id that created ``item_id``, from the feed's ``created`` event (or ``None``)."""
-        since = 0
-        while True:
-            page = self._request("GET", "/api/feed", query={"since": since, "limit": 1000})
-            for ev in page["events"]:
-                if ev["item_id"] == item_id and ev["type"] == "created":
-                    return (ev.get("data") or {}).get("uploader")
-            if not page["more"]:
-                return None
-            since = page["cursor"]
+    def uploaded_by_me(self, item_id: int, item: Mapping | None = None) -> bool:
+        """Whether this client's key uploaded ``item_id`` (``GET /api/library/{id}``'s
+        ``uploaded_by_you``); pass an already-fetched ``item`` to skip the request."""
+        if item is None:
+            item = self.get_item(item_id)
+        return item.get("uploaded_by_you") is True
 
 
 def from_env(env: Mapping[str, str] | None = None) -> Client:

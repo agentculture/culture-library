@@ -1,7 +1,7 @@
 """``/opds``: an OPDS 1.2 (Atom) catalog of the library for reading apps.
 
-Layout (all ``GET``, all need the ``read`` scope; private items need ``private`` access and
-archived items never appear):
+Layout (all ``GET``, all need the ``read`` scope; private items need ``private`` access or
+to have been uploaded by the caller's key, and archived items never appear):
 
 - ``/opds`` navigation feed, one entry per kind that has visible items;
 - ``/opds/{kind}?page=N`` acquisition feed, newest first, 50 per page, ``next``/``previous``;
@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
-from culture_library.core import KINDS, Item, NotFoundError, Store, library
+from culture_library.core import KINDS, Item, NotFoundError, Store, library, uploaders
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
 PAGE_SIZE = 50
@@ -76,12 +76,18 @@ def parse_when(stamp: str) -> datetime:
 
 
 def visible_items(
-    store: Store, *, private: bool, kind: str | None = None, limit: int, offset: int = 0
+    store: Store,
+    *,
+    private: bool,
+    owner: str | None = None,
+    kind: str | None = None,
+    limit: int,
+    offset: int = 0,
 ) -> list[Item]:
-    """Live items visible to the caller, newest first."""
-    where, params = ["archived_at IS NULL"], []  # type: list[str], list[Any]
-    if not private:
-        where.append("visibility = 'public'")
+    """Live items visible to the caller (public, private access, or own uploads), newest first."""
+    vis, vis_params = uploaders.visible_sql(private, owner)
+    where: list[str] = ["archived_at IS NULL", vis]
+    params: list[Any] = list(vis_params)
     if kind is not None:
         where.append("kind = ?")
         params.append(kind)
@@ -92,13 +98,17 @@ def visible_items(
     return [Item(**{k: r[k] for k in r.keys()}) for r in rows]
 
 
-def kind_summary(store: Store, *, private: bool) -> dict[str, tuple[int, str]]:
+def kind_summary(
+    store: Store, *, private: bool, owner: str | None = None
+) -> dict[str, tuple[int, str]]:
     """``{kind: (count, newest created_at)}`` for kinds with visible items."""
-    sql = "SELECT kind, count(*) n, max(created_at) latest FROM items WHERE archived_at IS NULL"
-    if not private:
-        sql += " AND visibility = 'public'"
+    vis, params = uploaders.visible_sql(private, owner)
+    sql = (
+        "SELECT kind, count(*) n, max(created_at) latest FROM items "  # nosec B608
+        f"WHERE archived_at IS NULL AND {vis} GROUP BY kind"
+    )
     with store.reader() as conn:
-        rows = conn.execute(sql + " GROUP BY kind").fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return {r["kind"]: (r["n"], r["latest"]) for r in rows}
 
 
@@ -237,7 +247,7 @@ router = APIRouter(prefix="/opds", tags=["opds"], route_class=BasicChallengeRout
 def root(
     principal: Principal = Depends(reader_principal), store: Store = Depends(get_store)
 ) -> Response:
-    summary = kind_summary(store, private=principal.private)
+    summary = kind_summary(store, private=principal.private, owner=principal.key_id)
     updated = max((latest for _, latest in summary.values()), default=_now())
     feed = _feed(
         "urn:culture-library:opds:root", "culture-library", updated, "/opds", NAV_TYPE, None
@@ -278,7 +288,13 @@ def search(
     store: Store = Depends(get_store),
 ) -> Response:
     items = (
-        library.list_items(store, q=q, limit=PAGE_SIZE, include_private=principal.private)
+        library.list_items(
+            store,
+            q=q,
+            limit=PAGE_SIZE,
+            include_private=principal.private,
+            owner=principal.key_id,
+        )
         if q.strip()
         else []
     )
@@ -305,7 +321,9 @@ def item_file(
     store: Store = Depends(get_store),
 ) -> Response:
     try:
-        item = library.get(store, item_id, include_private=principal.private)
+        item = library.get(
+            store, item_id, include_private=principal.private, owner=principal.key_id
+        )
     except NotFoundError:
         return not_found(f"item {item_id}")
     return send_item_file(store, item)
@@ -323,6 +341,7 @@ def kind_feed(
     rows = visible_items(
         store,
         private=principal.private,
+        owner=principal.key_id,
         kind=kind,
         limit=PAGE_SIZE + 1,
         offset=(page - 1) * PAGE_SIZE,

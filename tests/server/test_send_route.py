@@ -14,7 +14,10 @@ from culture_library.server import app as server_app  # noqa: E402
 from culture_library.server import routes_send  # noqa: E402
 from culture_library.server.auth import Principal, check, current_principal, get_store  # noqa: E402
 
-TARGETS = '[{"label":"x3-ori","enabled":true},{"label":"reTerminal Sticky","enabled":false}]'
+TARGETS = (
+    '[{"label":"x3-ori","type":"Xteink X3 reader","enabled":true,"device_id":"SECRET"},'
+    '{"label":"reTerminal Sticky","enabled":false}]'
+)
 
 
 @pytest.fixture
@@ -89,9 +92,10 @@ def test_targets_route(env):
     app, *_ = env
     r = TestClient(app).get("/api/send/targets")
     assert r.json()["targets"] == [
-        {"label": "x3-ori", "enabled": True},
-        {"label": "reTerminal Sticky", "enabled": False},
+        {"label": "x3-ori", "type": "Xteink X3 reader", "enabled": True},
+        {"label": "reTerminal Sticky", "type": "", "enabled": False},
     ]
+    assert "SECRET" not in r.text
 
 
 def test_rule_with_read_key_fetches_matching_bytes(env, monkeypatch):

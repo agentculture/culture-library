@@ -13,7 +13,9 @@ contract xteink clients rely on (culture-rules' ``library.push``) is unchanged:
 Modified: any of the kinds in :data:`culture_library.core.KINDS` (xteink's ``book`` and
 ``article`` included); a ``visibility`` form field (``private`` when omitted, decision c43);
 scoped keys (read for reads, write for changes, per-key kind lists); private items are 404
-to callers without ``private``; DELETE *archives* (decision c45) and
+to callers without ``private``, except to the key that uploaded them (d4), which can read,
+archive and restore its own items; ``GET /api/library/{id}`` adds ``uploaded_by_you``;
+DELETE *archives* (decision c45) and
 ``POST /api/library/{id}/restore`` undoes it within 30 days; ``?include_archived=1`` on get
 and file shows archived items to private-scope callers. Every error body on these routes,
 auth and request-shape errors included, is a flat ``{"detail": str, "code": str}``: ingest
@@ -190,6 +192,11 @@ def _item(item) -> dict:
     return asdict(item)
 
 
+def _vis(principal: Principal) -> dict:
+    """Visibility arguments for the core: private access, or the caller's own uploads."""
+    return {"include_private": principal.private, "owner": principal.key_id}
+
+
 @router.get("")
 def list_items(
     q: str | None = Query(None, description="search title/author"),
@@ -203,7 +210,7 @@ def list_items(
     check(principal, "read")
     try:
         items = library.list_items(
-            store, q=q, kind=kind, limit=limit, offset=offset, include_private=principal.private
+            store, q=q, kind=kind, limit=limit, offset=offset, **_vis(principal)
         )
     except ValidationError as exc:
         return _refused(exc)
@@ -302,12 +309,12 @@ def get_item(
         item = library.get(
             store,
             item_id,
-            include_private=principal.private,
+            **_vis(principal),
             include_archived=include_archived and principal.private,
         )
     except NotFoundError:
         return _not_found(item_id)
-    return _item(item)
+    return {**_item(item), "uploaded_by_you": library.uploaded_by(store, item.id, principal.key_id)}
 
 
 @router.get("/{item_id}/file", response_class=FileResponse)
@@ -322,7 +329,7 @@ def download_item(
         item = library.get(
             store,
             item_id,
-            include_private=principal.private,
+            **_vis(principal),
             include_archived=include_archived and principal.private,
         )
     except NotFoundError:
@@ -340,7 +347,7 @@ def download_item(
 
 def _writable(principal: Principal, store: Store, item_id: int):
     check(principal, "write")
-    item = library.get(store, item_id, include_private=principal.private, include_archived=True)
+    item = library.get(store, item_id, **_vis(principal), include_archived=True)
     check(principal, "write", item.kind)
     return item
 
@@ -354,7 +361,7 @@ def delete_item(
     """Archive the item (decision c45): hidden now, restorable for 30 days, then purged."""
     try:
         _writable(principal, store, item_id)
-        library.archive(store, item_id, include_private=principal.private)
+        library.archive(store, item_id, **_vis(principal))
     except NotFoundError:
         return _not_found(item_id)
     return Response(status_code=204)
@@ -369,7 +376,7 @@ def restore_item(
     """Un-archive an item archived less than 30 days ago."""
     try:
         _writable(principal, store, item_id)
-        item = library.restore(store, item_id, include_private=principal.private)
+        item = library.restore(store, item_id, **_vis(principal))
     except NotFoundError:
         return _flat(404, f"archived item {item_id} not found", "not_found")
     return _item(item)
