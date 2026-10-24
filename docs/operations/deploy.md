@@ -156,6 +156,61 @@ Schedule backups before relying on the stack: see
 `culture-library backup schedule --print`. Run them inside the container (or against a
 bind-mounted data directory), writing to a location outside `/data`.
 
+## Upgrading across a schema change
+
+Some releases change the database schema. Release 0.12.0 widens the `items.kind`
+CHECK constraint so the `todo` kind is accepted. On first open after the upgrade the
+store rebuilds the `items` table once, preserving ids and the id sequence. It verifies
+the row counts and refuses to open (rolling back) if they differ. Follow these steps
+for any such release.
+
+1. Take a backup and verify it before deploying (commands as in
+   [backup.md](backup.md); run inside the container, writing outside `/data`):
+
+   ```bash
+   docker compose -f deploy/compose.yaml exec library \
+     culture-library backup run --to <backup-dir>
+   docker compose -f deploy/compose.yaml exec library \
+     culture-library backup verify <backup-dir>/snapshots/<UTC stamp>
+   ```
+
+2. Record the row count and highest id before the upgrade:
+
+   ```bash
+   docker compose -f deploy/compose.yaml exec library \
+     python3 -c "import sqlite3; print(sqlite3.connect('/data/library.db').execute('SELECT count(*), max(id) FROM items').fetchone())"
+   ```
+
+3. Deploy:
+
+   ```bash
+   git checkout <new-tag-or-commit>
+   docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
+   ```
+
+4. Check the container logs for the one-line migration diagnostic, which the store
+   writes to stderr once, on success:
+
+   ```bash
+   docker compose -f deploy/compose.yaml logs library | grep -i migrat
+   ```
+
+   If the container fails to start with a row-count mismatch, the store rolled back
+   and left the database as it was. Do not retry; restore the snapshot (below) and
+   report the failure.
+
+5. Run the count query from step 2 again. The count and `max(id)` must equal the
+   before values (plus any items uploaded since).
+
+**Rollback is restoring the pre-upgrade snapshot**, not redeploying an older image
+over the migrated database: stop the stack, restore the snapshot from step 1 with the
+restore steps in [backup.md](backup.md), then start the previous version.
+
+Running an older image on a database that holds `todo` items is unsupported. The old
+`feed.append` rejects unknown kinds, so events for those items fail. If todo items have
+been created since the upgrade, a snapshot restore discards them; export what you need
+first.
+
 ## Rollback
 
 ```bash

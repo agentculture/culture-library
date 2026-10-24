@@ -22,10 +22,17 @@ it all, published at **library.culture.dev**.
   - `core/`: stdlib-only and network-free. It holds the SQLite WAL store,
     ingest, keys, feed, search and indexer, repo documents, library rules,
     send events, backup, and the uploaders table.
+    Kinds are `book`, `article`, `newspaper`, `document`, `transcript`,
+    `diary`, `spec`, `plan`, `devague-record` and `todo` (Markdown
+    checklists, one per recording). Adding a kind widens the `items` kind
+    CHECK; the store rebuilds the table once on first open (see
+    `docs/operations/deploy.md`, "Upgrading across a schema change").
   - `server/`: the FastAPI app and its `routes_*.py` modules. These serve
     `/api/library`, `/api/repodocs`, `/api/search`, `/api/status`,
     `/api/feed`, `/api/keys` and send, plus `/opds`, `/dav/` and the site
-    at `/`.
+    at `/`. `PUT /api/library/{id}/file` replaces an item's bytes in place
+    (same id, title, author, kind and visibility; new sha256, size and
+    format) and appends an `updated` feed event.
   - `mcp/`: the agents' MCP server.
   - `web/static/`: the site.
   - `render/`: the devague renderer.
