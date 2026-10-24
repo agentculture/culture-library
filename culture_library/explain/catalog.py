@@ -128,6 +128,21 @@ If the extra is missing, `serve` exits 2 with a hint to install
 `culture-library[server]`.
 """
 
+_KEYS = """\
+# culture-library keys
+
+Mint, list and revoke API keys on this host. The first admin key comes from here,
+because the `/api/keys` routes need an admin key.
+
+- `keys mint --name N --scope read|write|admin [--kind K] [--private]` prints the key once;
+  only a hash is stored.
+- `keys list` shows scopes, kinds and status, never the secret.
+- `keys revoke --id N` revokes a key.
+
+Scopes: read; write implies read; admin implies both. `--kind` limits writes to those
+kinds; `--private` lets the key see private items.
+"""
+
 _MIGRATE = """\
 # culture-library migrate
 
@@ -176,4 +191,9 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("migrate",): _MIGRATE,
     ("migrate", "from-xteink"): _MIGRATE,
     ("migrate", "overview"): _MIGRATE,
+    ("keys",): _KEYS,
+    ("keys", "mint"): _KEYS,
+    ("keys", "list"): _KEYS,
+    ("keys", "revoke"): _KEYS,
+    ("keys", "overview"): _KEYS,
 }

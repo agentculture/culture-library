@@ -33,6 +33,8 @@ Commands
   culture-library server overview    Describe the server noun.
   culture-library migrate from-xteink  Copy an xteink library in (dry run unless --apply).
   culture-library migrate overview   Describe the migrate noun.
+  culture-library keys mint          Mint an API key (shown once).
+  culture-library keys overview      Describe the keys noun.
 
 Machine-readable output
 -----------------------
@@ -68,6 +70,8 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["server", "overview"], "summary": "Describe the server noun."},
             {"path": ["migrate", "from-xteink"], "summary": "Migrate xteink items (--apply)."},
             {"path": ["migrate", "overview"], "summary": "Describe the migrate noun."},
+            {"path": ["keys", "mint"], "summary": "Mint an API key (shown once)."},
+            {"path": ["keys", "overview"], "summary": "Describe the keys noun."},
         ],
         "exit_codes": {
             "0": "success",
