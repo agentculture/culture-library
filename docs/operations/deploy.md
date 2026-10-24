@@ -104,15 +104,15 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up -d library
 ### Start the connector
 
 The connector token stays out of `.env` and out of git. Store it as a hidden grant
-secret (for example `LIBRARY_TUNNEL_TOKEN`), then inject it at exec time:
+secret (`cultureflare --grant` stores it as `CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN`), then inject it at exec time:
 
 ```bash
-grant run --inject TUNNEL_TOKEN=LIBRARY_TUNNEL_TOKEN \
+grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
   -- docker compose -f deploy/compose.yaml --env-file deploy/.env --profile remote up -d
 ```
 
 To rotate the token, fetch a new one from Cloudflare and re-run
-`grant set LIBRARY_TUNNEL_TOKEN - --hidden` with the value on stdin.
+`grant set CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN - --hidden` with the value on stdin.
 
 ## Verify
 

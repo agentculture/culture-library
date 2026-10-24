@@ -170,3 +170,23 @@ citation has been observed, so nothing is claimed.
 | Access wall on library.culture.dev | operator provisioning (`docs/operations/deploy.md`) |
 | xteink as a client of the library | xteink#3 |
 | Gwen cites and writes diary entries (c31) | embodiment#97 |
+
+## Update: Access wall measured (2026-10-24, after provisioning)
+
+The operator provisioned library.culture.dev with cultureflare: tunnel
+`library-culture-dev`, a proxied CNAME, and an Access app allow-listing the
+operator. The stack runs on spark under compose project `culture-library`,
+with Access verification on and cloudflared connected (4 registered
+connections).
+
+| Check | Result |
+|-------|--------|
+| anonymous `GET https://library.culture.dev/` | 302 to `agentculture.cloudflareaccess.com/cdn-cgi/access/login/library.culture.dev` |
+| anonymous `GET https://library.culture.dev/static/app.js` | 302 to the Access login (nothing served from the edge cache) |
+| local `GET /api/library` without a key | 401 |
+| `Cache-Control` on site and static files | `private, no-cache` (revalidated each load, never cached by Cloudflare) |
+| `Cache-Control` on `/api`, `/opds`, `/dav`, `/mcp` | `no-store, private` |
+
+c30's Access-wall signal is **passed** (obligation `o46`, evidence `e47`).
+The next newspaper (`o45`, culture-rules#86) and c31 (`o47`, embodiment#97)
+remain pending in those repos.

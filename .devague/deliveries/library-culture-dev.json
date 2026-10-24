@@ -2,7 +2,7 @@
   "plan_slug": "library-culture-dev",
   "schema_version": 2,
   "created": "2026-10-24T00:27:07Z",
-  "updated": "2026-10-24T06:40:49Z",
+  "updated": "2026-10-24T06:53:51Z",
   "deviations": [
     {
       "id": "d1",
@@ -76,6 +76,20 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t21's three remaining success signals are deferred outside this repo: o45 (next newspaper, 0 manual steps) to culture-rules#86 and o47 (Gwen citations and diary) to embodiment#97, both in progress per the operator; o46 (Access wall) waits for the operator to run cultureflare remote-login setup --apply (the stack is already running on spark with 51/51 items migrated)",
+      "task_ref": "t21",
+      "reason": "the operator said culture-rules and embodiment changes are in progress elsewhere; the cultureflare --apply was refused by the session's permission classifier and is the operator's to run",
+      "affects": [
+        "c30",
+        "c31"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 52
     }
   ],
   "evidence": [
@@ -952,6 +966,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 51
+    },
+    {
+      "id": "e47",
+      "obligation_ref": "o46",
+      "test_ref": "curl -sD - https://library.culture.dev/ (anonymous)",
+      "behavior_text": "anonymous GET / and /static/app.js on library.culture.dev answer 302 to agentculture.cloudflareaccess.com/cdn-cgi/access/login/library.culture.dev; local /api/library without a key 401; responses carry Cache-Control no-store/private or private,no-cache",
+      "contract_text": "an anonymous request to library.culture.dev gets the Access wall while an API call without a key gets 401",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live stack on spark (compose project culture-library) behind tunnel library-culture-dev at e065399, cloudflared registered 4 connections; probed 2026-10-24",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T06:53:51+00:00",
+        "commit": "e065399"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 53
     }
   ],
   "deltas": [

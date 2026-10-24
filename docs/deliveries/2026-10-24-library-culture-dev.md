@@ -197,7 +197,7 @@ All evidence, obligation and delta records above were filed with
 | ebooks.culture.dev teardown is gated (c42) | high | file `docs/operations/teardown-ebooks.md` · test `tests/test_teardown_gate.py` · `e24` |
 | Every content kind exists in a running library (c1) | medium | `docs/evidence/t21-delivery-evidence.md` · `e38` (PDF, transcript and diary items synthetic) |
 | The next newspaper lands with no manual step (c30) | unverified | needs culture-rules#86 — not claimed |
-| An anonymous request to library.culture.dev gets the Access wall (c30) | unverified | hostname not provisioned — not claimed |
+| An anonymous request to library.culture.dev gets the Access wall (c30) | high | measured live: 302 to the Access login (`docs/evidence/t21-delivery-evidence.md`, update) · `e47` |
 | Gwen cites the library and keeps a daily diary (c31) | unverified | needs embodiment#97 — not claimed |
 
 Lapse ledger evidence: approved lapses `l1`–`l3` bear on c13/c27 (repo
