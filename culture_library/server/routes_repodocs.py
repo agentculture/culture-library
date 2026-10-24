@@ -5,21 +5,22 @@ visibility, content}``; the rules (identity, current, visibility) live in
 :mod:`culture_library.core.repodocs`. Private docs and versions are visible only to a
 principal with ``private`` set; to anyone else they behave as absent (404 / omitted).
 
-The store comes from ``app.state.store`` when set (tests), else a :class:`Store` on the
-default data dir, created once per app. New module, written for plan task t8.
+The store comes from :func:`culture_library.server.auth.get_store` (``app.state.store``
+when set, else a :class:`Store` on the default data dir, created once per app). New
+module, written for plan task t8.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from culture_library.core import NotFoundError, Store, ValidationError
 from culture_library.core.repodocs import RepoDocs, infer_kind, normalize_path
-from culture_library.server.auth import Principal, check, current_principal
+from culture_library.server.auth import Principal, check, current_principal, get_store
 
 router = APIRouter(tags=["repodocs"])
 
@@ -34,11 +35,7 @@ class RepoDocPush(BaseModel):
     content: str
 
 
-def get_repodocs(request: Request) -> RepoDocs:
-    state = request.app.state
-    store = getattr(state, "store", None)
-    if store is None:
-        store = state.store = Store()
+def get_repodocs(store: Store = Depends(get_store)) -> RepoDocs:
     return RepoDocs(store)
 
 
