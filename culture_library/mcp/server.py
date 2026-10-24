@@ -31,7 +31,7 @@ __all__ = ["ServerExtraMissing", "build_server", "run_http", "run_stdio"]
 
 DEFAULT_BIND = "127.0.0.1"
 DEFAULT_PORT = 8797
-_WILDCARDS = {"0.0.0.0", "::", ""}  # listed to refuse them
+_WILDCARDS = {"0.0.0.0", "::", ""}  # nosec B104
 _EXTRA_MESSAGE = "the MCP server needs the 'server' extra: pip install 'culture-library[server]'"
 
 
