@@ -386,3 +386,51 @@ def restore_item(
     except NotFoundError:
         return _flat(404, f"archived item {item_id} not found", "not_found")
     return _item(item)
+
+
+@router.put("/{item_id}/file")
+@max_body(_upload_cap)
+async def replace_item(
+    item_id: int,
+    file: UploadFile = File(...),
+    principal: Principal = Depends(current_principal),
+    store: Store = Depends(get_store),
+):
+    """Swap the item's bytes under the same id; answer the updated item.
+
+    Guarded like archive/restore (write scope and the item's kind, before any bytes are read).
+    A private, archived or absent item is 404. Refusals map like the upload. Bytes already
+    held by another item are 409 ``duplicate_content``; ``other_id`` names that item only when
+    the caller can see it.
+    """
+    try:
+        _writable(principal, store, item_id)
+    except NotFoundError:
+        return _not_found(item_id)
+    # Read at most one byte past the cap so an oversize file is refused as too_large.
+    data = await file.read(UPLOAD_LIMITS.max_bytes + 1)
+    try:
+        item = await run_in_threadpool(
+            library.replace,
+            store,
+            item_id,
+            data,
+            file.filename or "",
+            **_vis(principal),
+            limits=UPLOAD_LIMITS,
+        )
+    except NotFoundError:
+        return _not_found(item_id)
+    except library.DuplicateContentError as exc:
+        body = {"detail": "these bytes already belong to another item", "code": exc.code}
+        if (
+            exc.other_visibility == "public"
+            or principal.private
+            or library.uploaded_by(store, exc.other_id, principal.key_id)
+        ):
+            body["other_id"] = exc.other_id
+        return JSONResponse(body, status_code=409)
+    except ValidationError as exc:
+        return _refused(exc)
+    _notify_indexer(store)
+    return _item(item)
