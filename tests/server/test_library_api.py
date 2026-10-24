@@ -611,3 +611,44 @@ def test_dedup_private_item_of_another_owner_stays_opaque_409_for_kind_limited_k
     diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
     r = api.as_(diary_only).upload(b"secret", "s.txt", kind="diary")
     assert r.status_code == 409 and r.json()["code"] == "conflict"
+
+
+# ------------------------------------------------------------------ upload indexes the body once
+
+
+def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monkeypatch):
+    from culture_library.core import indexer as core_indexer
+    from culture_library.core import ingest as core_ingest
+
+    calls = []
+    real = core_ingest.extract_text_ex
+
+    def counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(core_ingest, "extract_text_ex", counting)
+    item = api.upload(b"# Memo\n\nthe **okapi** grazes", "m.md").json()["item"]
+    assert len(calls) == 1
+    with api.store.reader() as conn:
+        body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (item["id"],)).fetchone()
+        done = conn.execute(
+            "SELECT body_done FROM index_queue WHERE item_id=?", (item["id"],)
+        ).fetchone()
+    assert body[0] == real(b"# Memo\n\nthe **okapi** grazes", "md").text and done[0] == 1
+    assert [h.item_id for h in core_search.fulltext(api.store, "okapi", include_private=True)] == [
+        item["id"]
+    ]
+
+    def never(_item):
+        raise AssertionError("the indexer extracted the body again")
+
+    embedded = []
+
+    def embed(texts):
+        embedded.extend(texts)
+        return [[0.0]] * len(texts)
+
+    ix = core_indexer.Indexer(api.store, embed, text_for=never)
+    assert ix.run_once() == 1 and any("okapi" in t for t in embedded)
+    assert len(calls) == 1

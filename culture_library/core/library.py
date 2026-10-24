@@ -9,8 +9,9 @@ event in the same transaction; search keeps xteink's title/author substring sema
 
 **Add is one transaction.** :func:`add` passes an ``on_insert`` hook through
 :func:`~culture_library.core.ingest.ingest` to ``Store.add_item``; it runs inside the insert's
-``BEGIN IMMEDIATE`` transaction before the commit: title index + index queue
-(:func:`~culture_library.core.indexer.index_on_add`) and the ``created`` feed event, and it
+``BEGIN IMMEDIATE`` transaction before the commit: title and body index (the text ingest
+already extracted) + index queue with the body marked done, so the background indexer only
+embeds (:func:`~culture_library.core.indexer.index_on_add`), and the ``created`` feed event, and it
 re-writes a missing blob (a purge that removed the bytes while a same-bytes upload was in
 flight). For bytes already stored, a follow-up transaction heals a missing ``created`` event
 (an item stored by another path) and restores an archived item - a pusher retrying is asking
@@ -145,15 +146,18 @@ class ForbiddenKindError(CoreError):
     code = "forbidden_kind"
 
 
-def _announce(conn: sqlite3.Connection, item: Item, uploader: str | None = None) -> None:
+def _announce(
+    conn: sqlite3.Connection, item: Item, uploader: str | None = None, body: str | None = None
+) -> None:
     """Index + ``created`` event, once per item (heals items stored by another path).
 
-    ``uploader`` (the creating key's id) is recorded in the event's data."""
+    ``uploader`` (the creating key's id) is recorded in the event's data; ``body`` (text
+    already extracted by ingest) is indexed now instead of by the background indexer."""
     announced = conn.execute(
         "SELECT 1 FROM feed WHERE item_id = ? AND type = 'created' LIMIT 1", (item.id,)
     ).fetchone()
     if announced is None:
-        indexer.index_on_add(conn, item)
+        indexer.index_on_add(conn, item, body)
         _event(conn, "created", item, {"uploader": uploader} if uploader else None)
 
 
@@ -199,11 +203,13 @@ def add(
     kind = check_kind(kind or default_kind(filename))
     check_visibility(visibility)
 
+    extracted: list[str] = []  # ingest's text, indexed in the insert (no second extraction)
+
     def on_insert(conn: sqlite3.Connection, item: Item) -> None:
         if not store.blob_path(item.sha256).exists():  # a racing purge removed the bytes
             store.write_blob(data)
         uploaders.record(conn, item.id, uploader)
-        _announce(conn, item, uploader)
+        _announce(conn, item, uploader, extracted[-1] if extracted else None)
 
     item, created, _text = ingest(
         store,
@@ -215,6 +221,7 @@ def add(
         visibility=visibility,
         limits=limits,
         on_insert=on_insert,
+        on_text=extracted.append,
     )
     if created:
         return item, True

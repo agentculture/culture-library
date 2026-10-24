@@ -394,6 +394,7 @@ def ingest(
     visibility: str | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
     on_insert: Callable[[sqlite3.Connection, Item], None] | None = None,
+    on_text: Callable[[str], None] | None = None,
 ) -> tuple[Item, bool, str]:
     """Validate and store an upload as-is; return ``(item, created, extracted_text)``.
 
@@ -401,7 +402,9 @@ def ingest(
     bad_magic, invalid_encoding, invalid_json, zip_bomb, corrupt_archive, conversion_timeout,
     plus the store's own validation) after recording the refusal. PDF text degrades to ``""``
     when pdftotext is absent. ``on_insert`` is passed to :meth:`Store.add_item` (runs in the
-    insert's transaction; not called for a duplicate).
+    insert's transaction; not called for a duplicate). ``on_text(text)`` receives the
+    extracted text once the upload is accepted and before it is stored (so ``on_insert`` can
+    index it without extracting again).
     """
     try:
         fmt = _validate(data, filename, limits)
@@ -409,6 +412,8 @@ def ingest(
     except ValidationError as err:
         _record_refusal(store, err, filename, len(data))
         raise
+    if on_text is not None:
+        on_text(text)
     stem = os.path.splitext(os.path.basename(filename or ""))[0] or "Untitled"
     result = store.add_item(
         data,
