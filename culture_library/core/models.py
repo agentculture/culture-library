@@ -19,6 +19,7 @@ KINDS = (
     "spec",
     "plan",
     "devague-record",
+    "todo",
 )
 VISIBILITIES = ("private", "public")
 
