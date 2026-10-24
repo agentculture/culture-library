@@ -362,3 +362,11 @@ def test_store_defaults_to_data_dir_env(tmp_path, monkeypatch):
     app = server_app.create_app()
     app.include_router(probe)
     assert TestClient(app).get("/t/items", headers=bearer(raw)).status_code == 200
+
+
+def test_access_service_token_is_refused(sso_client):
+    """Decision (issue #3): only people authenticate via Access; machines use scoped keys."""
+    svc = token(claims(email=None, common_name="ci.access", sub=""))
+    r = sso_client.get("/t/items", headers=sso(svc))
+    assert r.status_code == 401
+    assert sso_client.get("/api/keys", headers=sso(svc)).status_code == 401

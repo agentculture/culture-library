@@ -31,8 +31,9 @@ Credential order (:func:`current_principal`):
    header cannot be sent cross-site without a CORS preflight this app never grants.
 
 Who sees private items (``Principal.private``): admin keys, keys minted with
-``private=True``, and Access-authenticated callers (the operator). Access callers hold every
-scope. Raw keys and tokens are never echoed back or logged.
+``private=True``, and Access-authenticated people (the operator). Access callers hold every
+scope. Access service tokens are refused (401): machines use scoped keys (decision c44).
+Raw keys and tokens are never echoed back or logged.
 """
 
 from __future__ import annotations
@@ -149,6 +150,11 @@ def _access_principal(request: Request, verifier: AccessVerifier, assertion: str
                 503, "Cloudflare Access keys are unavailable", "access_unavailable"
             ) from None
         raise _unauthorized() from None
+    if ident.kind != "sso":
+        # Decision (issue #3, decider 0.80): service tokens are shared secrets; machines use
+        # scoped API keys on the local address (c44), so only a person authenticates via Access.
+        log.warning("access service token %s refused on %s", ident.identity, where)
+        raise _unauthorized()
     if request.method not in _SAFE_METHODS and not request.headers.get(CSRF_HEADER):
         log.warning("access request without %s refused on %s", CSRF_HEADER, where)
         raise _error(403, f"{CSRF_HEADER} header required", "csrf")
