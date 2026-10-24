@@ -105,8 +105,10 @@ so each record names its test node.
   `(51, 54)`, seq `54`; kinds: 36 document, 14 newspaper, 1 book. The backup snapshot
   `20261024T221500Z` passed `verify: OK (51 items)`.
 - commits: `main..1435f08` (13 commits, 21 files, +3069/−9).
-- issues: #10 (the request), #11 (follow-up filed in this run). No PR yet: this
-  summary precedes `/cicd`, as the operator ordered.
+- issues: #10 (the request), #11 (follow-up filed in this run).
+- PR: #12, opened after this summary as the operator ordered. CI on `7be9e4d`: test (both
+  jobs), visual, lint, harness-smoke, version-check, test-publish, GitGuardian and
+  SonarCloud all passed; publish was skipped, as it is for PRs.
 
 ## Delivery Claims
 
