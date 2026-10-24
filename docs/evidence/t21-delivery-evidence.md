@@ -84,7 +84,7 @@ and `.devague/{frames,plans,deliveries,reviews,questions}/` at `HEAD` (`git ls-t
 directories were skipped. Visibility came from
 `gh repo list agentculture --limit 300 --json name,visibility` (129 repos, 17 PRIVATE): a
 PRIVATE repo, a repo outside agentculture and a repo with no remote were pushed `private`.
-The 3 remoteless repos use a `spark:/home/spark/git/<name>` identity.
+The 3 remoteless repos use a `host:/absolute/path` identity (spark plus the clone path).
 
 ```text
 pushed 3093 files, 3093 created, 0 errors, 2 skipped as non text
@@ -146,7 +146,7 @@ to the Access login. A private item requested with a public read key answers 404
 | Measure | Value | Command |
 |---------|-------|---------|
 | xteink items | 51 (not 17); 51 queue rows, 3 devices, 5 firmware images | read only sqlite on the container copy: `select count(*) from items` |
-| Pocket recordings | 39 `meta.json`, 0 deleted, 0 merged, so 39 live | `find ~/.local/share/pocketsync/files -name meta.json`, then check `deleted_at`, `deleted_in_pocket`, `merged_at`, `merged_into` |
+| Pocket recordings | 39 `meta.json`, 0 deleted, 0 merged, so 39 live | `find "$POCKETSYNC_FILES_ROOT" -name meta.json` (pocketsync's files root), then check `deleted_at`, `deleted_in_pocket`, `merged_at`, `merged_into` |
 | `.devague` files | 1545 tracked files in 68 repos by distinct remote URL (77 clones have a `.devague` directory on disk) | `git ls-files .devague` per clone, remotes normalised (no `.git`, lowercase, http to https) |
 | Clones under `~/git` | 172 top-level repos with a `.git`, 3 with no remote; 129 agentculture repos on GitHub, 17 private | `gh repo list agentculture --limit 300` |
 | `library.culture.dev` | does not resolve (NXDOMAIN) | see above |

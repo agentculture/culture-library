@@ -80,8 +80,8 @@ def test_remote_never_keeps_credentials() -> None:
 @pytest.mark.parametrize(
     "remote,expected",
     [
-        ("spark:/home/spark/git/transformer", "spark:/home/spark/git/transformer"),
-        ("spark:/home/spark/git/transformer/", "spark:/home/spark/git/transformer"),
+        ("spark:/srv/git/transformer", "spark:/srv/git/transformer"),
+        ("spark:/srv/git/transformer/", "spark:/srv/git/transformer"),
         ("Spark:~/git/transformer", "spark:~/git/transformer"),
     ],
 )
@@ -94,8 +94,8 @@ def test_host_path_identity_for_repos_without_remote(remote: str, expected: str)
     [
         "",
         "   ",
-        "/home/spark/git/transformer",
-        "file:///home/spark/git/x",
+        "/srv/git/transformer",
+        "file:///srv/git/x",
         "https://github.com",
         "spark:",
         "https://github.com/../etc",
