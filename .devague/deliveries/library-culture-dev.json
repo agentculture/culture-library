@@ -2,7 +2,7 @@
   "plan_slug": "library-culture-dev",
   "schema_version": 2,
   "created": "2026-10-24T00:27:07Z",
-  "updated": "2026-10-24T06:53:51Z",
+  "updated": "2026-10-24T06:57:54Z",
   "deviations": [
     {
       "id": "d1",
@@ -87,7 +87,7 @@
         "c31"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 52
     }

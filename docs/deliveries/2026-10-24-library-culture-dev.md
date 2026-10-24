@@ -112,6 +112,11 @@ top of a red suite left by t14's merge (lapse `l9`); it was fixed in `ac56b99`.
   send menu fixed — t16's pixel comparison found prototype-only content, and a
   reference that scrolled sideways. The operator approved all 18 on
   2026-10-24.
+- `d6` — t21's remaining success signals are deferred outside this repo:
+  `o45` (the next newspaper with no manual steps) to culture-rules#86 and
+  `o47` (Gwen's citations and diary) to embodiment#97, both in progress
+  elsewhere. The third, `o46` (the Access wall), has since passed (`e47`).
+  The operator approved d6 on 2026-10-24.
 
 Other decisions were taken with the decider and recorded in issue #3:
 
@@ -144,7 +149,7 @@ The operator decided:
 | `t16` (`d5`) | t16's pixel comparison showed these views carry prototype-only content the real site cannot reproduce, and the reference send menu broke the no-sideways-scroll contract. | needs-follow-up |
 | `t9` | The plan and c9/c30 said 17 items. xteink held 51 on 2026-10-24, because 33 recording EPUBs and more newspapers had arrived. All 51 migrated, but the recordings land as `document`, not `transcript` (#5). | needs-follow-up |
 | `t18` | Built and booted on spare ports and verified (`docs/evidence/t18-deploy-verification.md`); events-cli added to the image. Two things wait outside the repo: the operator provisioning library.culture.dev, and a broker address the container can reach for send to device (#6). | acceptable |
-| `t21` | Three success signals cannot be measured from this repo: the next newspaper (culture-rules#86), the Access wall (provisioning) and c31 (embodiment#97). Validation also found that search does not cover repo documents (#4). | needs-follow-up |
+| `t21` (`d6`) | Two success signals cannot be measured from this repo: the next newspaper (`o45`, culture-rules#86) and c31 (`o47`, embodiment#97), both in progress elsewhere. The Access wall (`o46`) passed once provisioned (`e47`). Validation also found that search does not cover repo documents (#4). | needs-follow-up |
 
 ## Evidence
 
@@ -218,10 +223,9 @@ pending approval and are not yet evidence. They concern:
   (#4).
 - **`t9`:** map xteink's recording EPUBs to kind `transcript` when migrating
   (#5).
-- **`t18`:** provision library.culture.dev with cultureflare
-  (`docs/operations/deploy.md`) and check the Access wall (`o46`). Give the
-  container a reachable broker address for send to device (#6). The stack
-  itself was built, booted and verified.
+- **`t18`:** library.culture.dev is provisioned and live behind Access
+  (`o46`, `e47`). Still open: give the container a reachable broker address
+  for send to device (#6).
 - **c30 next newspaper:** culture-rules points `library.push` at the local
   address and drops the queue step (culture-rules#86). Then watch 7
   consecutive issues (`o45`, teardown condition 2).
