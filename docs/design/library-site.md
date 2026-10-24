@@ -77,8 +77,10 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
 
   Below 720px the search box takes its own row and Upload shrinks to an icon.
 - **Home** (nothing open):
-  - An intro with the shelf: one spine per item, colored by kind. Faded spines
-    stand for content that has not arrived yet.
+  - An intro with the shelf: one spine per item in the library, colored by
+    kind, with the count "N on the shelf". There are no faded "arriving"
+    spines: the library cannot know about content other systems have not
+    pushed yet (deviation d3, operator-approved 2026-10-24).
   - **Continue reading**: the last opened item as a large card with reading
     progress, plus the two newest items. On a first visit this row reads
     "Start with the newest".
@@ -107,6 +109,10 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     JSON.
 - **Site state**: four stat tiles, a status list (icon and label), and an
   `auto-fill` chart grid.
+  - Every figure comes from the live library (`/api/status`, the item and
+    repo-document lists). The prototype's migration-time rows (xteink, DNS,
+    waiting recordings) are not shown (deviation d3). The re-approved
+    reference screenshots for home and site state replace the originals.
   - Every chart has a hover tooltip, a *Table* toggle, and a source line.
   - Single-series marks use `--accent`.
   - Kind charts use the kind colors with direct labels.
@@ -143,8 +149,8 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     screenshots don't show this.
 - **Content is untrusted** (claim c38): the reader renders extracted text,
   never markup or script taken from an item.
-- **Not-yet-ingested items** are labeled *Arriving*. Private items are labeled
-  *Only me*.
+- **Private items** are labeled *Only me*. There is no *Arriving* label in
+  the built site (deviation d3); it existed only in the prototype.
 - **Per-browser state** (theme, last read item, pane state, reading position)
   lives in `localStorage` and is wrapped in try/catch. Shared state never
   lives there.
