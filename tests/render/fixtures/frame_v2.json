@@ -1,0 +1,107 @@
+{
+  "slug": "league-of-agents-matures-the-arena-grows-past-laun",
+  "title": "League of Agents matures: the arena grows past launch - continuous-lane matches, bigger tables, published benchmarks, and a platform that runs itself",
+  "schema_version": 2,
+  "status": "drafting",
+  "created": "2026-07-10T08:51:05Z",
+  "updated": "2026-07-10T08:51:05Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "League of Agents matures: the arena grows past launch - continuous-lane matches, bigger tables, published benchmarks, and a platform that runs itself",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c2",
+      "kind": "open_question",
+      "text": "Continuous-lane hosting: once league-of-agents#28 lands the cmatch CLI parity verbs, a decision-point-driven, unit-scoped adapter (structurally distinct from the grid one) brings fluid speed-based matches online.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c3",
+      "kind": "open_question",
+      "text": "Larger tables: 3+ team matches and mixed human-agent rosters beyond the launch trio of modes (game presets exist: team-vs-bot, orchestrator-vs-bot, resident-vs-bot).",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c4",
+      "kind": "open_question",
+      "text": "Benchmark publication cadence: versioned dataset drops mirrored to Hugging Face Datasets on a schedule, with a changelog and a citable identity per release.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c5",
+      "kind": "open_question",
+      "text": "Production persistence and the hosted-agent loop: platform#4 (DynamoDB/S3 wiring) and platform#5 (BYOK agents playing unattended) graduate from issues to shipped.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c6",
+      "kind": "open_question",
+      "text": "Live human login: platform#6 (OAuth apps + secrets) - and the first-visit walkthrough measured against the within-minutes honesty condition.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c7",
+      "kind": "open_question",
+      "text": "Spectator experience beyond the viewer page: replays with commentary, shareable moments, and the probe/cooperation grades surfaced as narrative.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c8",
+      "kind": "open_question",
+      "text": "Game-side fairness and polish follow-ups: probe discipline/rejection_rate has the same passive-rejection latent bug fixed for realization_rate in league-of-agents#33 (noted out-of-scope there); score/replay still double-read logs.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Deploy IAM permissions (platform#7) - operator action, unblocks everything hosted",
+      "kind": "unknown_blocking",
+      "claim_id": null
+    }
+  ],
+  "scope_entries": []
+}
