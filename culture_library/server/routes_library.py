@@ -23,7 +23,10 @@ refusals are 413 (``too_large``), 415 (``unsupported_format``) or 400 (any other
 The upload body is capped while it streams (50 MiB + 1 MiB of form framing; a larger
 ``Content-Length`` is refused before reading). Bytes matching a private item answer 409
 ``conflict`` without an id to a caller lacking private access, unless that caller's key
-uploaded it (its idempotent retry). A successful upload wakes the search indexer, if running.
+uploaded it (its idempotent retry). Bytes matching an *archived* item the caller can see but
+whose kind its key may not write answer 403 ``forbidden_kind`` and the item stays archived
+(the restore route's rule); a live one is returned as-is. A successful upload wakes the
+search indexer, if running.
 
 The router's lifespan starts a :class:`~culture_library.core.library.Purger` that runs the
 30-day purge every ``CULTURE_LIBRARY_PURGE_INTERVAL_S`` seconds (default 3600; ``0`` turns it
@@ -285,10 +288,13 @@ async def upload_item(
             visibility=visibility,
             include_private=principal.private,
             uploader=principal.key_id,
+            writable_kinds=principal.kinds,
             limits=UPLOAD_LIMITS,
         )
     except library.ConflictError as exc:
         return _flat(409, str(exc), exc.code)
+    except library.ForbiddenKindError as exc:
+        return _flat(403, str(exc), exc.code)
     except ValidationError as exc:
         return _refused(exc)
     _notify_indexer(store)

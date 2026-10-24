@@ -570,3 +570,44 @@ def test_upload_corrupt_epub_is_a_400_refusal(api, how):
     assert r.status_code == 400, r.text
     assert r.json() == {"detail": r.json()["detail"], "code": "corrupt_archive"}
     assert read_refusals(api.store)[-1]["code"] == "corrupt_archive"
+
+
+# ------------------------------------------------------------------ dedup restore vs kind limits
+
+
+@pytest.mark.parametrize("private", [True, False])
+def test_dedup_never_restores_an_archived_item_of_a_kind_the_key_cannot_write(api, private):
+    book = api.upload(b"moby", "m.txt", title="Moby", kind="book", visibility="public")
+    book = book.json()["item"]
+    api.c.delete(f"/api/library/{book['id']}")
+    diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}), private)
+    r = api.as_(diary_only).upload(b"moby", "m.txt", kind="diary")
+    assert r.status_code == 403, r.text
+    assert r.json() == {"detail": "this key cannot write kind book", "code": "forbidden_kind"}
+    assert api.store.get_item(book["id"]).archived_at is not None
+    assert [e["type"] for e in _events(api.store)] == ["created", "archived"]
+    # same rule as the restore route
+    assert api.c.post(f"/api/library/{book['id']}/restore").json()["code"] == "forbidden_kind"
+
+
+def test_dedup_restores_for_a_key_that_may_write_the_existing_kind(api):
+    book = api.upload(b"moby", "m.txt", title="Moby", kind="book").json()["item"]
+    api.c.delete(f"/api/library/{book['id']}")
+    books = Principal("b", frozenset({"read", "write"}), frozenset({"book"}), True)
+    r = api.as_(books).upload(b"moby", "m.txt", kind="book")
+    assert r.status_code == 200 and r.json()["item"]["archived_at"] is None
+
+
+def test_dedup_of_a_live_item_of_another_kind_is_returned_untouched(api):
+    book = api.upload(b"moby", "m.txt", title="Moby", kind="book", visibility="public")
+    diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
+    r = api.as_(diary_only).upload(b"moby", "m.txt", kind="diary")
+    assert r.status_code == 200 and r.json() == {"item": book.json()["item"], "created": False}
+
+
+def test_dedup_private_item_of_another_owner_stays_opaque_409_for_kind_limited_key(api):
+    priv = api.upload(b"secret", "s.txt", title="S", kind="book").json()["item"]
+    api.c.delete(f"/api/library/{priv['id']}")
+    diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
+    r = api.as_(diary_only).upload(b"secret", "s.txt", kind="diary")
+    assert r.status_code == 409 and r.json()["code"] == "conflict"

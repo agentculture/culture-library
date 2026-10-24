@@ -16,9 +16,11 @@ flight). For bytes already stored, a follow-up transaction heals a missing ``cre
 (an item stored by another path) and restores an archived item - a pusher retrying is asking
 for it back - but only for a caller who may see it: bytes matching a private item raise
 :class:`ConflictError` (opaque, no id) for callers without private access, and that item is
-never touched. One exception keeps a write-only pusher's retries idempotent: the key that
-created the private item (``uploader``, recorded in its ``created`` event and in
-:mod:`~culture_library.core.uploaders`) gets it back while it is live.
+never touched; nor is an archived item of a kind the caller may not write
+(:class:`ForbiddenKindError`, the restore route's ``forbidden_kind``). One exception keeps a
+write-only pusher's retries idempotent: the key that created the private item
+(``uploader``, recorded in its ``created`` event and in :mod:`~culture_library.core.uploaders`)
+gets it back while it is live.
 
 **Visibility (d4).** Every read and change takes ``include_private`` and ``owner`` (the
 caller's key id): an item is visible if it is public, or ``include_private``, or ``owner``
@@ -137,6 +139,12 @@ class ConflictError(CoreError):
 CONFLICT_DETAIL = "an item with these bytes already exists"
 
 
+class ForbiddenKindError(CoreError):
+    """The caller may not write the existing item's kind (the API answers 403)."""
+
+    code = "forbidden_kind"
+
+
 def _announce(conn: sqlite3.Connection, item: Item, uploader: str | None = None) -> None:
     """Index + ``created`` event, once per item (heals items stored by another path).
 
@@ -171,6 +179,7 @@ def add(
     visibility: str | None = None,
     include_private: bool = True,
     uploader: str | None = None,
+    writable_kinds: frozenset[str] | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
 ) -> tuple[Item, bool]:
     """Validate, store, index and announce an upload; return ``(item, created)``.
@@ -181,7 +190,11 @@ def add(
     and a private existing item: if ``uploader`` created it and it is not archived, it is
     returned (the uploader's idempotent retry); otherwise :class:`ConflictError` is raised
     and the item is left untouched (never restored). Every other caller gets the existing
-    item, restored first if it was archived. Refusals raise :class:`ValidationError`.
+    item, restored first if it was archived - but only when the caller may write the
+    *existing* item's kind (``writable_kinds``, ``None`` for any kind; the same rule as the
+    restore route): otherwise an archived item raises :class:`ForbiddenKindError` and stays
+    archived, while a live one is returned untouched. Refusals raise
+    :class:`ValidationError`.
     """
     kind = check_kind(kind or default_kind(filename))
     check_visibility(visibility)
@@ -214,6 +227,13 @@ def add(
         raise ConflictError(CONFLICT_DETAIL)
     with store.connect() as conn:
         current = _row(conn, item.id)
+        if (
+            current is not None
+            and current.archived_at is not None
+            and writable_kinds is not None
+            and current.kind not in writable_kinds
+        ):
+            raise ForbiddenKindError(f"this key cannot write kind {current.kind}")
         if current is not None:
             if not store.blob_path(current.sha256).exists():
                 store.write_blob(data)
@@ -233,6 +253,7 @@ def add(
             visibility=visibility,
             include_private=include_private,
             uploader=uploader,
+            writable_kinds=writable_kinds,
             limits=limits,
         )
     return current, False
@@ -447,6 +468,7 @@ __all__ = [
     "CONFLICT_DETAIL",
     "ConflictError",
     "DEFAULT_LIMIT",
+    "ForbiddenKindError",
     "IngestLimits",
     "MAX_LIMIT",
     "NotFoundError",
