@@ -50,6 +50,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Deploy files and runbooks:** `deploy/` (Dockerfile, compose) and
   `docs/operations/` (deploy, backup, ebooks.culture.dev teardown gate).
 
+### Fixed
+
+These were found by code review on PR #8.
+
+- Backups now cover repo-document files as well as items.
+- A corrupt EPUB upload returns 400 `corrupt_archive`, not 500.
+- A kind-limited key can no longer restore an archived item of another kind
+  by re-uploading it.
+- OPDS search returns the newest matches.
+- `/api/excerpts` rejects non-ASCII digits with 400.
+- Checking a key no longer takes the write lock.
+- The reader serves text that is already indexed.
+- Uploads index their text once instead of extracting it twice.
+- The CI Sonar findings are fixed:
+  - PDF text is read from stdin;
+  - browser-storage keys and values are bounded;
+  - unhandled promises are handled.
+
 ### Changed
 
 - `CLAUDE.md` describes the built library instead of the scaffold, and
