@@ -14,13 +14,15 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sqlite3
+import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Iterator
 
-from .errors import ValidationError
+from .errors import CoreError, ValidationError
 from .models import KINDS, VISIBILITIES, AddResult, Item
 
 DATA_DIR_ENV = "CULTURE_LIBRARY_DATA_DIR"
@@ -46,6 +48,102 @@ CREATE TABLE IF NOT EXISTS items (
 """
 
 SCHEMA: list[str] = [_BASE_SCHEMA]
+
+# The items columns in declaration order; the kind-CHECK rebuild copies exactly these.
+_ITEM_COLUMNS = (
+    "id",
+    "sha256",
+    "kind",
+    "title",
+    "author",
+    "format",
+    "size",
+    "visibility",
+    "created_at",
+    "archived_at",
+)
+_KIND_CHECK = f"kind IN ({_KIND_SQL})"
+_KIND_CHECK_RE = re.compile(r"kind\s+IN\s*\(([^)]*)\)", re.IGNORECASE)
+# Child tables whose rows reference items(id) ON DELETE CASCADE: counted before and after.
+_ITEM_CHILDREN = ("embeddings", "index_queue")
+
+
+class MigrationError(CoreError):
+    """A schema migration's integrity check failed; it was rolled back."""
+
+
+def _norm(sql: str) -> str:
+    return " ".join(sql.split())
+
+
+def _copy_items(conn: sqlite3.Connection) -> None:
+    """Copy every items row into items_new (a seam so tests can simulate a lossy copy)."""
+    cols = ", ".join(_ITEM_COLUMNS)
+    conn.execute(f"INSERT INTO items_new ({cols}) SELECT {cols} FROM items")  # nosec B608
+
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone()
+    return row is not None
+
+
+def _item_counts(conn: sqlite3.Connection) -> dict[str, object]:
+    counts: dict[str, object] = {
+        "items": conn.execute("SELECT count(*) FROM items").fetchone()[0],
+        "max_id": conn.execute("SELECT max(id) FROM items").fetchone()[0],
+    }
+    for child in _ITEM_CHILDREN:
+        if _table_exists(conn, child):
+            counts[child] = conn.execute(
+                f"SELECT count(*) FROM {child}"  # nosec B608 - fixed table names
+            ).fetchone()[0]
+    return counts
+
+
+def _items_seq(conn: sqlite3.Connection) -> int | None:
+    if not _table_exists(conn, "sqlite_sequence"):
+        return None
+    row = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'items'").fetchone()
+    return None if row is None else row[0]
+
+
+def _rebuild_items(conn: sqlite3.Connection, old_sql: str) -> str:
+    """Rebuild items with the current DDL inside the caller's transaction; return a summary.
+
+    Foreign keys must already be OFF on ``conn`` (set before BEGIN, since SQLite ignores the
+    pragma inside a transaction); otherwise DROP TABLE items cascades into the child tables.
+    """
+    before = _item_counts(conn)
+    seq = _items_seq(conn)
+    new_ddl = _BASE_SCHEMA.replace("CREATE TABLE IF NOT EXISTS items (", "CREATE TABLE items_new (")
+    conn.execute(new_ddl.strip().rstrip(";"))
+    _copy_items(conn)
+    conn.execute("DROP TABLE items")
+    conn.execute("ALTER TABLE items_new RENAME TO items")
+    # The copy re-derives sqlite_sequence from max(id); put the old high-water mark back so
+    # an id that was purged is never reused.
+    if seq is not None:
+        if _items_seq(conn) is None:
+            conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('items', ?)", (seq,))
+        else:
+            conn.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'items'", (seq,))
+    problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if problems:
+        raise MigrationError(f"items rebuild left foreign-key violations: {problems[:5]}")
+    after = _item_counts(conn)
+    if after != before or _items_seq(conn) != seq:
+        raise MigrationError(
+            f"items rebuild changed the data (before {before}, seq {seq}; "
+            f"after {after}, seq {_items_seq(conn)}); rolled back"
+        )
+    match = _KIND_CHECK_RE.search(old_sql)
+    old_kinds = _norm(match.group(1)).replace("'", "") if match else "?"
+    return (
+        f"culture-library: migrated items kind CHECK from ({old_kinds}) "
+        f"to ({', '.join(KINDS)}); {before['items']} rows copied"
+    )
 
 
 def register_schema(ddl: str) -> None:
@@ -80,11 +178,40 @@ class Store:
 
     def ensure_schema(self) -> None:
         """Apply the base schema and every registered fragment (idempotent)."""
+        self._migrate_items_kinds()
         with self.connect() as conn:
             for ddl in SCHEMA:
                 for stmt in ddl.split(";"):
                     if stmt.strip():
                         conn.execute(stmt)
+
+    def _migrate_items_kinds(self) -> None:
+        """Rebuild an existing items table whose kind CHECK differs from the current KINDS.
+
+        Runs on its own connection, not :meth:`connect`, because ``PRAGMA foreign_keys``
+        has to be switched off *before* the transaction begins. The check is repeated after
+        the write lock is held, so racing first opens rebuild at most once. Any integrity
+        mismatch rolls back and raises, leaving the old table and its CHECK untouched.
+        """
+        summary = None
+        conn = self._open()
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
+                ).fetchone()
+                if row is not None and _KIND_CHECK not in _norm(row[0]):
+                    summary = _rebuild_items(conn, row[0])
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+        if summary is not None:
+            sys.stderr.write(summary + "\n")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
