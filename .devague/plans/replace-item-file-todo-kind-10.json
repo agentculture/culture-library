@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-24T21:59:58Z",
-  "updated": "2026-10-24T22:02:39Z",
+  "updated": "2026-10-24T22:05:20Z",
   "targets": [
     {
       "id": "c1",
@@ -515,6 +515,14 @@
     {
       "id": "r4",
       "text": "t6 touches production data and t5 posts on GitHub: both are operator-gated (human gate 3 / explicit go-ahead), not fanned out to subagents",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "Local ~/git/culture-rules (8c4c3fb, culture-rules#91) has drifted from the cited 1edfd8c: KIND was removed and upload_path is now required, so tests/contract fails against the live checkout. CI skips those tests (no checkout). For this run the TDD gate uses CULTURE_RULES_SRC pointed at a scratch 'git archive 1edfd8c' extract. Re-citing culture_rules_wire.py to the new upstream is separate follow-up work.",
       "kind": "follow_up",
       "task_id": null,
       "resolved": false,
