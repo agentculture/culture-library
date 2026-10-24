@@ -9,14 +9,51 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Optional [server] extra (fastapi, uvicorn, mcp, python-multipart); base dependencies stay empty
-- culture_library.server.create_app with GET /api/health and routes_*.py router auto-discovery
-- culture-library server serve|overview CLI noun (lazy imports, structured error when the extra is missing)
-- tests/test_zero_deps.py
+- The library behind library.culture.dev, built from the devague plan
+  `docs/plans/2026-10-24-library-culture-dev.md`. The run is summarized in
+  `docs/deliveries/2026-10-24-library-culture-dev.md`.
+- The optional `[server]` extra (fastapi, uvicorn, mcp, python-multipart).
+  Base dependencies stay empty, and the CLI imports in a bare venv.
+- **Store:** SQLite WAL with content-addressed files. Items default to
+  private visibility.
+- **Ingest:** EPUB, PDF, Markdown, text and JSON. Audio is refused. Archives
+  are size-capped and zip bombs are refused.
+- **Keys and auth:**
+  - `clk_` keys with read, write and admin scopes and per-kind write limits;
+    the first one is minted with `culture-library keys mint`.
+  - People sign in through Cloudflare Access, with a CSRF header required on
+    writes. Access service tokens are refused.
+  - An item's uploader can read its own private items.
+- **Library API:** `/api/library` is compatible with xteink's, so the
+  culture-rules push works unchanged. Delete archives an item for 30 days
+  before it is purged. Duplicate bytes of a private item get an opaque 409.
+- **Change feed:** `/api/feed?since=&item_id=`.
+- **Search:** full-text (FTS5) over item bodies, plus semantic search through
+  the lobes gateway. A background indexer feeds both.
+  `/api/search` and `/api/status`.
+- **Repo documents:** specs, plans and devague records keyed by remote, path
+  and commit at `/api/repodocs`. A renderer handles frame and plan schemas 1
+  to 6.
+- **Send to device:** publishes `library.item.send_requested` through
+  events-cli and serves the content by reference. Targets come from config.
+- **Reading apps:** OPDS 1.2 at `/opds` and read-only WebDAV at `/dav/`.
+- **MCP server:** `python -m culture_library.mcp`, with push, list, search,
+  read, send and diary tools.
+- **The site:** ported from the approved prototype. Strict CSP, vendored
+  Lato, right-to-left text support. Design contract in
+  `docs/design/library-site.md`, with 30 approved reference screenshots.
+- **Opt-in visual parity tests** (`visual` group, `-m visual`) and a
+  dedicated CI job.
+- **Operator CLI:** `culture-library migrate from-xteink`,
+  `culture-library backup run|verify|restore|schedule`, and
+  `culture-library keys mint|list|revoke`.
+- **Deploy files and runbooks:** `deploy/` (Dockerfile, compose) and
+  `docs/operations/` (deploy, backup, ebooks.culture.dev teardown gate).
 
 ### Changed
 
-- CLAUDE.md records the [server] extra decision
+- `CLAUDE.md` describes the built library instead of the scaffold, and
+  records the `[server]` extra.
 
 ## [0.10.1] - 2026-10-24
 

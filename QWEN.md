@@ -14,12 +14,15 @@ your own content and media**: recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more. The goal is one catalog to ingest, index, search and
 serve it all, published at library.culture.dev.
 
-**Status: early scaffold.** The repo was created from
-`culture-agent-template` and today contains only that template's baseline:
-an agent-first CLI with introspection verbs, a mesh identity, the canonical
-skill kit, and a buildable/deployable package. No ingest, index, search or
-serving code exists yet; treat those as planned work (see
-[Roadmap](#roadmap)). Some inherited prose (CLI help/`explain` text, a few
+**Status: built, not yet deployed.** The library lives in `culture_library/`:
+
+- `core/`: storage, ingest, keys, feed, search, repo documents, send, backup;
+- `server/`: the HTTP API, OPDS, WebDAV and the site;
+- `mcp/`: the agents' MCP server;
+- `web/static/`: the site's files.
+
+`CLAUDE.md` describes the layout. Deploying and provisioning
+library.culture.dev are still open (see [Roadmap](#roadmap)). Some inherited prose (CLI help/`explain` text, a few
 comments, the `docs/harness-*.md` pages) still calls the repo "a clonable
 template". That wording came from the scaffold and does not describe the
 repo's purpose.

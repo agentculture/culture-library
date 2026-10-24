@@ -9,15 +9,39 @@ your own content and media** — recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more. The goal is one catalog to ingest, index, search and serve
 it all, published at **library.culture.dev**.
 
-**Status: freshly scaffolded.** The repo was created from
-[`culture-agent-template`](https://github.com/agentculture/culture-agent-template)
-(commit `1a31a8c`) and today contains only the template's sibling-pattern
-baseline: an agent-first CLI with introspection verbs, a mesh identity, four
-harness prompt files, the vendored skill kit, and the build/deploy pipeline.
-**No library functionality exists yet** — no ingest, index, search, storage or
-web serving code, and no runtime dependencies. Everything about the catalog is
-[Roadmap](#roadmap). Keep this file honest as features land: describe what is
-on disk, and mark anything ahead of reality as planned.
+**Status: library built, not yet deployed.**
+
+- **Spec, plan and evidence.** The library was specified with devague:
+  - spec: `docs/specs/2026-10-23-library-culture-dev.md`;
+  - plan: `docs/plans/2026-10-24-library-culture-dev.md`;
+  - the run's record: `docs/deliveries/2026-10-24-library-culture-dev.md`.
+
+  It replaces xteink's ebooks.culture.dev library and ebooks-cli's intended
+  purpose.
+- **Code layout.** All library code lives under `culture_library/`:
+  - `core/`: stdlib-only and network-free. It holds the SQLite WAL store,
+    ingest, keys, feed, search and indexer, repo documents, library rules,
+    send events, backup, and the uploaders table.
+  - `server/`: the FastAPI app and its `routes_*.py` modules. These serve
+    `/api/library`, `/api/repodocs`, `/api/search`, `/api/status`,
+    `/api/feed`, `/api/keys` and send, plus `/opds`, `/dav/` and the site
+    at `/`.
+  - `mcp/`: the agents' MCP server.
+  - `web/static/`: the site.
+  - `render/`: the devague renderer.
+  - `migrate/`: the xteink migration.
+- **Site design.** `docs/design/library-site.md` is the contract. 30
+  operator-approved screenshots in `docs/design/reference/` back it, and the
+  opt-in visual tests check against them.
+- **Deploy.** The files are in `deploy/`, with runbooks in `docs/operations/`.
+- **Not done yet:**
+  - the stack has not been built or provisioned (#6);
+  - search does not cover repo documents (#4);
+  - the sibling repos must adopt the library (culture-rules#86,
+    embodiment#97, xteink#3).
+
+Keep this file honest as features land: describe what is on disk, and mark
+anything ahead of reality as planned.
 
 Because the scaffold was produced by an identifier rename of the template, some
 prose still describes `culture-library` as "a clonable template" — the CLI
@@ -209,10 +233,16 @@ Pass `--visibility private` to keep a record in `$HOME/.eidetic/memory`.
 
 ## Roadmap
 
-From the project description only. None of this is designed or built yet, so
-spec it before building (the `scope`/`think` skills):
+Built in the `library-culture-dev` run (see the delivery summary). Still
+open:
 
-- Ingest your own media (recordings, books, newspapers, articles, EPUBs, PDFs,
-  docs) into one catalog.
-- Index and search across it.
-- Serve it, published at library.culture.dev.
+- deploy and provision library.culture.dev (#6);
+- search over repo documents (#4);
+- map recording EPUBs to `transcript` on migration (#5);
+- an embedding model comparison (#7);
+- the ebooks.culture.dev teardown, gated by
+  `docs/operations/teardown-ebooks.md`.
+
+Machine clients (culture-rules, Gwen, xteink) call the library on spark's
+local address with scoped API keys. People use library.culture.dev behind
+Cloudflare Access.
