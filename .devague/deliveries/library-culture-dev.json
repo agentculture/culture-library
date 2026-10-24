@@ -2,7 +2,7 @@
   "plan_slug": "library-culture-dev",
   "schema_version": 2,
   "created": "2026-10-24T00:27:07Z",
-  "updated": "2026-10-24T05:58:51Z",
+  "updated": "2026-10-24T06:40:49Z",
   "deviations": [
     {
       "id": "d1",
@@ -933,6 +933,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 50
+    },
+    {
+      "id": "e46",
+      "obligation_ref": "o14",
+      "test_ref": "docs/evidence/t18-deploy-verification.md",
+      "behavior_text": "image built; library and mcp healthy 11.4 s after up -d and 6.1 s after restart; /api/health 200; /api/library 401 without a key; site served with CSP; ports bound to loopback; data survives recreate",
+      "contract_text": "served by a docker compose stack on spark, restarting unattended and healthy within 120 s",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "stack booted on spare ports under project culture-library-verify at 3644bc6 and probed with curl; torn down afterwards",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T06:40:49+00:00",
+        "commit": "3644bc6"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 51
     }
   ],
   "deltas": [

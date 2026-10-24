@@ -81,7 +81,7 @@ top of a red suite left by t14's merge (lapse `l9`); it was fixed in `ac56b99`.
 | `t15` | delivered | Site at `/` ported from the approved prototype, with a strict CSP, text-only content, `dir=auto` and logical CSS. New read endpoints. Merge `90f366f`; parity fixes landed with t16. |
 | `t16` | delivered | Opt-in visual suite (`visual` group, CI job): 30 views within 1% of `docs/design/reference/`, plus token, typography, layout and persistence checks. Lato is vendored. 18 references were re-approved (d3, d5). Merge `d821d76`; references in `eef8a86`. |
 | `t17` | delivered | `culture-library backup run/verify/restore/schedule`. The restore drill on spark matched 17/17 (`docs/operations/backup.md`). Merge `f0de27d`. |
-| `t18` | partial | `deploy/` (Dockerfile, compose, `.env.example`) and `docs/operations/deploy.md`, statically tested. Not yet built or started (`l10`). The image lacks events-cli. Merge `e957756`. |
+| `t18` | delivered | `deploy/` (Dockerfile, compose, `.env.example`) and `docs/operations/deploy.md`. Merge `e957756`. The image was built and booted on spare ports (`docs/evidence/t18-deploy-verification.md`): both services healthy in 11.4 s (6.1 s after a restart), health 200, `/api/library` without a key 401, site served with its CSP, full-text search and the working flow pass. events-cli is now in the image. Provisioning the hostname remains an operator step. |
 | `t19` | delivered | culture-rules#86, embodiment#97 and ebooks-cli#2 opened, plus a comment on xteink#3, all after operator review. |
 | `t20` | delivered | `docs/operations/teardown-ebooks.md`. The migration condition was reworded to count xteink's live total (`7048fe5`). |
 | `t21` | partial | `docs/evidence/t21-delivery-evidence.md`, measured on spark. Passed: every kind, reader paths, 51/51 migration, 74 repos, full-text 1.7 ms median, 401. Pending: next newspaper, Access wall, c31. Merge `71f656a`. |
@@ -143,7 +143,7 @@ The operator decided:
 | `t7` (`d4`) | Wave-4 reports showed full-text search could not reach EPUB/PDF bodies without the gateway (blocking c30's full-text signal), diary keys could not see their own private entries, and the site could not show target types. The decider settled the two design questions. | acceptable |
 | `t16` (`d5`) | t16's pixel comparison showed these views carry prototype-only content the real site cannot reproduce, and the reference send menu broke the no-sideways-scroll contract. | needs-follow-up |
 | `t9` | The plan and c9/c30 said 17 items. xteink held 51 on 2026-10-24, because 33 recording EPUBs and more newspapers had arrived. All 51 migrated, but the recordings land as `document`, not `transcript` (#5). | needs-follow-up |
-| `t18` | The deploy files are tested statically only. Nothing was built or started, and the image lacks events-cli (#6). | needs-follow-up |
+| `t18` | Built and booted on spare ports and verified (`docs/evidence/t18-deploy-verification.md`); events-cli added to the image. Two things wait outside the repo: the operator provisioning library.culture.dev, and a broker address the container can reach for send to device (#6). | acceptable |
 | `t21` | Three success signals cannot be measured from this repo: the next newspaper (culture-rules#86), the Access wall (provisioning) and c31 (embodiment#97). Validation also found that search does not cover repo documents (#4). | needs-follow-up |
 
 ## Evidence
@@ -193,7 +193,7 @@ All evidence, obligation and delta records above were filed with
 | Backups restore ids, sha256 and visibility (c40) | high | test `tests/core/test_backup.py` · drill in `docs/operations/backup.md` · `e22` |
 | Send to device ends at an event; rules fetch by reference; no device calls (c48–c52) | medium | tests `tests/core/test_send.py`, `tests/server/test_send_route.py` · `e26`–`e30` — no real broker publish yet (lapse `l8`, pending) |
 | The site matches the approved design in 30 views and both themes (c32) | high | `tests/visual/test_parity.py` · `e35`–`e37`, `e31`–`e34` · references `eef8a86` |
-| Served by compose behind cultureflare Access (c8) | low | test `tests/test_deploy_files.py` (static) · `e7` — never built or started (`l10`) |
+| Served by compose behind cultureflare Access (c8) | medium | test `tests/test_deploy_files.py` · `e7` · built, booted and probed: healthy in 11.4 s, 401 without a key (`docs/evidence/t18-deploy-verification.md`). The Access wall is unverified until the hostname is provisioned. |
 | ebooks.culture.dev teardown is gated (c42) | high | file `docs/operations/teardown-ebooks.md` · test `tests/test_teardown_gate.py` · `e24` |
 | Every content kind exists in a running library (c1) | medium | `docs/evidence/t21-delivery-evidence.md` · `e38` (PDF, transcript and diary items synthetic) |
 | The next newspaper lands with no manual step (c30) | unverified | needs culture-rules#86 — not claimed |
@@ -218,9 +218,10 @@ pending approval and are not yet evidence. They concern:
   (#4).
 - **`t9`:** map xteink's recording EPUBs to kind `transcript` when migrating
   (#5).
-- **`t18`:** build and boot the stack on spark, measure time to healthy, add
-  events-cli to the image (#6). Then provision library.culture.dev with
-  cultureflare (`docs/operations/deploy.md`) and check the Access wall (`o46`).
+- **`t18`:** provision library.culture.dev with cultureflare
+  (`docs/operations/deploy.md`) and check the Access wall (`o46`). Give the
+  container a reachable broker address for send to device (#6). The stack
+  itself was built, booted and verified.
 - **c30 next newspaper:** culture-rules points `library.push` at the local
   address and drops the queue step (culture-rules#86). Then watch 7
   consecutive issues (`o45`, teardown condition 2).

@@ -34,6 +34,10 @@ services:
       GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
       LOBES_GATEWAY_URL: ${LOBES_GATEWAY_URL:-}
       LOBES_EMBED_MODEL: ${LOBES_EMBED_MODEL:-}
+      # MQTT broker for send-to-device events (events-cli). The broker must be reachable from
+      # the container, e.g. a host address it listens on, not the host's 127.0.0.1.
+      EVENTS_BROKER_HOST: ${EVENTS_BROKER_HOST:-}
+      EVENTS_BROKER_PORT: ${EVENTS_BROKER_PORT:-}
     volumes:
       # Named volume by default; set LIBRARY_DATA=/host/dir in .env for a bind mount.
       - ${LIBRARY_DATA:-culture-library-data}:/data
