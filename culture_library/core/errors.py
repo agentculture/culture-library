@@ -15,4 +15,19 @@ class NotFoundError(CoreError):
 
 
 class ValidationError(CoreError):
-    """Caller supplied invalid data."""
+    """Caller supplied invalid data.
+
+    ``code`` is a machine-readable refusal code (default ``validation_error``); a raiser may
+    pass its own, e.g. ``ValidationError("too big", "too_large")``.
+    """
+
+    code = "validation_error"
+
+    def __init__(self, message: str = "", code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code
+
+    @property
+    def detail(self) -> str:
+        return str(self)
