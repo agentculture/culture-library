@@ -96,6 +96,18 @@ The pieces that span files:
   with action verbs must also expose an `overview` verb
   (`teken cli doctor --strict` checks this).
 
+**The `[server]` extra (decision).** The HTTP server lives in
+`culture_library/server/` and its dependencies (fastapi, uvicorn, `mcp>=1.2,<2`,
+python-multipart) are an optional `[server]` extra in `pyproject.toml`; base
+`dependencies` stays empty and the CLI must import and run without the extra
+(`tests/test_zero_deps.py` enforces it). Import fastapi/uvicorn only inside
+`culture_library/server/*` and lazily in `cli/_commands/server.py`'s `serve`
+handler, which raises a `CliError` with an "install culture-library[server]"
+hint when they are missing. `create_app` (`server/app.py`, cited from xteink
+`ea2f643`) auto-includes the `router` of every `server/routes_*.py`, so a new
+route module needs no edit to `app.py`. Run it: `culture-library server serve
+--host 127.0.0.1 --port N`.
+
 `doctor` keeps two backend→prompt tables on purpose: `_PROMPT_FILE` (every file
 *recognized* under a backend name) and `_RESIDENT_PROMPT` (the one file the
 Culture daemon reads). Only the resident prompt satisfies
