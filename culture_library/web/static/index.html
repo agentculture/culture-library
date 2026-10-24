@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Culture Library</title>
+<meta name="description" content="Culture's library of your own content and media.">
+<meta name="referrer" content="no-referrer">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+<script type="module" src="/static/app.js"></script>
+</head>
+<body>
+<!-- Ported from docs/design/prototype.html (approved 2026-10-24); contract:
+     docs/design/library-site.md. Markup, ids and class names are the prototype's. -->
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#home" data-home aria-label="Culture Library home">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="6" width="5" height="18" rx="2" fill="var(--accent)"/><rect x="10" y="3" width="5" height="21" rx="2" fill="var(--k-book)"/><rect x="17" y="8" width="5" height="16" rx="2" fill="var(--k-newspaper)" transform="rotate(-8 19.5 16)"/></svg>
+      Culture Library
+    </a>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button role="tab" aria-selected="true" data-view="home">Library</button>
+      <button role="tab" aria-selected="false" data-view="state">Site state</button>
+    </nav>
+    <label class="search" for="q">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--muted)" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Search titles and full text, e.g. Thor, RTL, scopes" autocomplete="off">
+    </label>
+    <div class="actions">
+      <button class="btn primary upl" id="upload-open" aria-label="Upload">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 11V2.5M4.5 6L8 2.5 11.5 6M2.5 10.5v2a1 1 0 001 1h9a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="lbl">Upload</span>
+      </button>
+      <button class="btn icon" id="theme" aria-label="Switch to dark mode"></button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section id="view-home" class="wrap">
+    <div class="intro">
+      <div>
+        <h1>Everything you read, record and plan, on one shelf</h1>
+        <p>Books, daily newspapers, documents and PDFs, recording transcripts, Gwen's diary, and the specs and plans from every Culture repo. Culture-rules brings items in, Gwen reads them, and you browse them here.</p>
+      </div>
+      <div class="shelf" aria-label="The shelf: one spine per item">
+        <div class="shelf-row" id="shelf"></div>
+        <div class="shelf-cap"><div class="legend" id="legend"></div><span id="shelf-count"></span></div>
+      </div>
+    </div>
+    <div class="sect">
+      <div class="sect-head"><h2 id="cont-title">Continue reading</h2></div>
+      <div class="continue" id="continue"></div>
+    </div>
+    <div class="sect">
+      <div class="sect-head"><h2>Latest</h2><div class="filters" id="home-filters"></div></div>
+      <div class="cards" id="cards"></div>
+    </div>
+  </section>
+
+  <section id="view-read" class="wrap" hidden>
+    <div class="split" id="split">
+      <aside class="pane" id="pane" aria-label="Library list">
+        <div class="pane-head"><h2>Library</h2>
+          <button class="btn icon" data-pane-toggle aria-label="Close list"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="filters" id="pane-filters"></div>
+        <div class="rows" id="rows"></div>
+      </aside>
+      <div class="scrim" data-pane-toggle></div>
+      <div class="readerbox">
+        <div class="rtool">
+          <button class="btn" data-pane-toggle id="pane-btn" aria-expanded="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span id="pane-lbl">Hide list</span>
+          </button>
+          <button class="btn" data-home aria-label="All cards">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="9" y="2" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="2" y="9" width="5" height="5" rx="1.2" fill="currentColor"/><rect x="9" y="9" width="5" height="5" rx="1.2" fill="currentColor"/></svg>
+            <span class="lbl">All cards</span>
+          </button>
+          <div class="sendwrap">
+            <button class="btn" id="send-btn" aria-label="Send to device" aria-haspopup="menu" aria-expanded="false" aria-controls="send-menu">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="1.6" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M8 4.5v5M6 7.5l2 2 2-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="lbl">Send to device</span>
+            </button>
+            <div class="menu" id="send-menu" role="menu" hidden></div>
+          </div>
+          <span class="sp"></span>
+          <button class="btn icon" id="prev" aria-label="Previous item"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+          <button class="btn icon" id="next" aria-label="Next item"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+        </div>
+        <article class="reader" id="reader" aria-live="polite"></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-state" class="wrap state" hidden>
+    <header>
+      <h1 class="state-title">Site state</h1>
+      <p id="state-lede">Measured from this library's API.</p>
+    </header>
+    <div class="tiles" id="tiles"></div>
+    <div class="status" id="status"></div>
+    <div class="charts" id="charts"></div>
+  </section>
+</main>
+<div class="wrap foot" id="foot">Items marked "Only me" are private to you. Agents add items with the MCP tool push_file and send them with send_to_device.</div>
+
+<dialog id="upload" aria-labelledby="up-title">
+  <form class="dlg" id="up-form" method="dialog">
+    <h2 id="up-title">Upload to the library</h2>
+    <label class="drop" id="drop" for="up-file">
+      <b>Drop a file here or choose one</b><br>EPUB, PDF, Markdown, text or JSON, up to 50 MB
+      <input id="up-file" type="file" accept=".epub,.pdf,.md,.markdown,.txt,.json" hidden>
+    </label>
+    <div class="fields">
+      <label class="field wide" for="up-name">Title<input id="up-name" type="text" placeholder="Taken from the file name"></label>
+      <label class="field" for="up-kind">Kind<select id="up-kind"><option value="document">Document</option><option value="book">Book</option><option value="newspaper">Newspaper</option><option value="transcript">Transcript</option><option value="spec">Spec or plan</option><option value="diary">Diary</option></select></label>
+      <label class="field" for="up-vis">Who can see it<select id="up-vis"><option value="public">Everyone with access</option><option value="private">Only me</option></select></label>
+    </div>
+    <code id="up-curl"></code>
+    <p class="fine">This form sends the request above. Agents use the MCP tool push_file.</p>
+    <p class="err" id="up-err" hidden></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="up-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="up-go" disabled>Add to library</button>
+    </div>
+  </form>
+</dialog>
+<div class="tip" id="tip" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<dialog id="connect" aria-labelledby="cn-title">
+  <form class="dlg" id="cn-form" method="dialog">
+    <h2 id="cn-title">Sign in to the library</h2>
+    <p class="fine">On library.culture.dev, Cloudflare Access signs you in and this page needs nothing else. Reload the page if your sign-in expired.</p>
+    <label class="field" for="cn-key">For local development: a library key<input id="cn-key" class="key" type="password" autocomplete="off" spellcheck="false" placeholder="clk_..."></label>
+    <p class="fine">The key stays in this browser tab only (sessionStorage) and is sent as a Bearer header.</p>
+    <p class="err" id="cn-err" hidden></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="cn-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="cn-go">Connect</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
