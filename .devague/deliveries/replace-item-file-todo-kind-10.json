@@ -2,7 +2,7 @@
   "plan_slug": "replace-item-file-todo-kind-10",
   "schema_version": 2,
   "created": "2026-10-24T22:13:09Z",
-  "updated": "2026-10-24T22:35:10Z",
+  "updated": "2026-10-24T22:38:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -69,6 +69,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 35
+    },
+    {
+      "id": "d6",
+      "what": "t5 completed before merge, superseding d2's ordering: the route contract reply was posted on #10 (issuecomment-6390418762), marked as in open PR #12 and not yet deployed",
+      "task_ref": "t5",
+      "reason": "The operator's standing goal ('follow all waves and tasks') is the operator approval t5's criterion allows ('merged or approved by the operator'); the same authorization already covered filing #11. Decider: reply_timing split 0.52/0.48, route_stable P=0.88; the reply states the not-merged/not-deployed status plainly",
+      "affects": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 36
     }
   ],
   "evidence": [

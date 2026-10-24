@@ -41,7 +41,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t2` | delivered | `library.replace()` and `DuplicateContentError` (`code = "duplicate_content"`, `other_id`, `other_visibility`) in `core/library.py`. `core/errors.py` is unchanged; the brief allowed either file. Merged `467eb6b` (task commit `2acd341`). |
 | `t3` | delivered | `PUT /api/library/{item_id}/file` in `server/routes_library.py`, plus `tests/server/test_replace_api.py` and `tests/contract/test_culture_rules_replace.py`. Merged `f74cbb6` (task commit `a89d242`). |
 | `t4` | delivered | `deploy.md` "Upgrading across a schema change", the 2026-10-23 spec's kinds line and immutability wording, CLAUDE.md, CHANGELOG, and version 0.12.0. Merged `81a19c2` (task commit `5f8ccc5`). The runbook steps were corrected in `1435f08` (d3). |
-| `t5` | partial | Follow-up issue #11 is filed. The reply on #10 with the final route is not posted; it moves to after the PR merges (d2, pending approval). |
+| `t5` | delivered | Follow-up issue #11 is filed. The route contract reply is posted on #10 (`issuecomment-6390418762`), marked as in the open PR #12 and not yet deployed (d6, superseding d2's ordering). |
 | `t6` | partial | Done by the agent: tagged `culture-library:0.11.0` for rollback; took a verified backup snapshot `~/backups/culture-library-pre-0.12.0/snapshots/20261024T221500Z` (51 items, 51 blobs, `verify: OK`); recorded before-counts `(51, 54)` with seq `54`; read-only `foreign_key_check` on the live DB was clean; built the 0.12.0 image; ran the migration on the image's SQLite 3.40.1 in a probe. Rehearsed the full upgrade on the snapshot restored into a scratch directory and served by the 0.12.0 image in a throwaway container (d5): migration log line `51 rows copied`, counts `(51, 54)`/seq `54` before and after, a todo upload (201), a replace (200, one `updated` event), the same bytes again (200), and a book key refused with 403 `forbidden_kind`. Not done: recreating the production `library`/`mcp` containers (d4). |
 
 ## Mid-work Decisions
@@ -68,6 +68,10 @@ Quoted verbatim from the `devague summary` skeleton:
   before any change. Every TDD gate in this run used `CULTURE_RULES_SRC` pointed at a
   scratch `git archive 1edfd8c` extract. CI has no checkout and skips these tests.
   Recorded as a plan follow-up risk; no deviation record covers it.
+- `d6` — t5 completed before the merge: the operator's standing goal is the
+  approval t5's criterion allows, the same approval that covered filing #11. The reply
+  states the not-merged, not-deployed status plainly. Supersedes d2's ordering.
+  (pending approval)
 - `d5` — the t6 rehearsal on the restored snapshot, because the production recreate is
   blocked (d4). It gives execution-strength evidence on the real data without touching
   production. (pending approval)
@@ -85,7 +89,7 @@ Quoted verbatim from the `devague summary` skeleton:
 |-----------|-----------------------|----------------|
 | `t1` (`d1`) | Found by the t3 task agent while building its old-schema fixture and reproduced by the main agent. The live DB (51 items, seq 54) is unaffected, but a never-used older instance would refuse to start. The operator approved the fix in-run. | acceptable |
 | `t4` (`d3`) | Found while following `docs/operations/deploy.md` for the live upgrade; the backup step failed on permissions until the host directory was made writable for uid 10001 (record pending approval) | acceptable |
-| `t5` (`d2`) | The operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved (record pending approval) | acceptable |
+| `t5` (`d2`, `d6`) | The reply was posted before the merge under the operator's goal (d6). Originally: the operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved (record pending approval) | acceptable |
 | `t6` (`d4`) | Tool permission boundary; not worked around (record pending approval) | needs-follow-up |
 | `t2` | The plan's instruction said to mirror the requeue helpers. The task called `indexer.enqueue` and then a direct `UPDATE index_queue`, with the same effect, which is tested (`test_replace_reindexes_body_and_requeues`). | acceptable |
 | `t3` | An archived item reaches the kind guard (`_writable` uses `include_archived=True`) and gets its 404 from `library.replace` after the body is read. The confirmed contract (404) holds; the 403 for a wrong kind still comes first. | acceptable |
@@ -148,11 +152,9 @@ Lapse ledger evidence:
   (expect `(51, 54)`, seq `54`), smoke-test a todo upload and a replace, and file the
   production evidence for `o17`/`o18` (the rehearsal evidence is `e29`/`e30`). Rollback: the image `culture-library:0.11.0` plus snapshot
   `20261024T221500Z`.
-- `t5` (`d2`): after the PR merges, reply on #10 with `replace_method=PUT`,
-  `replace_path=/api/library/{id}/file`, multipart field `file`, 200 plus the item JSON,
-  and the codes `forbidden_kind` 403, `duplicate_content` 409 (`other_id` only when
-  visible), `not_found` 404, and the upload refusal codes.
-- Approve or reject the pending deviations `d2`, `d3`, `d4` and `d5`.
+- `t5`: once 0.12.0 is live, add a short "now live" note on #10, as the reply
+  promises.
+- Approve or reject the pending deviations `d2` through `d6`.
 - Re-cite `tests/contract/culture_rules_wire.py` to culture-rules `8c4c3fb` (#91
   removed `KIND` and requires `upload_path`). This is a pre-existing drift that the
   plan risk records.
