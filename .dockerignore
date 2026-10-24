@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.colleague
+.pi
+.qwen
+.devague
+.eidetic
+.venv
+**/__pycache__
+.pytest_cache
+.env
+deploy/.env
+docs
+tests
