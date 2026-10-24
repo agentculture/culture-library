@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from culture_library.core import Store, backup
+from culture_library.core.repodocs import RepoDocs  # registers the repodoc tables
 
 
 def _seed(store: Store) -> None:
@@ -97,3 +98,55 @@ def test_schedule_text():
     out = backup.schedule_text("/srv/lib", "/mnt/bk", kind="systemd")
     assert "[Timer]" in out and "OnCalendar=daily" in out and "backup run" in out
     assert "culture-library backup run" in backup.schedule_text("/d", "/b", kind="cron")
+
+
+# ------------------------------------------------------------------ repo-document blobs
+
+_C1, _C2 = "a" * 40, "b" * 40
+
+
+def _push_docs(store: Store):
+    docs = RepoDocs(store)
+    common = dict(remote="https://github.com/agentculture/x.git", committed_at="2026-01-01")
+    a = docs.push(path="docs/specs/a.md", commit=_C1, default_branch_head=_C1,
+                  content="# spec a", visibility="public", **common)  # fmt: skip
+    b = docs.push(path="docs/plans/b.md", commit=_C2, default_branch_head=_C2,
+                  content="# plan b", **common)  # fmt: skip
+    return docs, a, b
+
+
+def test_repodoc_blobs_are_backed_up_restored_and_counted(store, tmp_path):
+    _seed(store)
+    _docs, a, b = _push_docs(store)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    m = json.loads((snap.path / "manifest.json").read_text())
+    assert m["repodoc_count"] == 2 and m["repodoc_version_count"] == 2
+    assert {v["sha256"] for v in m["repodoc_versions"]} == {a.version.sha256, b.version.sha256}
+    assert snap.blobs_total == 5 and snap.to_dict()["repodoc_versions"] == 2
+    for sha in (a.version.sha256, b.version.sha256):
+        assert (tmp_path / "bk" / "files" / sha[:2] / sha).is_file()
+    assert backup.verify(snap.path).ok
+    target = tmp_path / "restored"
+    assert backup.restore(snap.path, target).ok
+    restored = RepoDocs(Store(target))
+    assert restored.content(a.doc.id, include_private=True) == b"# spec a"
+    assert restored.content(b.doc.id, include_private=True) == b"# plan b"
+
+
+def test_verify_detects_missing_repodoc_blob(store, tmp_path):
+    _seed(store)
+    _docs, a, _b = _push_docs(store)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    sha = a.version.sha256
+    (tmp_path / "bk" / "files" / sha[:2] / sha).unlink()
+    report = backup.verify(snap.path)
+    assert not report.ok and any(sha in p and "missing" in p for p in report.problems)
+    with pytest.raises(backup.BackupError, match="verification"):
+        backup.restore(snap.path, tmp_path / "restored")
+
+
+def test_backup_refuses_when_a_repodoc_blob_is_missing_at_the_source(store, tmp_path):
+    _docs, a, _b = _push_docs(store)
+    store.blob_path(a.version.sha256).unlink()
+    with pytest.raises(backup.BackupError, match="missing"):
+        backup.run_backup(store.data_dir, tmp_path / "bk")

@@ -5,7 +5,8 @@ to have been uploaded by the caller's key, and archived items never appear):
 
 - ``/opds`` navigation feed, one entry per kind that has visible items;
 - ``/opds/{kind}?page=N`` acquisition feed, newest first, 50 per page, ``next``/``previous``;
-- ``/opds/search?q=`` acquisition feed over title/author, plus ``/opds/opensearch.xml``;
+- ``/opds/search?q=`` acquisition feed over title/author (the newest 50 matches), plus
+  ``/opds/opensearch.xml``;
 - ``/opds/item/{id}/file`` the stored bytes, so acquisition links work for clients that only
   speak HTTP Basic (``/api/library/{id}/file`` takes Bearer only).
 
@@ -294,11 +295,11 @@ def search(
             limit=PAGE_SIZE,
             include_private=principal.private,
             owner=principal.key_id,
+            newest_first=True,
         )
         if q.strip()
         else []
     )
-    items.sort(key=lambda i: i.id, reverse=True)
     return _acquisition_feed(
         items,
         feed_id="urn:culture-library:opds:search",

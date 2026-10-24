@@ -73,3 +73,31 @@ def test_feed_filtered_to_one_item(tmp_path):
     _seed(store2)
     assert pub.get("/api/feed?item_id=2").json()["events"] == []
     assert [e["item_id"] for e in pub.get("/api/feed?item_id=3").json()["events"]] == [3]
+
+
+def test_feed_and_repodocs_resolve_the_store_through_auth_get_store(tmp_path):
+    """One store getter (auth.get_store, which builds the default store under a lock)."""
+    from culture_library.server.auth import get_store
+
+    app = server_app.create_app()
+    app.state.store = Store(tmp_path / "unused")
+    other = Store(tmp_path / "other")
+    _seed(other)
+    app.dependency_overrides[current_principal] = lambda: Principal(
+        "k", frozenset({"read"}), private=True
+    )
+    app.dependency_overrides[get_store] = lambda: other
+    c = TestClient(app)
+    assert [e["item_id"] for e in c.get("/api/feed").json()["events"]] == [1, 2, 3]
+    from culture_library.core.repodocs import RepoDocs
+
+    RepoDocs(other).push(
+        remote="https://github.com/agentculture/x",
+        path="docs/specs/a.md",
+        commit="a" * 40,
+        committed_at="2026-01-01",
+        default_branch_head="a" * 40,
+        content="# a",
+        visibility="public",
+    )
+    assert [d["path"] for d in c.get("/api/repodocs").json()["docs"]] == ["docs/specs/a.md"]

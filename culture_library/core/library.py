@@ -9,16 +9,19 @@ event in the same transaction; search keeps xteink's title/author substring sema
 
 **Add is one transaction.** :func:`add` passes an ``on_insert`` hook through
 :func:`~culture_library.core.ingest.ingest` to ``Store.add_item``; it runs inside the insert's
-``BEGIN IMMEDIATE`` transaction before the commit: title index + index queue
-(:func:`~culture_library.core.indexer.index_on_add`) and the ``created`` feed event, and it
+``BEGIN IMMEDIATE`` transaction before the commit: title and body index (the text ingest
+already extracted) + index queue with the body marked done, so the background indexer only
+embeds (:func:`~culture_library.core.indexer.index_on_add`), and the ``created`` feed event, and it
 re-writes a missing blob (a purge that removed the bytes while a same-bytes upload was in
 flight). For bytes already stored, a follow-up transaction heals a missing ``created`` event
 (an item stored by another path) and restores an archived item - a pusher retrying is asking
 for it back - but only for a caller who may see it: bytes matching a private item raise
 :class:`ConflictError` (opaque, no id) for callers without private access, and that item is
-never touched. One exception keeps a write-only pusher's retries idempotent: the key that
-created the private item (``uploader``, recorded in its ``created`` event and in
-:mod:`~culture_library.core.uploaders`) gets it back while it is live.
+never touched; nor is an archived item of a kind the caller may not write
+(:class:`ForbiddenKindError`, the restore route's ``forbidden_kind``). One exception keeps a
+write-only pusher's retries idempotent: the key that created the private item
+(``uploader``, recorded in its ``created`` event and in :mod:`~culture_library.core.uploaders`)
+gets it back while it is live.
 
 **Visibility (d4).** Every read and change takes ``include_private`` and ``owner`` (the
 caller's key id): an item is visible if it is public, or ``include_private``, or ``owner``
@@ -137,15 +140,24 @@ class ConflictError(CoreError):
 CONFLICT_DETAIL = "an item with these bytes already exists"
 
 
-def _announce(conn: sqlite3.Connection, item: Item, uploader: str | None = None) -> None:
+class ForbiddenKindError(CoreError):
+    """The caller may not write the existing item's kind (the API answers 403)."""
+
+    code = "forbidden_kind"
+
+
+def _announce(
+    conn: sqlite3.Connection, item: Item, uploader: str | None = None, body: str | None = None
+) -> None:
     """Index + ``created`` event, once per item (heals items stored by another path).
 
-    ``uploader`` (the creating key's id) is recorded in the event's data."""
+    ``uploader`` (the creating key's id) is recorded in the event's data; ``body`` (text
+    already extracted by ingest) is indexed now instead of by the background indexer."""
     announced = conn.execute(
         "SELECT 1 FROM feed WHERE item_id = ? AND type = 'created' LIMIT 1", (item.id,)
     ).fetchone()
     if announced is None:
-        indexer.index_on_add(conn, item)
+        indexer.index_on_add(conn, item, body)
         _event(conn, "created", item, {"uploader": uploader} if uploader else None)
 
 
@@ -171,6 +183,7 @@ def add(
     visibility: str | None = None,
     include_private: bool = True,
     uploader: str | None = None,
+    writable_kinds: frozenset[str] | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
 ) -> tuple[Item, bool]:
     """Validate, store, index and announce an upload; return ``(item, created)``.
@@ -181,16 +194,22 @@ def add(
     and a private existing item: if ``uploader`` created it and it is not archived, it is
     returned (the uploader's idempotent retry); otherwise :class:`ConflictError` is raised
     and the item is left untouched (never restored). Every other caller gets the existing
-    item, restored first if it was archived. Refusals raise :class:`ValidationError`.
+    item, restored first if it was archived - but only when the caller may write the
+    *existing* item's kind (``writable_kinds``, ``None`` for any kind; the same rule as the
+    restore route): otherwise an archived item raises :class:`ForbiddenKindError` and stays
+    archived, while a live one is returned untouched. Refusals raise
+    :class:`ValidationError`.
     """
     kind = check_kind(kind or default_kind(filename))
     check_visibility(visibility)
+
+    extracted: list[str] = []  # ingest's text, indexed in the insert (no second extraction)
 
     def on_insert(conn: sqlite3.Connection, item: Item) -> None:
         if not store.blob_path(item.sha256).exists():  # a racing purge removed the bytes
             store.write_blob(data)
         uploaders.record(conn, item.id, uploader)
-        _announce(conn, item, uploader)
+        _announce(conn, item, uploader, extracted[-1] if extracted else None)
 
     item, created, _text = ingest(
         store,
@@ -202,6 +221,7 @@ def add(
         visibility=visibility,
         limits=limits,
         on_insert=on_insert,
+        on_text=extracted.append,
     )
     if created:
         return item, True
@@ -214,6 +234,13 @@ def add(
         raise ConflictError(CONFLICT_DETAIL)
     with store.connect() as conn:
         current = _row(conn, item.id)
+        if (
+            current is not None
+            and current.archived_at is not None
+            and writable_kinds is not None
+            and current.kind not in writable_kinds
+        ):
+            raise ForbiddenKindError(f"this key cannot write kind {current.kind}")
         if current is not None:
             if not store.blob_path(current.sha256).exists():
                 store.write_blob(data)
@@ -233,6 +260,7 @@ def add(
             visibility=visibility,
             include_private=include_private,
             uploader=uploader,
+            writable_kinds=writable_kinds,
             limits=limits,
         )
     return current, False
@@ -254,8 +282,10 @@ def list_items(
     offset: int = 0,
     include_private: bool = False,
     owner: str | None = None,
+    newest_first: bool = False,
 ) -> list[Item]:
-    """Live (unarchived) items in id order; ``q`` matches title/author substrings."""
+    """Live (unarchived) items in id order (descending with ``newest_first``, so ``limit``
+    keeps the newest matches); ``q`` matches title/author substrings."""
     vis, params = uploaders.visible_sql(include_private, owner)
     where = ["archived_at IS NULL", vis]
     params = list(params)
@@ -267,7 +297,8 @@ def list_items(
         where.append("(lower(title) LIKE ? ESCAPE '\\' OR lower(author) LIKE ? ESCAPE '\\')")
         params += [pat, pat]
     limit = max(1, min(int(limit), MAX_LIMIT))
-    sql = _SEL + " WHERE " + " AND ".join(where) + " ORDER BY id LIMIT ? OFFSET ?"
+    order = "id DESC" if newest_first else "id"
+    sql = _SEL + " WHERE " + " AND ".join(where) + f" ORDER BY {order} LIMIT ? OFFSET ?"
     with store.reader() as conn:
         return [_item(r) for r in conn.execute(sql, (*params, limit, max(0, int(offset))))]
 
@@ -447,6 +478,7 @@ __all__ = [
     "CONFLICT_DETAIL",
     "ConflictError",
     "DEFAULT_LIMIT",
+    "ForbiddenKindError",
     "IngestLimits",
     "MAX_LIMIT",
     "NotFoundError",

@@ -107,3 +107,59 @@ def test_key_ids_are_unique_column(store):
                 " VALUES ('x', ?, 'h', 'read', 0, 'now')",
                 (key.key_id,),
             )
+
+
+# ------------------------------------------------------------------ authenticate is a read
+
+
+def _last_used(store, key_id):
+    with store.reader() as c:
+        return c.execute("SELECT last_used FROM api_keys WHERE id = ?", (key_id,)).fetchone()[0]
+
+
+def test_authenticate_never_takes_the_write_transaction(store, monkeypatch):
+    _key, raw = keys.mint(store, "k", ["read"])
+
+    def no_write_lock():
+        raise AssertionError("authenticate opened a BEGIN IMMEDIATE transaction")
+
+    monkeypatch.setattr(store, "connect", no_write_lock)
+    assert keys.authenticate(store, raw).last_used is not None
+
+
+def test_last_used_is_stamped_at_most_once_a_minute(store):
+    key, raw = keys.mint(store, "k", ["read"])
+    with store.connect() as c:
+        c.execute("UPDATE api_keys SET last_used = '2026-01-01T00:00:00+00:00' WHERE id = ?",
+                  (key.id,))  # fmt: skip
+    first = keys.authenticate(store, raw).last_used
+    assert first != "2026-01-01T00:00:00+00:00" and _last_used(store, key.id) == first
+    recent = "9999-01-01T00:00:00+00:00"  # "just now" as far as the throttle can tell
+    with store.connect() as c:
+        c.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (recent, key.id))
+    assert keys.authenticate(store, raw).last_used == recent
+    assert _last_used(store, key.id) == recent
+
+
+def test_authenticate_succeeds_while_another_writer_holds_the_lock(store):
+    import time
+
+    key, raw = keys.mint(store, "k", ["read"])
+    blocker = sqlite3.connect(store.db_path, isolation_level=None)
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        start = time.monotonic()
+        got = keys.authenticate(store, raw)
+        assert time.monotonic() - start < 2.0
+        assert got.id == key.id
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()
+    assert _last_used(store, key.id) is None  # the stamp was skipped, not queued
+
+
+def test_authenticate_without_a_keys_table_is_an_auth_error(store):
+    with store.reader() as c:
+        assert c.execute("SELECT name FROM sqlite_master WHERE name='api_keys'").fetchone() is None
+    with pytest.raises(keys.AuthError):
+        keys.authenticate(store, "clk_deadbeef_secret")

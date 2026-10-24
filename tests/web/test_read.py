@@ -276,3 +276,94 @@ def test_epub_excerpt_skips_nav_and_masthead(site: Site) -> None:
     assert got["items"][str(item["id"])] == (
         "Jetson optimization, Isaac ROS. Models | Jetson AI Lab: benchmarks."
     )
+
+
+@pytest.mark.parametrize("how", ["crc", "method", "encrypted", "deflate"])
+def test_text_of_a_stored_corrupt_epub_degrades_not_500(site: Site, how: str) -> None:
+    from tests.core.test_ingest import corrupt_epub
+
+    # stored by a path that bypasses ingest (e.g. a migration), so the bytes were never checked
+    item = site.store.add_item(corrupt_epub(how), kind="book", title="Bad", format="epub").item
+    r = site.c.get(f"/api/library/{item.id}/text")
+    assert r.status_code == 200, r.text
+    assert r.json()["reason"] == "corrupt_archive" and r.json()["text"] == ""
+    ex = site.c.get("/api/excerpts", params={"items": str(item.id)})
+    assert ex.status_code == 200 and ex.json()["items"] == {str(item.id): ""}
+
+
+@pytest.mark.parametrize("raw", ["²", "1,²", "١٢", "٣"])
+def test_excerpts_refuse_non_ascii_digits(site: Site, raw: str) -> None:
+    for param in ("items", "docs"):
+        r = site.c.get("/api/excerpts", params={param: raw})
+        assert r.status_code == 400, r.text
+        assert r.json()["code"] == "invalid_request"
+
+
+# ------------------------------------------------------------------ item_text efficiency
+
+
+def test_item_text_handler_is_sync_so_db_work_leaves_the_event_loop() -> None:
+    import inspect
+
+    from culture_library.server import routes_read
+
+    assert not inspect.iscoroutinefunction(routes_read.item_text)
+
+
+def test_item_text_serves_the_indexed_body_without_extracting(site: Site, monkeypatch) -> None:
+    from culture_library.core import ingest, search
+
+    item = site.store.add_item(b"# raw *md*", kind="document", title="N", format="md").item
+    with site.store.connect() as conn:
+        search.set_body(conn, item, "the indexed walrus body")
+
+    def boom(*a, **k):
+        raise AssertionError("extracted although an indexed body exists")
+
+    monkeypatch.setattr(ingest, "extract_text_ex", boom)
+    body = site.c.get(f"/api/library/{item.id}/text").json()
+    assert body["text"] == "the indexed walrus body" and body["reason"] == ""
+
+
+def _count_epub_opens(monkeypatch) -> list:
+    from culture_library.core import ingest
+
+    calls: list = []
+    real = ingest._open_epub
+
+    def counting(data, limits):
+        calls.append(1)
+        return real(data, limits)
+
+    monkeypatch.setattr(ingest, "_open_epub", counting)
+    return calls
+
+
+def test_item_text_parses_an_unindexed_epub_once(site: Site, monkeypatch) -> None:
+    from culture_library.core import ingest
+
+    data = make_epub(
+        {
+            "OEBPS/nav.xhtml": "<html><body><p>Contents</p></body></html>",
+            "OEBPS/c1.xhtml": "<html><body><h1>One</h1><p>First para</p></body></html>",
+        }
+    )
+    item = site.store.add_item(data, kind="book", title="B", format="epub").item
+    calls = _count_epub_opens(monkeypatch)
+    body = site.c.get(f"/api/library/{item.id}/text").json()
+    assert len(calls) == 1
+    assert body["text"] == ingest.extract_text(data, "epub")  # same text as the index gets
+    assert body["sections"] == [{"heading": "One", "paragraphs": ["First para"]}]
+
+
+def test_item_text_of_an_indexed_epub_only_parses_sections(site: Site, monkeypatch) -> None:
+    from culture_library.core import search
+
+    data = make_epub({"OEBPS/c1.xhtml": "<html><body><h1>One</h1><p>Para</p></body></html>"})
+    item = site.store.add_item(data, kind="book", title="B", format="epub").item
+    with site.store.connect() as conn:
+        search.set_body(conn, item, "indexed epub body")
+    calls = _count_epub_opens(monkeypatch)
+    body = site.c.get(f"/api/library/{item.id}/text").json()
+    assert len(calls) == 1 and body["text"] == "indexed epub body"
+    assert body["sections"] == [{"heading": "One", "paragraphs": ["Para"]}]

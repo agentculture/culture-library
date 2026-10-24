@@ -295,3 +295,63 @@ def test_ingest_threads_on_insert_to_the_store(store):
     assert created and calls == [item.id]
     ingest(store, b"hello", "h.txt", kind="document", on_insert=lambda c, i: calls.append(0))
     assert calls == [item.id]
+
+
+# ------------------------------------------------------------------ corrupt archives
+
+_CHAPTER = b"<html><body><p>Corrupt chapter body text</p></body></html>"
+
+
+def corrupt_epub(how: str) -> bytes:
+    """An EPUB whose chapter member is broken: ``crc``, ``deflate``, ``method``, ``encrypted``,
+    or ``mimetype_crc`` (the mimetype member itself fails its CRC)."""
+    stored = how in ("crc", "mimetype_crc")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr(
+            "OEBPS/c1.xhtml",
+            _CHAPTER,
+            compress_type=zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED,
+        )
+    data = bytearray(buf.getvalue())
+    if how == "crc":
+        at = data.index(b"Corrupt")
+        data[at] = ord("X")
+    elif how == "mimetype_crc":
+        at = data.index(b"application/epub+zip")
+        data[at + 12] = ord("Z")  # "epub" -> "eZub": same length, wrong CRC
+    elif how == "deflate":
+        local = data.index(b"PK\x03\x04", 1)
+        name_len = int.from_bytes(data[local + 26 : local + 28], "little")
+        extra_len = int.from_bytes(data[local + 28 : local + 30], "little")
+        start = local + 30 + name_len + extra_len
+        size = int.from_bytes(data[local + 18 : local + 22], "little")
+        data[start : start + size] = b"\xff" * size  # invalid deflate block type
+    else:
+        local = data.index(b"PK\x03\x04", 1)
+        central = data.index(b"PK\x01\x02", data.index(b"PK\x01\x02") + 1)  # chapter's entry
+        if how == "method":
+            data[local + 8 : local + 10] = (98).to_bytes(2, "little")  # PPMd: unsupported
+            data[central + 10 : central + 12] = (98).to_bytes(2, "little")
+        elif how == "encrypted":
+            data[local + 6] |= 0x01
+            data[central + 8] |= 0x01
+        else:
+            raise ValueError(how)
+    return bytes(data)
+
+
+@pytest.mark.parametrize("how", ["crc", "deflate", "method", "encrypted", "mimetype_crc"])
+def test_corrupt_archive_is_a_recorded_refusal(store, how):
+    with pytest.raises(ValidationError) as exc:
+        ingest(store, corrupt_epub(how), "bad.epub", kind="book")
+    assert exc.value.code == "corrupt_archive"
+    assert read_refusals(store)[-1]["code"] == "corrupt_archive"
+
+
+@pytest.mark.parametrize("how", ["crc", "deflate", "method", "encrypted"])
+def test_extract_text_maps_corrupt_members(how):
+    with pytest.raises(ValidationError) as exc:
+        extract_text(corrupt_epub(how), "epub")
+    assert exc.value.code == "corrupt_archive"

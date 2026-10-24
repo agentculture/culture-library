@@ -16,6 +16,10 @@ copies both to a second location and can restore them onto a clean directory.
   the server is writing. No need to stop the service.
 - Blobs are immutable and named by their hash, so each run copies only new ones and
   re-hashes every copy.
+- "Every blob" means every sha256 named by a table with a `sha256` column: catalog
+  items and repo-document versions (`repodoc_versions`). The `feed` log is skipped,
+  since it also names blobs of purged items. The manifest lists repo-document versions
+  and counts them (`repodoc_count`, `repodoc_version_count`).
 - `--keep N` (default 7) prunes old snapshots. Blobs are never pruned, so a backup
   location only grows; clear it by hand if items were deleted and space matters.
 - The backup location must be outside the data directory, ideally another disk or host.
@@ -32,7 +36,9 @@ culture-library backup restore --from <snapshot-dir> --to <empty-dir>
 ```
 
 `restore` refuses a non-empty target, checks the snapshot first, restores the database
-and blobs, then re-verifies every item's id, sha256 and visibility against the manifest.
+and blobs, then re-verifies every item's and repo-document version's id, sha256 and
+visibility against the manifest, and re-hashes every referenced blob. A snapshot taken
+before repo documents were covered fails verify for the repo-document blobs it lacks.
 Exit code 1 means a check failed or the target was not empty.
 
 ## Schedule

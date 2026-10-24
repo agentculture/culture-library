@@ -1,14 +1,15 @@
 """Background indexer: durable queue, retries with exponential backoff, status data.
 
 Adding an item never depends on this module's work: the API calls :func:`index_on_add`
-inside the add transaction (title index + queue row, no network). The :class:`Indexer`
-later fills in the body full-text row (no gateway needed: text comes from
-:func:`culture_library.core.ingest.extract_text`, so EPUB and PDF bodies are searchable) and
-the embeddings (gateway). Without an embedder a job completes after its body (full-text
-only, not a failure); :func:`requeue_unembedded` re-opens those jobs once an embedder is
-configured. A gateway outage only delays embeddings; the job is retried with backoff and
-caught up once the gateway is back. :func:`status` exposes lag/failures/last success as plain data
-for the status endpoint.
+inside the add transaction (title index + queue row, no network; an upload also passes the
+text ingest already extracted, indexed there with the job marked body-done, so its job only
+embeds). The :class:`Indexer` otherwise fills in the body full-text row (no gateway needed:
+text comes from :func:`culture_library.core.ingest.extract_text`, so EPUB and PDF bodies are
+searchable) and the embeddings (gateway). Without an embedder a job completes after its body
+(full-text only, not a failure); :func:`requeue_unembedded` re-opens those jobs once an
+embedder is configured. A gateway outage only delays embeddings; the job is retried with
+backoff and caught up once the gateway is back. :func:`status` exposes lag/failures/last
+success as plain data for the status endpoint.
 """
 
 from __future__ import annotations
@@ -71,10 +72,19 @@ def enqueue(conn: sqlite3.Connection, item_id: int, *, now: float | None = None)
     )
 
 
-def index_on_add(conn: sqlite3.Connection, item: Item) -> None:
-    """Hook for the API's add transaction: title searchable now, body + vectors queued."""
-    search.index_title(conn, item)
+def index_on_add(conn: sqlite3.Connection, item: Item, body: str | None = None) -> None:
+    """Hook for the API's add transaction: title searchable now, body + vectors queued.
+
+    ``body`` is text the caller already extracted (an upload's :func:`ingest.ingest`): it is
+    indexed now and the job marked ``body_done``, so the indexer only computes embeddings.
+    """
+    if body is None:
+        search.index_title(conn, item)
+    else:
+        search.set_body(conn, item, body)
     enqueue(conn, item.id)
+    if body is not None:
+        conn.execute("UPDATE index_queue SET body_done=1 WHERE item_id=?", (item.id,))
 
 
 def enqueue_missing(store: Store) -> int:

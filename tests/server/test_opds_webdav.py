@@ -314,3 +314,20 @@ def test_dav_requires_read_scope(env):
     no_read(env)
     r = env.c.request("PROPFIND", "/dav/", headers=env.basic(env.reader))
     assert r.status_code == 403
+
+
+def test_search_returns_the_newest_page_of_matches(env):
+    added = [
+        env.add(f"# w{i}".encode(), f"w{i}.md", f"Whale {i}", "", "diary", "public").id
+        for i in range(60)
+    ]
+    feed = parse(env.c.get("/opds/search?q=whale", headers=env.basic(env.reader)))
+    ids = [int(e.find(f"{ATOM}id").text.rsplit(":", 1)[1]) for e in feed.iter(f"{ATOM}entry")]
+    assert ids == sorted(added, reverse=True)[:50]
+
+
+def test_list_items_newest_first_is_opt_in(env):
+    asc = library.list_items(env.store, include_private=True)
+    desc = library.list_items(env.store, include_private=True, newest_first=True)
+    assert [i.id for i in asc] == sorted(i.id for i in asc)
+    assert [i.id for i in desc] == [i.id for i in reversed(asc)]

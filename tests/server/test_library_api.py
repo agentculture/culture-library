@@ -559,3 +559,96 @@ def test_add_retries_when_item_vanishes_before_the_follow_up(tmp_path, monkeypat
     again, created = library.add(store, b"gone", "g.txt")
     assert seen == [item.id, item.id]  # retried once, outside the first transaction
     assert created is False and again.id == item.id
+
+
+@pytest.mark.parametrize("how", ["crc", "method", "encrypted", "deflate", "mimetype_crc"])
+def test_upload_corrupt_epub_is_a_400_refusal(api, how):
+    from culture_library.core.ingest import read_refusals
+    from tests.core.test_ingest import corrupt_epub
+
+    r = api.upload(corrupt_epub(how), "bad.epub")
+    assert r.status_code == 400, r.text
+    assert r.json() == {"detail": r.json()["detail"], "code": "corrupt_archive"}
+    assert read_refusals(api.store)[-1]["code"] == "corrupt_archive"
+
+
+# ------------------------------------------------------------------ dedup restore vs kind limits
+
+
+@pytest.mark.parametrize("private", [True, False])
+def test_dedup_never_restores_an_archived_item_of_a_kind_the_key_cannot_write(api, private):
+    book = api.upload(b"moby", "m.txt", title="Moby", kind="book", visibility="public")
+    book = book.json()["item"]
+    api.c.delete(f"/api/library/{book['id']}")
+    diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}), private)
+    r = api.as_(diary_only).upload(b"moby", "m.txt", kind="diary")
+    assert r.status_code == 403, r.text
+    assert r.json() == {"detail": "this key cannot write kind book", "code": "forbidden_kind"}
+    assert api.store.get_item(book["id"]).archived_at is not None
+    assert [e["type"] for e in _events(api.store)] == ["created", "archived"]
+    # same rule as the restore route
+    assert api.c.post(f"/api/library/{book['id']}/restore").json()["code"] == "forbidden_kind"
+
+
+def test_dedup_restores_for_a_key_that_may_write_the_existing_kind(api):
+    book = api.upload(b"moby", "m.txt", title="Moby", kind="book").json()["item"]
+    api.c.delete(f"/api/library/{book['id']}")
+    books = Principal("b", frozenset({"read", "write"}), frozenset({"book"}), True)
+    r = api.as_(books).upload(b"moby", "m.txt", kind="book")
+    assert r.status_code == 200 and r.json()["item"]["archived_at"] is None
+
+
+def test_dedup_of_a_live_item_of_another_kind_is_returned_untouched(api):
+    book = api.upload(b"moby", "m.txt", title="Moby", kind="book", visibility="public")
+    diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
+    r = api.as_(diary_only).upload(b"moby", "m.txt", kind="diary")
+    assert r.status_code == 200 and r.json() == {"item": book.json()["item"], "created": False}
+
+
+def test_dedup_private_item_of_another_owner_stays_opaque_409_for_kind_limited_key(api):
+    priv = api.upload(b"secret", "s.txt", title="S", kind="book").json()["item"]
+    api.c.delete(f"/api/library/{priv['id']}")
+    diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
+    r = api.as_(diary_only).upload(b"secret", "s.txt", kind="diary")
+    assert r.status_code == 409 and r.json()["code"] == "conflict"
+
+
+# ------------------------------------------------------------------ upload indexes the body once
+
+
+def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monkeypatch):
+    from culture_library.core import indexer as core_indexer
+    from culture_library.core import ingest as core_ingest
+
+    calls = []
+    real = core_ingest.extract_text_ex
+
+    def counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(core_ingest, "extract_text_ex", counting)
+    item = api.upload(b"# Memo\n\nthe **okapi** grazes", "m.md").json()["item"]
+    assert len(calls) == 1
+    with api.store.reader() as conn:
+        body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (item["id"],)).fetchone()
+        done = conn.execute(
+            "SELECT body_done FROM index_queue WHERE item_id=?", (item["id"],)
+        ).fetchone()
+    assert body[0] == real(b"# Memo\n\nthe **okapi** grazes", "md").text and done[0] == 1
+    assert [h.item_id for h in core_search.fulltext(api.store, "okapi", include_private=True)] == [
+        item["id"]
+    ]
+
+    def never(_item):
+        raise AssertionError("the indexer extracted the body again")
+
+    embedded = []
+
+    def embed(texts):
+        embedded.extend(texts)
+        return [[0.0]] * len(texts)
+
+    ix = core_indexer.Indexer(api.store, embed, text_for=never)
+    assert ix.run_once() == 1 and any("okapi" in t for t in embedded)
+    assert len(calls) == 1

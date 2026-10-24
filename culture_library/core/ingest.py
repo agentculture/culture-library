@@ -11,8 +11,11 @@ PDF) and a refusal record.
 
 Every upload path (web, API, MCP) must go through :func:`ingest`. Guards, in order: size cap,
 format/magic check (audio refused), EPUB zip-bomb caps (member count, declared and actually
-inflated bytes), then text extraction. Nothing is ever executed; the only subprocess is a
-``shell=False`` fixed-argv ``pdftotext`` (and optional ``pandoc``) bounded by a timeout.
+inflated bytes), then text extraction. A zip that opens but whose members cannot be read
+(bad CRC, corrupt deflate data, unsupported compression, encryption) is refused as
+``corrupt_archive``; a file that is not a zip at all stays ``bad_magic``. Nothing is ever
+executed; the only subprocess is a ``shell=False`` fixed-argv ``pdftotext`` (and optional
+``pandoc``) bounded by a timeout.
 
 Refusals: every ``ValidationError`` raised by :func:`ingest` is (a) logged on the
 ``culture_library.ingest`` logger at WARNING and (b) appended as one JSON line
@@ -33,6 +36,7 @@ import sqlite3
 import subprocess  # nosec B404 - shell=False, fixed argv (pdftotext / pandoc)
 import tempfile
 import zipfile
+import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -108,8 +112,26 @@ def _decode(data: bytes) -> str:
         raise ValidationError("file is not valid UTF-8 text", "invalid_encoding") from exc
 
 
+# Reading a member of a damaged archive: BadZipFile (bad CRC, truncated header), zlib.error
+# (corrupt deflate stream), NotImplementedError (unsupported compression method; a
+# RuntimeError subclass, named for clarity), RuntimeError (encrypted member), EOFError
+# (truncated stream). All become one refusal code, ``corrupt_archive``.
+_ZIP_READ_ERRORS = (zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError, EOFError)
+
+
+def _corrupt() -> ValidationError:
+    return ValidationError(
+        "EPUB archive is corrupt, encrypted or uses an unsupported compression method",
+        "corrupt_archive",
+    )
+
+
 def _open_epub(data: bytes, limits: IngestLimits) -> zipfile.ZipFile | None:
-    """Return the ZipFile if data is an EPUB within caps; None if not an EPUB; raise on bomb."""
+    """Return the ZipFile if data is an EPUB within caps; None if not an EPUB; raise on bomb.
+
+    A zip whose ``mimetype`` member cannot be read (bad CRC, encrypted, unsupported
+    compression) raises ``ValidationError`` with code ``corrupt_archive``.
+    """
     if not data.startswith(b"PK"):
         return None
     try:
@@ -123,15 +145,25 @@ def _open_epub(data: bytes, limits: IngestLimits) -> zipfile.ZipFile | None:
         raise ValidationError("EPUB uncompressed size is too large", "zip_bomb")
     if not infos or infos[0].filename != "mimetype" or infos[0].file_size > len(EPUB_MIMETYPE):
         return None
-    if zf.read("mimetype") != EPUB_MIMETYPE:
+    try:
+        mimetype = zf.read("mimetype")
+    except _ZIP_READ_ERRORS as exc:
+        raise _corrupt() from exc
+    if mimetype != EPUB_MIMETYPE:
         return None
     return zf
 
 
 def _read_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, budget: int) -> bytes:
-    """Read at most ``budget`` actually-inflated bytes (headers can lie); raise past it."""
-    with zf.open(info) as fh:
-        out = fh.read(budget + 1)
+    """Read at most ``budget`` actually-inflated bytes (headers can lie); raise past it.
+
+    A damaged member raises ``ValidationError`` with code ``corrupt_archive``.
+    """
+    try:
+        with zf.open(info) as fh:
+            out = fh.read(budget + 1)
+    except _ZIP_READ_ERRORS as exc:
+        raise _corrupt() from exc
     if len(out) > budget:
         raise ValidationError("EPUB inflates beyond the uncompressed size limit", "zip_bomb")
     return out
@@ -362,14 +394,17 @@ def ingest(
     visibility: str | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
     on_insert: Callable[[sqlite3.Connection, Item], None] | None = None,
+    on_text: Callable[[str], None] | None = None,
 ) -> tuple[Item, bool, str]:
     """Validate and store an upload as-is; return ``(item, created, extracted_text)``.
 
     Raises :class:`ValidationError` (``.code`` in unsupported_format, too_large, empty,
-    bad_magic, invalid_encoding, invalid_json, zip_bomb, conversion_timeout, plus the store's
-    own validation) after recording the refusal. PDF text degrades to ``""`` when pdftotext
-    is absent. ``on_insert`` is passed to :meth:`Store.add_item` (runs in the insert's
-    transaction; not called for a duplicate).
+    bad_magic, invalid_encoding, invalid_json, zip_bomb, corrupt_archive, conversion_timeout,
+    plus the store's own validation) after recording the refusal. PDF text degrades to ``""``
+    when pdftotext is absent. ``on_insert`` is passed to :meth:`Store.add_item` (runs in the
+    insert's transaction; not called for a duplicate). ``on_text(text)`` receives the
+    extracted text once the upload is accepted and before it is stored (so ``on_insert`` can
+    index it without extracting again).
     """
     try:
         fmt = _validate(data, filename, limits)
@@ -377,6 +412,8 @@ def ingest(
     except ValidationError as err:
         _record_refusal(store, err, filename, len(data))
         raise
+    if on_text is not None:
+        on_text(text)
     stem = os.path.splitext(os.path.basename(filename or ""))[0] or "Untitled"
     result = store.add_item(
         data,
