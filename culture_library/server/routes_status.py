@@ -14,6 +14,8 @@ per repo-doc kind, and the newest feed event time per event type. ``source_note`
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Request
 
 from culture_library.core import Store
@@ -91,9 +93,9 @@ def collect(store: Store, private: bool) -> dict:
         },
         "index": ix.status(store),
         "last_push": {
-            "items": {"by_kind": {k: v for k, v in item_push}},
-            "repodocs": {"by_kind": {k: v for k, v in doc_push}},
-            "feed": {k: v for k, v in feed_push},
+            "items": {"by_kind": dict(item_push)},
+            "repodocs": {"by_kind": dict(doc_push)},
+            "feed": dict(feed_push),
             "source_note": SOURCE_NOTE,
         },
         "feed": {"cursor": cursor},
@@ -101,6 +103,6 @@ def collect(store: Store, private: bool) -> dict:
 
 
 @router.get("/api/status", tags=["status"])
-def status(request: Request, principal: Principal = Depends(current_principal)) -> dict:
+def status(request: Request, principal: Annotated[Principal, Depends(current_principal)]) -> dict:
     check(principal, "read")
     return collect(get_store(request), principal.private)

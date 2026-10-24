@@ -129,7 +129,8 @@ def test_root_navigation_lists_kinds_with_visible_items(env):
         link = entry.find(ATOM + "link")
         assert "kind=acquisition" in link.get("type")
         assert link.get("rel") == "subsection"
-        assert entry.find(ATOM + "id") is not None and entry.find(ATOM + "updated") is not None
+        assert entry.find(ATOM + "id") is not None
+        assert entry.find(ATOM + "updated") is not None
 
 
 def test_root_for_private_caller_counts_private(env):
@@ -150,7 +151,8 @@ def test_kind_feed_acquisition_entries(env):
     (acq,) = [x for x in entry.findall(ATOM + "link") if x.get("rel") == ACQ]
     assert acq.get("type") == "application/epub+zip"
     got = env.c.get(acq.get("href"), headers=env.basic(env.reader))
-    assert got.status_code == 200 and got.content == EPUB
+    assert got.status_code == 200
+    assert got.content == EPUB
     assert got.headers["content-type"].startswith("application/epub+zip")
 
 
@@ -184,9 +186,11 @@ def test_newest_first_and_paging(env):
         env.add(f"# {i}".encode(), f"x{i}.md", f"T{i:02d}", "", "article", "public")
     feed = parse(env.c.get("/opds/article", headers=env.basic(env.reader)))
     titles = [e.find(ATOM + "title").text for e in feed.findall(ATOM + "entry")]
-    assert len(titles) == 50 and titles[0] == "T54"
+    assert len(titles) == 50
+    assert titles[0] == "T54"
     rels = {link.get("rel"): link.get("href") for link in feed.findall(ATOM + "link")}
-    assert "next" in rels and "previous" not in rels
+    assert "next" in rels
+    assert "previous" not in rels
     nxt = parse(env.c.get(rels["next"], headers=env.basic(env.reader)))
     assert len(nxt.findall(ATOM + "entry")) == 5
     assert "previous" in {link.get("rel") for link in nxt.findall(ATOM + "link")}
@@ -234,7 +238,9 @@ def prop(response, name):
 
 def test_root_propfind_depth_1_and_0(env):
     got = responses(propfind(env, "/dav/"))
-    assert "/dav/" in got and "/dav/book/" in got and "/dav/diary/" in got
+    assert "/dav/" in got
+    assert "/dav/book/" in got
+    assert "/dav/diary/" in got
     assert prop(got["/dav/book/"], "resourcetype").find(DAV + "collection") is not None
     assert prop(got["/dav/book/"], "displayname").text == "book"
     assert list(responses(propfind(env, "/dav", depth="0"))) == ["/dav/"]
@@ -265,9 +271,11 @@ def test_dav_visibility_and_safe_titles(env):
 def test_dav_get_head_bytes(env):
     path = f"/dav/book/{env.book.id}-Moby Dick.epub"
     r = env.c.get(path, headers=env.basic(env.reader))
-    assert r.status_code == 200 and r.content == EPUB
+    assert r.status_code == 200
+    assert r.content == EPUB
     h = env.c.head(path, headers=env.basic(env.reader))
-    assert h.status_code == 200 and h.headers["content-length"] == str(env.book.size)
+    assert h.status_code == 200
+    assert h.headers["content-length"] == str(env.book.size)
     # wrong kind dir, unknown id, private
     assert (
         env.c.get(f"/dav/diary/{env.book.id}-x.epub", headers=env.basic(env.owner)).status_code

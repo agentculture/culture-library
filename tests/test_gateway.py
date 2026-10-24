@@ -41,8 +41,9 @@ def test_gateway_embedder_errors_wrapped(monkeypatch):
         raise urllib.error.URLError(ConnectionRefusedError())
 
     monkeypatch.setattr(gw.urllib.request, "urlopen", boom)
+    embedder = gw.GatewayEmbedder("http://gw:1", "k", "m")
     with pytest.raises(EmbeddingError):
-        gw.GatewayEmbedder("http://gw:1", "k", "m")(["a"])
+        embedder(["a"])
 
 
 def test_from_env(monkeypatch):
@@ -51,5 +52,6 @@ def test_from_env(monkeypatch):
     monkeypatch.setenv("GATEWAY_API_KEY", "sekret")
     monkeypatch.setenv("LOBES_GATEWAY_URL", "http://h:9")
     e = gw.GatewayEmbedder.from_env()
-    assert e.url == "http://h:9" and e.model == "gemma2-embed"
+    assert e.url == "http://h:9"
+    assert e.model == "gemma2-embed"
     assert "sekret" not in repr(e)

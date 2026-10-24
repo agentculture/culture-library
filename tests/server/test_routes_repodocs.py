@@ -79,7 +79,8 @@ def test_post_creates_then_dedups(client: TestClient) -> None:
     r = client.post("/api/repodocs", json=_body())
     assert r.status_code == 201, r.text
     data = r.json()
-    assert data["created"] and data["current_changed"]
+    assert data["created"]
+    assert data["current_changed"]
     assert data["doc"]["repo"] == "github.com/agentculture/devague"
     assert data["doc"]["kind"] == "spec"
     again = client.post(

@@ -22,7 +22,6 @@ helpers.
 from __future__ import annotations
 
 import base64
-import binascii
 import re
 from datetime import UTC, datetime
 from typing import Any, Callable
@@ -36,6 +35,7 @@ from culture_library.core import KINDS, Item, NotFoundError, Store, library, upl
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
 PAGE_SIZE = 50
+OPDS_ROOT = "/opds"
 REALM = "culture-library"
 ATOM_NS = "http://www.w3.org/2005/Atom"  # NOSONAR - an XML namespace name, not a URL fetched
 OPDS_CATALOG = "application/atom+xml;profile=opds-catalog"
@@ -121,7 +121,7 @@ def basic_to_bearer(request: Request) -> None:
         return
     try:
         _, _, supplied_key = base64.b64decode(rest.strip(), validate=True).decode().partition(":")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
+    except ValueError:  # binascii.Error and UnicodeDecodeError are ValueErrors
         return  # left as Basic: current_principal answers 401
     headers = [(k, v) for k, v in request.scope["headers"] if k != b"authorization"]
     headers.append((b"authorization", f"Bearer {supplied_key}".encode()))
@@ -194,7 +194,7 @@ def _feed(feed_id: str, title: str, updated: str, self_href: str, type_: str, up
     _text(feed, "updated", updated)
     ET.SubElement(_text(feed, "author", ""), _q("name")).text = "culture-library"
     _link(feed, "self", self_href, type_)
-    _link(feed, "start", "/opds", NAV_TYPE)
+    _link(feed, "start", OPDS_ROOT, NAV_TYPE)
     if up:
         _link(feed, "up", up, NAV_TYPE)
     return feed
@@ -231,7 +231,7 @@ def _acquisition_feed(
     items: list[Item], *, feed_id: str, title: str, self_href: str, links: dict[str, str]
 ) -> Response:
     updated = max((i.created_at for i in items), default=_now())
-    feed = _feed(feed_id, title, updated, self_href, ACQ_TYPE, "/opds")
+    feed = _feed(feed_id, title, updated, self_href, ACQ_TYPE, OPDS_ROOT)
     for rel, href in links.items():
         _link(feed, rel, href, ACQ_TYPE)
     for item in items:
@@ -241,7 +241,7 @@ def _acquisition_feed(
 
 # ------------------------------------------------------------------ routes
 
-router = APIRouter(prefix="/opds", tags=["opds"], route_class=BasicChallengeRoute)
+router = APIRouter(prefix=OPDS_ROOT, tags=["opds"], route_class=BasicChallengeRoute)
 
 
 @router.get("")
@@ -251,7 +251,7 @@ def root(
     summary = kind_summary(store, private=principal.private, owner=principal.key_id)
     updated = max((latest for _, latest in summary.values()), default=_now())
     feed = _feed(
-        "urn:culture-library:opds:root", "culture-library", updated, "/opds", NAV_TYPE, None
+        "urn:culture-library:opds:root", "culture-library", updated, OPDS_ROOT, NAV_TYPE, None
     )
     _link(feed, "search", "/opds/opensearch.xml", "application/opensearchdescription+xml")
     for kind in KINDS:

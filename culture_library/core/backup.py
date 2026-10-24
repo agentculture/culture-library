@@ -32,6 +32,7 @@ from pathlib import Path
 BACKUP_DIR_ENV = "CULTURE_LIBRARY_BACKUP_DIR"
 DEFAULT_KEEP = 7
 MANIFEST = "manifest.json"
+DB_FILE = "library.db"
 
 
 class BackupError(Exception):
@@ -179,7 +180,7 @@ def run_backup(
     """Snapshot ``data_dir`` into ``dest`` and prune to the last ``keep`` snapshots."""
     src = Path(data_dir).expanduser()
     root = Path(dest).expanduser()
-    if not (src / "library.db").is_file():
+    if not (src / DB_FILE).is_file():
         raise BackupError(f"no library.db in {src}")
     if keep < 1:
         raise BackupError("--keep must be at least 1")
@@ -187,10 +188,10 @@ def run_backup(
         raise BackupError("the backup location must be outside the data directory")
     snap = _new_snapshot_dir(root)
     try:
-        _backup_db(src / "library.db", snap / "library.db")
-        items = _read_items(snap / "library.db")
-        doc_count, versions = _read_repodocs(snap / "library.db")
-        blobs = _referenced_blobs(snap / "library.db")
+        _backup_db(src / DB_FILE, snap / DB_FILE)
+        items = _read_items(snap / DB_FILE)
+        doc_count, versions = _read_repodocs(snap / DB_FILE)
+        blobs = _referenced_blobs(snap / DB_FILE)
         copied = 0
         for sha in sorted(blobs):
             copied += _copy_blob(src, root, sha)
@@ -238,7 +239,7 @@ def _copy_blob(src: Path, root: Path, sha: str) -> int:
 
 def _load_manifest(snapshot: Path) -> dict:
     mf = snapshot / MANIFEST
-    if not (snapshot / "library.db").is_file() or not mf.is_file():
+    if not (snapshot / DB_FILE).is_file() or not mf.is_file():
         raise BackupError(f"{snapshot} is not a snapshot (needs library.db and {MANIFEST})")
     return json.loads(mf.read_text())
 
@@ -253,25 +254,26 @@ def _expected_blobs(db: Path, manifest: dict) -> dict[str, str]:
     return want
 
 
-def _check(db: Path, blobs_root: Path, manifest: dict) -> list[str]:
+def _diff_rows(label: str, wanted: list[dict], present: list[dict]) -> list[str]:
+    """Problems where ``wanted`` (manifest) and ``present`` (database) rows disagree by id."""
     problems: list[str] = []
-    want = {i["id"]: i for i in manifest["items"]}
-    got = {i["id"]: i for i in _read_items(db)}
-    for iid in sorted(want.keys() | got.keys()):
-        w, g = want.get(iid), got.get(iid)
+    want = {r["id"]: r for r in wanted}
+    got = {r["id"]: r for r in present}
+    for rid in sorted(want.keys() | got.keys()):
+        w, g = want.get(rid), got.get(rid)
         if w is None or g is None:
-            problems.append(f"item {iid} present on only one side")
+            problems.append(f"{label} {rid} present on only one side")
         elif (w["sha256"], w["visibility"]) != (g["sha256"], g["visibility"]):
-            problems.append(f"item {iid} sha256/visibility differs from manifest")
+            problems.append(f"{label} {rid} sha256/visibility differs from manifest")
+    return problems
+
+
+def _check(db: Path, blobs_root: Path, manifest: dict) -> list[str]:
+    problems = _diff_rows("item", manifest["items"], _read_items(db))
     if "repodoc_versions" in manifest:
-        wv = {v["id"]: v for v in manifest["repodoc_versions"]}
-        gv = {v["id"]: v for v in _read_repodocs(db)[1]}
-        for vid in sorted(wv.keys() | gv.keys()):
-            w, g = wv.get(vid), gv.get(vid)
-            if w is None or g is None:
-                problems.append(f"repodoc version {vid} present on only one side")
-            elif (w["sha256"], w["visibility"]) != (g["sha256"], g["visibility"]):
-                problems.append(f"repodoc version {vid} sha256/visibility differs from manifest")
+        problems += _diff_rows(
+            "repodoc version", manifest["repodoc_versions"], _read_repodocs(db)[1]
+        )
     for sha, label in sorted(_expected_blobs(db, manifest).items(), key=lambda kv: kv[1]):
         blob = _blob(blobs_root, sha)
         if not blob.is_file():
@@ -285,7 +287,7 @@ def verify(snapshot: str | os.PathLike[str]) -> Report:
     """Check a snapshot's database against its manifest and every referenced blob's sha256."""
     snap = Path(snapshot).expanduser()
     manifest = _load_manifest(snap)
-    problems = _check(snap / "library.db", snap.parent.parent, manifest)
+    problems = _check(snap / DB_FILE, snap.parent.parent, manifest)
     return Report(not problems, manifest["item_count"], problems, str(snap))
 
 
@@ -298,15 +300,15 @@ def restore(snapshot: str | os.PathLike[str], target: str | os.PathLike[str]) ->
         raise BackupError(f"restore target {out} is not empty; refusing to overwrite")
     out.mkdir(parents=True, exist_ok=True)
     root = snap.parent.parent
-    pre = _check(snap / "library.db", root, manifest)
+    pre = _check(snap / DB_FILE, root, manifest)
     if pre:
         raise BackupError("snapshot failed verification: " + "; ".join(pre))
-    _backup_db(snap / "library.db", out / "library.db")
-    for sha in sorted(_expected_blobs(snap / "library.db", manifest)):
+    _backup_db(snap / DB_FILE, out / DB_FILE)
+    for sha in sorted(_expected_blobs(snap / DB_FILE, manifest)):
         dst = _blob(out, sha)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(_blob(root, sha), dst)
-    problems = _check(out / "library.db", out, manifest)
+    problems = _check(out / DB_FILE, out, manifest)
     return Report(not problems, manifest["item_count"], problems, str(out))
 
 

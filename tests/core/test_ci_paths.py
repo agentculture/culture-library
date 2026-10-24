@@ -90,7 +90,8 @@ def test_publish_via_events_cli_python_api(monkeypatch) -> None:
     assert send._import_client() is client_cls
     send._publish_api(client_cls, {"id": 1, "target": "x3-ori"})
     env, topic, qos = published[0]
-    assert env["type"] == send.EVENT_TYPE and env["source"] == send.SOURCE
+    assert env["type"] == send.EVENT_TYPE
+    assert env["source"] == send.SOURCE
     assert topic == "events/library/item/send_requested"
 
 

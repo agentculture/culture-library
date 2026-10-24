@@ -38,7 +38,8 @@ def test_files_exist() -> None:
     assert {f"{m}.js" for m in ("app", "home", "reader", "search", "upload", "send", "state")} <= (
         names
     )
-    assert HTML and CSS.is_file()
+    assert HTML
+    assert CSS.is_file()
 
 
 def test_no_inline_event_handlers() -> None:
@@ -52,7 +53,8 @@ def test_no_inline_style_attributes_in_markup() -> None:
     for path in JS + HTML:
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"""\bstyle\s*=\s*["'`$]""", text), path.name
-        assert "setAttribute('style'" not in text and 'setAttribute("style"' not in text
+        assert "setAttribute('style'" not in text
+        assert 'setAttribute("style"' not in text
 
 
 def test_stylesheet_has_no_physical_left_right() -> None:

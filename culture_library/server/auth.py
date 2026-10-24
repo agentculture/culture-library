@@ -172,7 +172,7 @@ def current_principal(request: Request) -> Principal:
     try:
         verifier = get_access(request)
     except AccessConfigError as exc:
-        log.error("%s", exc)
+        log.exception("%s", exc)
         raise _error(500, "Cloudflare Access is misconfigured", "access_misconfigured") from None
     if verifier is None:
         raise _unauthorized()

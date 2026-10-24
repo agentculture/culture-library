@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 
 from culture_library.core import Store, ValidationError
-from culture_library.core.repodocs import RepoDocs, infer_kind, normalize_path, normalize_remote
+from culture_library.core.repodocs import (
+    NotFoundError,
+    RepoDocs,
+    infer_kind,
+    normalize_path,
+    normalize_remote,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures_repodocs"
 PACKAGE = Path(__file__).resolve().parents[2] / "culture_library"
@@ -136,12 +142,14 @@ def test_infer_kind(path: str, kind: str) -> None:
 
 def test_push_creates_doc_with_current_version(docs: RepoDocs) -> None:
     r = _push(docs)
-    assert r.created and r.current_changed
+    assert r.created
+    assert r.current_changed
     assert r.doc.repo == "github.com/agentculture/lobes-cli"
     assert r.doc.path == "docs/specs/x.md"
     assert r.doc.kind == "spec"
     assert r.doc.current_commit == A
-    assert r.version.commit == A and r.version.on_default_branch
+    assert r.version.commit == A
+    assert r.version.on_default_branch
     assert docs.content(r.doc.id, include_private=False) == b"v-a\n"
 
 
@@ -151,7 +159,8 @@ def test_newer_default_commit_becomes_current(docs: RepoDocs) -> None:
         docs, commit=B, default_branch_head=B, committed_at="2026-10-02T00:00:00Z", content="v-b\n"
     )
     assert r.doc.id == first.doc.id
-    assert r.current_changed and r.doc.current_commit == B
+    assert r.current_changed
+    assert r.doc.current_commit == B
     assert docs.content(r.doc.id, include_private=False) == b"v-b\n"
     assert docs.content(r.doc.id, commit=A, include_private=False) == b"v-a\n"
     assert [v.commit for v in docs.versions(r.doc.id, include_private=False)] == [B, A]
@@ -162,7 +171,8 @@ def test_older_commit_from_stale_clone_adds_history_only(docs: RepoDocs) -> None
         docs, commit=B, default_branch_head=B, committed_at="2026-10-02T00:00:00Z", content="v-b\n"
     )
     r = _push(docs)  # stale clone: its default head is the older commit A
-    assert r.created and not r.current_changed
+    assert r.created
+    assert not r.current_changed
     assert r.doc.current_commit == B
     assert docs.content(r.doc.id, include_private=False) == b"v-b\n"
     assert {v.commit for v in docs.versions(r.doc.id, include_private=False)} == {A, B}
@@ -177,7 +187,8 @@ def test_feature_branch_push_adds_history_only(docs: RepoDocs) -> None:
         committed_at="2026-10-09T00:00:00Z",
         content="feature\n",
     )
-    assert r.created and not r.current_changed
+    assert r.created
+    assert not r.current_changed
     assert not r.version.on_default_branch
     assert r.doc.current_commit == A
     assert docs.content(r.doc.id, include_private=False) == b"v-a\n"
@@ -207,7 +218,8 @@ def test_feature_commit_later_merged_becomes_current(docs: RepoDocs) -> None:
         committed_at="2026-10-09T00:00:00Z",
         content="feature\n",
     )  # fast-forwarded onto the default branch
-    assert not r.created and r.current_changed
+    assert not r.created
+    assert r.current_changed
     assert r.doc.current_commit == F
 
 
@@ -269,11 +281,12 @@ def test_identical_content_in_two_repos_stays_two_docs(docs: RepoDocs) -> None:
 
 def test_push_without_visibility_is_private(docs: RepoDocs) -> None:
     r = _push(docs, visibility=None)
-    assert r.doc.visibility == "private" and r.version.visibility == "private"
+    assert r.doc.visibility == "private"
+    assert r.version.visibility == "private"
     assert docs.get(r.doc.id, include_private=False) is None
     assert docs.get(r.doc.id, include_private=True) is not None
     assert docs.list(include_private=False) == []
-    with pytest.raises(Exception):
+    with pytest.raises(NotFoundError):
         docs.content(r.doc.id, include_private=False)
 
 
@@ -291,7 +304,8 @@ def test_private_repo_doc_is_private(docs: RepoDocs) -> None:
 def test_repush_can_tighten_but_not_loosen_visibility(docs: RepoDocs) -> None:
     _push(docs, visibility="public")
     r = _push(docs, visibility=None)  # same version re-pushed without visibility
-    assert r.version.visibility == "private" and r.doc.visibility == "private"
+    assert r.version.visibility == "private"
+    assert r.doc.visibility == "private"
     r = _push(docs, visibility="public")
     assert r.version.visibility == "private"
 
@@ -308,7 +322,7 @@ def test_private_history_hidden_from_public_reader(docs: RepoDocs) -> None:
     )
     assert [v.commit for v in docs.versions(r.doc.id, include_private=False)] == [A]
     assert len(docs.versions(r.doc.id, include_private=True)) == 2
-    with pytest.raises(Exception):
+    with pytest.raises(NotFoundError):
         docs.content(r.doc.id, commit=F, include_private=False)
 
 
@@ -434,6 +448,7 @@ def test_fixture_sample_round_trip(docs: RepoDocs) -> None:
         found = docs.find(
             f"https://github.com/agentculture/{repo}.git", path, include_private=False
         )
-        assert found is not None and found.id == doc_id
+        assert found is not None
+        assert found.id == doc_id
         assert docs.content(doc_id, include_private=False).decode() == content
     assert len(docs.list(include_private=False)) == len(manifest)

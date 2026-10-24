@@ -38,7 +38,8 @@ def test_feed_in_order_and_since(tmp_path):
     _seed(store)
     body = c.get("/api/feed").json()
     assert [e["item_id"] for e in body["events"]] == [1, 2, 3]
-    assert body["cursor"] == body["events"][-1]["cursor"] and body["more"] is False
+    assert body["cursor"] == body["events"][-1]["cursor"]
+    assert body["more"] is False
     since = c.get(f"/api/feed?since={body['events'][0]['cursor']}").json()
     assert [e["item_id"] for e in since["events"]] == [2, 3]
 

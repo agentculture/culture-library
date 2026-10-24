@@ -46,7 +46,8 @@ def test_add_records_metadata_and_blob_layout(store):
     res = _add(store)
     item = res.item
     sha = hashlib.sha256(b"hello").hexdigest()
-    assert res.created is True and item.sha256 == sha
+    assert res.created is True
+    assert item.sha256 == sha
     assert (item.kind, item.title, item.author, item.format, item.size) == (
         "book", "Dune", "Frank Herbert", "epub", 5,
     )  # fmt: skip
@@ -69,7 +70,8 @@ def test_insert_without_visibility_is_private(store):
 def test_dedup_by_sha256(store):
     first = _add(store)
     second = _add(store, title="Other title")
-    assert second.created is False and second.item.id == first.item.id
+    assert second.created is False
+    assert second.item.id == first.item.id
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -146,7 +148,8 @@ def test_core_source_has_no_network_imports():
 def test_provenance_headers():
     for name in ("store", "models", "errors"):
         src = (Path(culture_library.core.__file__).parent / f"{name}.py").read_text()
-        assert "ea2f643" in src and f"xteink/core/{name}.py" in src
+        assert "ea2f643" in src
+        assert f"xteink/core/{name}.py" in src
 
 
 def test_add_item_on_insert_runs_in_the_insert_transaction(tmp_path):
@@ -158,9 +161,11 @@ def test_add_item_on_insert_runs_in_the_insert_transaction(tmp_path):
         seen.append((item.title, row[0]))
 
     result = store.add_item(b"hooked", kind="book", title="Hooked", format="txt", on_insert=hook)
-    assert result.created and seen == [("Hooked", "Hooked")]
+    assert result.created
+    assert seen == [("Hooked", "Hooked")]
     again = store.add_item(b"hooked", kind="book", title="Hooked", format="txt", on_insert=hook)
-    assert not again.created and len(seen) == 1  # not called for a duplicate
+    assert not again.created
+    assert len(seen) == 1  # not called for a duplicate
 
 
 def test_add_item_on_insert_raising_rolls_back_the_insert(tmp_path):

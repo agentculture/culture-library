@@ -36,7 +36,8 @@ def test_blobs_are_incremental(store, tmp_path):
     assert first.blobs_copied == 3
     store.add_item(b"delta", kind="document", title="D", format="txt")
     second = backup.run_backup(store.data_dir, tmp_path / "bk")
-    assert second.blobs_copied == 1 and second.blobs_total == 4
+    assert second.blobs_copied == 1
+    assert second.blobs_total == 4
 
 
 def test_retention_keeps_last_n(store, tmp_path):
@@ -51,7 +52,8 @@ def test_restore_reproduces_ids_sha_visibility(store, tmp_path):
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
     target = tmp_path / "restored"
     report = backup.restore(snap.path, target)
-    assert report.ok and report.items == 3
+    assert report.ok
+    assert report.items == 3
     original = {(i.id, i.sha256, i.visibility) for i in _items(store)}
     assert {(i.id, i.sha256, i.visibility) for i in _items(Store(target))} == original
     assert Store(target).read_bytes(2) == b"beta"
@@ -77,7 +79,8 @@ def test_verify_detects_corrupt_blob(store, tmp_path):
     sha = json.loads((snap.path / "manifest.json").read_text())["items"][0]["sha256"]
     (tmp_path / "bk" / "files" / sha[:2] / sha).write_bytes(b"tampered")
     report = backup.verify(snap.path)
-    assert not report.ok and any(sha in p for p in report.problems)
+    assert not report.ok
+    assert any(sha in p for p in report.problems)
 
 
 def test_snapshot_taken_while_writing(store, tmp_path):
@@ -96,7 +99,9 @@ def test_missing_source_is_error(tmp_path):
 
 def test_schedule_text():
     out = backup.schedule_text("/srv/lib", "/mnt/bk", kind="systemd")
-    assert "[Timer]" in out and "OnCalendar=daily" in out and "backup run" in out
+    assert "[Timer]" in out
+    assert "OnCalendar=daily" in out
+    assert "backup run" in out
     assert "culture-library backup run" in backup.schedule_text("/d", "/b", kind="cron")
 
 
@@ -120,9 +125,11 @@ def test_repodoc_blobs_are_backed_up_restored_and_counted(store, tmp_path):
     _docs, a, b = _push_docs(store)
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
     m = json.loads((snap.path / "manifest.json").read_text())
-    assert m["repodoc_count"] == 2 and m["repodoc_version_count"] == 2
+    assert m["repodoc_count"] == 2
+    assert m["repodoc_version_count"] == 2
     assert {v["sha256"] for v in m["repodoc_versions"]} == {a.version.sha256, b.version.sha256}
-    assert snap.blobs_total == 5 and snap.to_dict()["repodoc_versions"] == 2
+    assert snap.blobs_total == 5
+    assert snap.to_dict()["repodoc_versions"] == 2
     for sha in (a.version.sha256, b.version.sha256):
         assert (tmp_path / "bk" / "files" / sha[:2] / sha).is_file()
     assert backup.verify(snap.path).ok
@@ -140,7 +147,8 @@ def test_verify_detects_missing_repodoc_blob(store, tmp_path):
     sha = a.version.sha256
     (tmp_path / "bk" / "files" / sha[:2] / sha).unlink()
     report = backup.verify(snap.path)
-    assert not report.ok and any(sha in p and "missing" in p for p in report.problems)
+    assert not report.ok
+    assert any(sha in p and "missing" in p for p in report.problems)
     with pytest.raises(backup.BackupError, match="verification"):
         backup.restore(snap.path, tmp_path / "restored")
 

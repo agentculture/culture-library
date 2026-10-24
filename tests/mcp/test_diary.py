@@ -19,7 +19,9 @@ def diary_key(env):
 def test_diary_write_creates_markdown_diary_item(env, diary_key):
     out = call(env, diary_key, "diary_write", text="Dear diary\nToday was fine.")
     item = out["item"]
-    assert item["kind"] == "diary" and item["format"] == "md" and item["visibility"] == "private"
+    assert item["kind"] == "diary"
+    assert item["format"] == "md"
+    assert item["visibility"] == "private"
     assert item["title"] == "Dear diary"
     body = env.http.get(
         f"/api/library/{item['id']}/file", headers={"Authorization": f"Bearer {diary_key}"}
@@ -31,22 +33,27 @@ def test_diary_edit_replaces_and_archives_old(env, diary_key):
     old = call(env, diary_key, "diary_write", text="first draft")["item"]["id"]
     out = call(env, diary_key, "diary_edit", entry_id=old, text="second draft")
     new = out["item"]["id"]
-    assert new != old and out["replaces"] == old and out["archived"] == old
+    assert new != old
+    assert out["replaces"] == old
+    assert out["archived"] == old
     ids = [i["id"] for i in call(env, diary_key, "list_library", kind="diary")["items"]]
     assert ids == [new]
     body = env.http.get(
         f"/api/library/{new}/file", headers={"Authorization": f"Bearer {diary_key}"}
     ).text
-    assert "second draft" in body and f"replaces: {old}" in body
+    assert "second draft" in body
+    assert f"replaces: {old}" in body
 
 
 def test_diary_delete_archives_for_30_days(env, diary_key):
     iid = call(env, diary_key, "diary_write", text="secret")["item"]["id"]
     out = call(env, diary_key, "diary_delete", entry_id=iid)
-    assert out["archived"] == iid and out["restorable_days"] == 30
+    assert out["archived"] == iid
+    assert out["restorable_days"] == 30
     assert call(env, diary_key, "list_library")["items"] == []
     row = env.store.get_item(iid)
-    assert row is not None and row.archived_at  # archived, not purged
+    assert row is not None
+    assert row.archived_at  # archived, not purged
 
 
 def test_other_kinds_are_refused(env, diary_key):
@@ -102,7 +109,8 @@ def test_non_private_diary_key_manages_its_own_entries(env, plain_diary_key):
     assert [i["id"] for i in listed] == [item["id"]]
     edited = call(env, k, "diary_edit", entry_id=item["id"], text="Evening pages")
     new = edited["item"]["id"]
-    assert edited["archived"] == item["id"] and edited["item"]["visibility"] == "private"
+    assert edited["archived"] == item["id"]
+    assert edited["item"]["visibility"] == "private"
     assert [i["id"] for i in call(env, k, "list_library")["items"]] == [new]
     assert call(env, k, "read_item", item_id=new)["text"].startswith("Evening pages")
     assert call(env, k, "diary_delete", entry_id=new)["archived"] == new

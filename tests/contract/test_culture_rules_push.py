@@ -77,7 +77,8 @@ def _parse_like_culture_rules(status: int, raw: bytes) -> dict:
     item = reply.get("item")
     assert isinstance(item, dict)
     item_id = item.get("id")
-    assert isinstance(item_id, int) and not isinstance(item_id, bool)
+    assert isinstance(item_id, int)
+    assert not isinstance(item_id, bool)
     return {"item_id": item_id, "created": bool(reply.get("created"))}
 
 
@@ -89,8 +90,10 @@ def test_push_creates_then_dedupes(server):
     out = _parse_like_culture_rules(first.status_code, first.content)
     assert out["created"] is True
     item = first.json()["item"]
-    assert item["kind"] == "article" and item["title"] == TITLE
-    assert item["author"] == "culture-rules" and item["format"] == "epub"
+    assert item["kind"] == "article"
+    assert item["title"] == TITLE
+    assert item["author"] == "culture-rules"
+    assert item["format"] == "epub"
     assert item["visibility"] == "private"  # pushed without visibility (c43)
 
     retry = _push(client, raw, data)  # idempotent retry: same bytes, same item
@@ -107,26 +110,32 @@ def test_push_creates_then_dedupes(server):
 def test_push_is_never_redirected(server):
     _, client, raw = server
     r = _push(client, raw, make_epub("other"))
-    assert r.status_code == 201 and not r.is_redirect and r.history == []
+    assert r.status_code == 201
+    assert not r.is_redirect
+    assert r.history == []
 
 
 def test_refusals_carry_a_code_culture_rules_can_name(server, monkeypatch):
     store, client, raw = server
     bad = _push(client, raw, b"not an epub")
-    assert bad.status_code == 400 and wire._error_code(bad.content) == "bad_magic"
+    assert bad.status_code == 400
+    assert wire._error_code(bad.content) == "bad_magic"
 
     monkeypatch.setattr(
         routes_library, "UPLOAD_LIMITS", routes_library.library.IngestLimits(max_bytes=64)
     )
     big = _push(client, raw, make_epub("x" * 500))
-    assert big.status_code == 413 and wire._error_code(big.content) == "too_large"
+    assert big.status_code == 413
+    assert wire._error_code(big.content) == "too_large"
 
     denied = _push(client, "clk_" + "0" * 40, make_epub())
-    assert denied.status_code == 401 and wire._error_code(denied.content) == "unauthorized"
+    assert denied.status_code == 401
+    assert wire._error_code(denied.content) == "unauthorized"
 
     _k, read_only = keys.mint(store, "reader", ["read"])
     forbidden = _push(client, read_only, make_epub("y"))
-    assert forbidden.status_code == 403 and wire._error_code(forbidden.content) == "forbidden"
+    assert forbidden.status_code == 403
+    assert wire._error_code(forbidden.content) == "forbidden"
 
 
 def test_push_at_the_50mib_limit_is_accepted(server):
@@ -198,7 +207,8 @@ def test_real_library_push_port_against_our_server(server, port_module):
 
     first = push._push(payload, params, deadline)
     assert first.outcome == port_module.COMPLETED, first
-    assert first.output["created"] is True and isinstance(first.output["item_id"], int)
+    assert first.output["created"] is True
+    assert isinstance(first.output["item_id"], int)
     again = push._push(payload, params, deadline)
     assert again.output == {**first.output, "created": False}
     assert calls[0] == ("POST", "http://library.test/api/library")

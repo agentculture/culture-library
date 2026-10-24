@@ -18,13 +18,15 @@ def test_append_all_types_monotonic(store):
         for t in EVENT_TYPES:
             cursors.append(append(conn, _ev(t)))
     assert set(EVENT_TYPES) == {"created", "updated", "archived", "purged", "send_requested"}
-    assert cursors == sorted(cursors) and len(set(cursors)) == len(cursors)
+    assert cursors == sorted(cursors)
+    assert len(set(cursors)) == len(cursors)
 
 
 def test_rejects_bad_type(store):
+    bad = _ev("exploded")
     with store.connect() as conn:
         with pytest.raises(ValidationError):
-            append(conn, _ev("exploded"))
+            append(conn, bad)
 
 
 def test_event_fields_and_data(store):
@@ -32,16 +34,23 @@ def test_event_fields_and_data(store):
         append(conn, _ev("send_requested", visibility="public", data={"target": "xteink"}))
     with store.reader() as conn:
         (e,) = read_since(conn, 0)["events"]
-    assert e["type"] == "send_requested" and e["item_id"] == 1 and e["sha256"] == SHA
-    assert e["kind"] == "book" and e["visibility"] == "public" and e["at"]
+    assert e["type"] == "send_requested"
+    assert e["item_id"] == 1
+    assert e["sha256"] == SHA
+    assert e["kind"] == "book"
+    assert e["visibility"] == "public"
+    assert e["at"]
     assert e["data"] == {"target": "xteink"}
 
 
 def test_append_rolls_back_with_caller_txn(store):
-    with pytest.raises(RuntimeError):
+    def append_then_fail():
         with store.connect() as conn:
             append(conn, _ev("created"))
             raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        append_then_fail()
     with store.reader() as conn:
         assert read_since(conn, 0)["events"] == []
 
@@ -64,8 +73,10 @@ def test_reader_from_saved_cursor_sees_exactly_new_events_no_catalog_scan(store)
         out = read_since(conn, saved)
     assert [e["cursor"] for e in out["events"]] == mix
     assert [e["type"] for e in out["events"]] == ["created", "updated", "archived", "purged"]
-    assert out["cursor"] == mix[-1] and out["more"] is False
-    assert queries and not any("items" in q.lower() for q in queries)
+    assert out["cursor"] == mix[-1]
+    assert out["more"] is False
+    assert queries
+    assert not any("items" in q.lower() for q in queries)
     with store.reader() as conn:
         assert read_since(conn, out["cursor"])["events"] == []
 
@@ -77,8 +88,10 @@ def test_limit_and_more(store):
     with store.reader() as conn:
         a = read_since(conn, 0, limit=3)
         b = read_since(conn, a["cursor"], limit=3)
-    assert len(a["events"]) == 3 and a["more"] is True
-    assert len(b["events"]) == 2 and b["more"] is False
+    assert len(a["events"]) == 3
+    assert a["more"] is True
+    assert len(b["events"]) == 2
+    assert b["more"] is False
 
 
 def test_hide_private_keeps_cursor_advancing(store):
@@ -101,11 +114,14 @@ def test_read_since_filters_one_item_using_the_index(store):
     with store.reader() as conn:
         page = read_since(conn, 0, item_id=1)
         assert [e["item_id"] for e in page["events"]] == [1, 1, 1]
-        assert page["more"] is False and page["cursor"] == page["events"][-1]["cursor"]
+        assert page["more"] is False
+        assert page["cursor"] == page["events"][-1]["cursor"]
         first = read_since(conn, 0, item_id=1, limit=2)
-        assert len(first["events"]) == 2 and first["more"] is True
+        assert len(first["events"]) == 2
+        assert first["more"] is True
         rest = read_since(conn, first["cursor"], item_id=1)
-        assert len(rest["events"]) == 1 and rest["more"] is False
+        assert len(rest["events"]) == 1
+        assert rest["more"] is False
         assert read_since(conn, 0, item_id=99) == {"events": [], "cursor": 0, "more": False}
         # the query read_since actually runs is answered from the feed(item_id) index
         traced: list[str] = []

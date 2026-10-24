@@ -76,9 +76,13 @@ def test_upload_created_then_deduplicated(api):
     item = body["item"]
     for field in ("id", "sha256", "kind", "title", "author", "format", "size", "created_at"):
         assert field in item
-    assert item["title"] == "Dune" and item["author"] == "Herbert" and item["kind"] == "book"
-    assert item["format"] == "md" and item["size"] == len(b"# Dune\n\nspice")
-    assert item["visibility"] == "private" and item["archived_at"] is None
+    assert item["title"] == "Dune"
+    assert item["author"] == "Herbert"
+    assert item["kind"] == "book"
+    assert item["format"] == "md"
+    assert item["size"] == len(b"# Dune\n\nspice")
+    assert item["visibility"] == "private"
+    assert item["archived_at"] is None
 
     again = api.upload(b"# Dune\n\nspice", "other.md", title="Other")
     assert again.status_code == 200
@@ -90,7 +94,8 @@ def test_upload_writes_index_and_created_event_once(api):
     api.upload(b"spice melange", "x.txt", title="Arrakis notes")
     events = _events(api.store)
     assert [(e["type"], e["item_id"]) for e in events] == [("created", item["id"])]
-    assert events[0]["sha256"] == item["sha256"] and events[0]["visibility"] == "private"
+    assert events[0]["sha256"] == item["sha256"]
+    assert events[0]["visibility"] == "private"
     hits = core_search.fulltext(api.store, "Arrakis", include_private=True)
     assert [h.item_id for h in hits] == [item["id"]]
     with api.store.reader() as conn:
@@ -105,14 +110,17 @@ def test_upload_without_visibility_is_private_and_public_is_honoured(api):
 
 def test_upload_default_title_and_kind(api):
     item = api.upload(make_epub(), "my-book.epub").json()["item"]
-    assert item["title"] == "my-book" and item["kind"] == "book" and item["format"] == "epub"
+    assert item["title"] == "my-book"
+    assert item["kind"] == "book"
+    assert item["format"] == "epub"
     doc = api.upload(b"notes", "notes.txt").json()["item"]
     assert doc["kind"] == "document"
 
 
 def test_xteink_article_kind_still_works(api):
     r = api.upload(make_epub("news"), "daily.epub", title="Daily", kind="article")
-    assert r.status_code == 201 and r.json()["item"]["kind"] == "article"
+    assert r.status_code == 201
+    assert r.json()["item"]["kind"] == "article"
 
 
 @pytest.mark.parametrize(
@@ -129,8 +137,10 @@ def test_upload_refusals_are_detail_code(api, data, filename, status, code):
     r = api.upload(data, filename)
     assert r.status_code == status, r.text
     body = r.json()
-    assert set(body) == {"detail", "code"} and body["code"] == code
-    assert isinstance(body["detail"], str) and body["detail"]
+    assert set(body) == {"detail", "code"}
+    assert body["code"] == code
+    assert isinstance(body["detail"], str)
+    assert body["detail"]
     assert _events(api.store) == []
 
 
@@ -139,26 +149,31 @@ def test_upload_too_large_is_413(api, monkeypatch):
         routes_library, "UPLOAD_LIMITS", library.IngestLimits(max_bytes=8), raising=True
     )
     r = api.upload(b"0123456789", "big.txt")
-    assert r.status_code == 413 and r.json()["code"] == "too_large"
+    assert r.status_code == 413
+    assert r.json()["code"] == "too_large"
 
 
 def test_upload_bad_kind_and_visibility_are_400(api):
     r = api.upload(b"x", "x.txt", kind="podcast")
-    assert r.status_code == 400 and r.json()["code"] == "invalid_kind"
+    assert r.status_code == 400
+    assert r.json()["code"] == "invalid_kind"
     r = api.upload(b"x", "x.txt", visibility="secret")
-    assert r.status_code == 400 and r.json()["code"] == "invalid_visibility"
+    assert r.status_code == 400
+    assert r.json()["code"] == "invalid_visibility"
 
 
 def test_upload_missing_file_is_flat_error(api):
     r = api.c.post("/api/library", data={"title": "x"})
     assert r.status_code == 422
-    assert set(r.json()) == {"detail", "code"} and r.json()["code"] == "invalid_request"
+    assert set(r.json()) == {"detail", "code"}
+    assert r.json()["code"] == "invalid_request"
 
 
 def test_upload_needs_write_scope_and_kind(api):
     api.as_(READER)
     r = api.upload(b"x", "x.txt")
-    assert r.status_code == 403 and r.json() == {
+    assert r.status_code == 403
+    assert r.json() == {
         "detail": "needs the write scope",
         "code": "forbidden",
     }
@@ -172,10 +187,12 @@ def test_unauthenticated_errors_are_flat(tmp_path):
     app.state.store = Store(tmp_path / "data")
     c = TestClient(app)
     r = c.get("/api/library")
-    assert r.status_code == 401 and r.json()["code"] == "unauthorized"
+    assert r.status_code == 401
+    assert r.json()["code"] == "unauthorized"
     assert r.headers["www-authenticate"] == "Bearer"
     r = c.post("/api/library", headers={"Authorization": "Bearer nope"}, files={"file": ("a", b"")})
-    assert r.status_code == 401 and set(r.json()) == {"detail", "code"}
+    assert r.status_code == 401
+    assert set(r.json()) == {"detail", "code"}
 
 
 # ------------------------------------------------------------------ list / get / file
@@ -215,12 +232,14 @@ def test_private_item_hidden_from_callers_without_private(api):
     pub, priv, _ = _seed(api)
     api.as_(READER)
     listed = [i["id"] for i in api.c.get("/api/library").json()["items"]]
-    assert priv["id"] not in listed and pub["id"] in listed
+    assert priv["id"] not in listed
+    assert pub["id"] in listed
     assert [i["id"] for i in api.c.get("/api/library?q=diary").json()["items"]] == []
     assert core_search.fulltext(api.store, "diary", include_private=False) == []
     for path in (f"/api/library/{priv['id']}", f"/api/library/{priv['id']}/file"):
         r = api.c.get(path)
-        assert r.status_code == 404 and r.json()["code"] == "not_found"
+        assert r.status_code == 404
+        assert r.json()["code"] == "not_found"
     # GET adds uploaded_by_you (d4) to the Item fields
     assert api.c.get(f"/api/library/{pub['id']}").json() == {**pub, "uploaded_by_you": False}
     api.as_(OWNER)
@@ -230,17 +249,21 @@ def test_private_item_hidden_from_callers_without_private(api):
 
 def test_get_missing_is_404(api):
     r = api.c.get("/api/library/999")
-    assert r.status_code == 404 and set(r.json()) == {"detail", "code"}
+    assert r.status_code == 404
+    assert set(r.json()) == {"detail", "code"}
 
 
 def test_file_download(api):
     epub = make_epub()
     item = api.upload(epub, "x.epub", title='Weird / "title"').json()["item"]
     r = api.c.get(f"/api/library/{item['id']}/file")
-    assert r.status_code == 200 and r.content == epub
+    assert r.status_code == 200
+    assert r.content == epub
     assert r.headers["content-type"] == "application/epub+zip"
     disp = r.headers["content-disposition"]
-    assert disp.startswith("attachment;") and ".epub" in disp and "/" not in disp.split("=")[-1]
+    assert disp.startswith("attachment;")
+    assert ".epub" in disp
+    assert "/" not in disp.split("=")[-1]
     md = api.upload(b"# hi", "x.md").json()["item"]
     assert (
         api.c.get(f"/api/library/{md['id']}/file")
@@ -298,11 +321,13 @@ def test_restore_within_window(api):
     pub, _, _ = _seed(api)
     api.c.delete(f"/api/library/{pub['id']}")
     r = api.c.post(f"/api/library/{pub['id']}/restore")
-    assert r.status_code == 200 and r.json() == pub
+    assert r.status_code == 200
+    assert r.json() == pub
     assert pub["id"] in [i["id"] for i in api.c.get("/api/library").json()["items"]]
     assert core_search.fulltext(api.store, "Herbert", include_private=True)[0].item_id == pub["id"]
     restored = [e for e in _events(api.store) if e["type"] == "updated"]
-    assert restored[-1]["item_id"] == pub["id"] and restored[-1]["data"] == {"restored": True}
+    assert restored[-1]["item_id"] == pub["id"]
+    assert restored[-1]["data"] == {"restored": True}
     # not archived any more: nothing to restore
     assert api.c.post(f"/api/library/{pub['id']}/restore").status_code == 404
 
@@ -311,7 +336,8 @@ def test_reupload_of_archived_item_restores_it(api):
     pub, _, _ = _seed(api)
     api.c.delete(f"/api/library/{pub['id']}")
     r = api.upload(b"dune spice", "d.txt", title="Dune")
-    assert r.status_code == 200 and r.json()["created"] is False
+    assert r.status_code == 200
+    assert r.json()["created"] is False
     assert r.json()["item"]["archived_at"] is None
     assert api.c.get(f"/api/library/{pub['id']}").status_code == 200
 
@@ -338,7 +364,8 @@ def test_purge_removes_only_expired_archives(tmp_path):
     assert library.purge_expired(store, now=T0 + timedelta(days=30, seconds=1)) == [old.id]
     assert store.get_item(old.id) is None
     assert not store.blob_path(old.sha256).exists()
-    assert store.get_item(young.id) is not None and store.get_item(live.id) is not None
+    assert store.get_item(young.id) is not None
+    assert store.get_item(live.id) is not None
     with store.reader() as conn:
         assert (
             conn.execute(
@@ -372,8 +399,9 @@ def test_restore_refused_after_window(tmp_path):
     store = Store(tmp_path / "d")
     item = _add(store, b"x", title="x")
     library.archive(store, item.id, include_private=True, now=T0)
+    too_late = T0 + timedelta(days=31)
     with pytest.raises(library.NotFoundError):
-        library.restore(store, item.id, include_private=True, now=T0 + timedelta(days=31))
+        library.restore(store, item.id, include_private=True, now=too_late)
     back = library.restore(store, item.id, include_private=True, now=T0 + timedelta(days=29))
     assert back.archived_at is None
 
@@ -384,7 +412,8 @@ def test_add_heals_missing_created_event_and_blob(tmp_path):
     result = store.add_item(b"orphan", kind="document", title="orphan", format="txt")
     store.blob_path(result.item.sha256).unlink()
     item, created = library.add(store, b"orphan", "o.txt")
-    assert created is False and item.id == result.item.id
+    assert created is False
+    assert item.id == result.item.id
     assert [e["type"] for e in _events(store)] == ["created"]
     assert store.blob_path(item.sha256).read_bytes() == b"orphan"
 
@@ -429,7 +458,8 @@ def test_dedup_against_private_item_is_opaque_conflict_for_non_private(api):
     r = api.upload(b"my diary", "copy.txt", title="Copy")
     assert r.status_code == 409
     assert r.json() == {"detail": "an item with these bytes already exists", "code": "conflict"}
-    assert str(priv["id"]) not in r.text and priv["sha256"] not in r.text
+    assert str(priv["id"]) not in r.text
+    assert priv["sha256"] not in r.text
     assert [e["type"] for e in _events(api.store)] == ["created"]
 
 
@@ -446,15 +476,18 @@ def test_private_caller_keeps_dedup_and_restore_on_private_item(api):
     priv = api.upload(b"my diary", "d.txt", title="Diary").json()["item"]
     api.c.delete(f"/api/library/{priv['id']}")
     r = api.upload(b"my diary", "d.txt")
-    assert r.status_code == 200 and r.json()["created"] is False
-    assert r.json()["item"]["id"] == priv["id"] and r.json()["item"]["archived_at"] is None
+    assert r.status_code == 200
+    assert r.json()["created"] is False
+    assert r.json()["item"]["id"] == priv["id"]
+    assert r.json()["item"]["archived_at"] is None
 
 
 def test_public_existing_item_dedups_for_everyone(api):
     pub = api.upload(b"open", "o.txt", title="Open", visibility="public").json()["item"]
     for who in (WRITER, OWNER):
         r = api.as_(who).upload(b"open", "o.txt")
-        assert r.status_code == 200 and r.json() == {"item": pub, "created": False}
+        assert r.status_code == 200
+        assert r.json() == {"item": pub, "created": False}
 
 
 # ------------------------------------------------------------------ body cap
@@ -464,7 +497,8 @@ def test_declared_oversize_body_is_413_before_reading(api, monkeypatch):
     monkeypatch.setattr(routes_library, "_FORM_SLACK", 0)
     monkeypatch.setattr(routes_library, "UPLOAD_LIMITS", library.IngestLimits(max_bytes=100))
     r = api.upload(b"x" * 500, "big.txt")
-    assert r.status_code == 413 and r.json() == {
+    assert r.status_code == 413
+    assert r.json() == {
         "detail": "file exceeds the size limit",
         "code": "too_large",
     }
@@ -485,13 +519,15 @@ def test_chunked_oversize_body_is_413_while_streaming(api, monkeypatch):
     r = api.c.post(
         "/api/library", content=body(), headers={"Content-Type": "multipart/form-data; boundary=b"}
     )
-    assert r.status_code == 413 and r.json()["code"] == "too_large"
+    assert r.status_code == 413
+    assert r.json()["code"] == "too_large"
     assert "content-length" not in {k.lower() for k in r.request.headers}
 
 
 def test_non_multipart_body_is_invalid_request(api):
     r = api.c.post("/api/library", json={"file": "x"})
-    assert r.status_code == 422 and r.json()["code"] == "invalid_request"
+    assert r.status_code == 422
+    assert r.json()["code"] == "invalid_request"
 
 
 # ------------------------------------------------------------------ indexer wake
@@ -521,7 +557,8 @@ def test_upload_wakes_the_running_indexer_for_its_store(api, monkeypatch):
     calls = []
     owner.notify_indexer = calls.append
     api.upload(b"wake2", "w.txt")
-    assert calls == [api.store] and mine.woken == 1
+    assert calls == [api.store]
+    assert mine.woken == 1
 
 
 def test_upload_without_search_module_still_works(api, monkeypatch):
@@ -532,9 +569,11 @@ def test_upload_without_search_module_still_works(api, monkeypatch):
 def test_uploader_key_gets_its_own_private_item_back_but_others_conflict(api):
     pusher = Principal("pusher", frozenset({"write"}))
     first = api.as_(pusher).upload(b"newspaper", "n.epub.txt", title="Paper").json()
-    assert first["created"] is True and first["item"]["visibility"] == "private"
+    assert first["created"] is True
+    assert first["item"]["visibility"] == "private"
     again = api.upload(b"newspaper", "n.epub.txt")
-    assert again.status_code == 200 and again.json() == {"item": first["item"], "created": False}
+    assert again.status_code == 200
+    assert again.json() == {"item": first["item"], "created": False}
     assert (
         api.as_(Principal("other", frozenset({"write"}))).upload(b"newspaper", "n.txt").status_code
         == 409
@@ -558,7 +597,8 @@ def test_add_retries_when_item_vanishes_before_the_follow_up(tmp_path, monkeypat
     monkeypatch.setattr(library, "_row", flaky_row)
     again, created = library.add(store, b"gone", "g.txt")
     assert seen == [item.id, item.id]  # retried once, outside the first transaction
-    assert created is False and again.id == item.id
+    assert created is False
+    assert again.id == item.id
 
 
 @pytest.mark.parametrize("how", ["crc", "method", "encrypted", "deflate", "mimetype_crc"])
@@ -595,14 +635,16 @@ def test_dedup_restores_for_a_key_that_may_write_the_existing_kind(api):
     api.c.delete(f"/api/library/{book['id']}")
     books = Principal("b", frozenset({"read", "write"}), frozenset({"book"}), True)
     r = api.as_(books).upload(b"moby", "m.txt", kind="book")
-    assert r.status_code == 200 and r.json()["item"]["archived_at"] is None
+    assert r.status_code == 200
+    assert r.json()["item"]["archived_at"] is None
 
 
 def test_dedup_of_a_live_item_of_another_kind_is_returned_untouched(api):
     book = api.upload(b"moby", "m.txt", title="Moby", kind="book", visibility="public")
     diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
     r = api.as_(diary_only).upload(b"moby", "m.txt", kind="diary")
-    assert r.status_code == 200 and r.json() == {"item": book.json()["item"], "created": False}
+    assert r.status_code == 200
+    assert r.json() == {"item": book.json()["item"], "created": False}
 
 
 def test_dedup_private_item_of_another_owner_stays_opaque_409_for_kind_limited_key(api):
@@ -610,7 +652,8 @@ def test_dedup_private_item_of_another_owner_stays_opaque_409_for_kind_limited_k
     api.c.delete(f"/api/library/{priv['id']}")
     diary_only = Principal("d", frozenset({"read", "write"}), frozenset({"diary"}))
     r = api.as_(diary_only).upload(b"secret", "s.txt", kind="diary")
-    assert r.status_code == 409 and r.json()["code"] == "conflict"
+    assert r.status_code == 409
+    assert r.json()["code"] == "conflict"
 
 
 # ------------------------------------------------------------------ upload indexes the body once
@@ -635,7 +678,8 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
         done = conn.execute(
             "SELECT body_done FROM index_queue WHERE item_id=?", (item["id"],)
         ).fetchone()
-    assert body[0] == real(b"# Memo\n\nthe **okapi** grazes", "md").text and done[0] == 1
+    assert body[0] == real(b"# Memo\n\nthe **okapi** grazes", "md").text
+    assert done[0] == 1
     assert [h.item_id for h in core_search.fulltext(api.store, "okapi", include_private=True)] == [
         item["id"]
     ]
@@ -650,5 +694,6 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
         return [[0.0]] * len(texts)
 
     ix = core_indexer.Indexer(api.store, embed, text_for=never)
-    assert ix.run_once() == 1 and any("okapi" in t for t in embedded)
+    assert ix.run_once() == 1
+    assert any("okapi" in t for t in embedded)
     assert len(calls) == 1

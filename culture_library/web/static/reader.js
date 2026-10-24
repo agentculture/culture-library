@@ -15,11 +15,24 @@ const dayLabel = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { we
 const dayMonth = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
 const fullDay = d => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(',', '');
 /** The publication title without a trailing ISO date ("Daily newspaper 2026-10-23" -> "Daily newspaper"). */
-const bareTitle = t => String(t).replace(/[\s,\-–—:]*\(?\d{4}-\d{2}-\d{2}\)?\s*$/, '').trim() || String(t);
+const bareTitle = t => stripTrailingDate(String(t)).trim() || String(t);
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_SEP = /[\s,\-–—:]/;
+/** ``s`` without a trailing "(YYYY-MM-DD)" or "YYYY-MM-DD" and the separators before it: what
+ * s.replace(/[\s,\-–—:]*\(?\d{4}-\d{2}-\d{2}\)?\s*$/, '') gives, as a linear scan. */
+function stripTrailingDate(s) {
+  let end = s.trimEnd().length;
+  if (s[end - 1] === ')') end--;
+  if (end < 10 || !ISO_DATE.test(s.slice(end - 10, end))) return s;
+  end -= 10;
+  if (s[end - 1] === '(') end--;
+  while (end > 0 && DATE_SEP.test(s[end - 1])) end--;
+  return s.slice(0, end);
+}
 let token = 0;
 
 /* ---------- highlighting (text nodes + <mark>) ---------- */
-function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`); }
 /** ``text`` as nodes, with the current query's terms wrapped in <mark>. */
 export function hl(text) {
   const s = String(text ?? '');
@@ -89,7 +102,7 @@ function paragraphs(text) {
 /* ---------- library items ---------- */
 function itemBody(i, t) {
   const kids = [];
-  if (t.sections && t.sections.length) {
+  if (t.sections?.length) {
     for (const s of t.sections) {
       if (s.heading) kids.push(h('h3', { class: 'sh', dir: 'auto' }, hl(s.heading)));
       if (i.kind === 'newspaper') kids.push(h('ul', {}, s.paragraphs.map(p => h('li', { class: 'para', dir: 'auto' }, hl(p)))));
@@ -118,25 +131,47 @@ function renderItem(i, art, my) {
 const unescMd = s => s.replace(/\\([\\`*_{}[\]()#+\-.!>|])/g, '$1');
 /** Parse an exported devague spec (Markdown) into title, lede and sections of items. */
 export function parseSpec(md) {
-  const out = { title: null, lede: [], sections: [] };
-  let sec = null, item = null;
-  for (const raw of md.split('\n')) {
-    const line = raw.replace(/\s+$/, '');
-    let m;
-    if (!out.title && (m = line.match(/^# (.+)/))) { out.title = unescMd(m[1].trim()); continue; }
-    if ((m = line.match(/^## (.+)/))) { sec = { name: unescMd(m[1].trim()), items: [], paras: [] }; out.sections.push(sec); item = null; continue; }
-    if (!sec && (m = line.match(/^>\s?(.*)/))) { out.lede.push(unescMd(m[1])); continue; }
-    if (!sec || !line.trim()) continue;
-    if ((m = line.match(/^[-*] (.*)/))) { item = { text: unescMd(m[1]), subs: [] }; sec.items.push(item); continue; }
-    if ((m = line.match(/^\s+[-*] (.*)/)) && item) {
-      const t = unescMd(m[1]), k = t.match(/^(\w[\w ]*?):\s*(.*)$/);
-      item.subs.push(k ? { key: k[1].toLowerCase(), text: k[2] } : { key: '', text: t });
-      continue;
-    }
-    if (item && /^\s+/.test(line)) { item.text += ' ' + unescMd(line.trim()); continue; }
-    sec.paras.push(unescMd(line.trim()));
+  const st = { out: { title: null, lede: [], sections: [] }, sec: null, item: null };
+  for (const raw of md.split('\n')) specLine(st, raw.trimEnd());
+  return st.out;
+}
+/** One (right-trimmed) line of a spec: the title, a section heading, the lede, or section body. */
+function specLine(st, line) {
+  const { out } = st;
+  const title = out.title ? null : /^# (.+)/.exec(line);
+  if (title) { out.title = unescMd(title[1].trim()); return; }
+  const heading = /^## (.+)/.exec(line);
+  if (heading) {
+    st.sec = { name: unescMd(heading[1].trim()), items: [], paras: [] };
+    out.sections.push(st.sec);
+    st.item = null;
+    return;
   }
-  return out;
+  if (!st.sec) {
+    const quote = /^>\s?(.*)/.exec(line);
+    if (quote) out.lede.push(unescMd(quote[1]));
+    return;
+  }
+  if (line.trim()) sectionLine(st, line);
+}
+/** A non-blank line inside a section: a list item, a sub-item, a continuation or a paragraph. */
+function sectionLine(st, line) {
+  const li = /^[-*] (.*)/.exec(line);
+  if (li) {
+    st.item = { text: unescMd(li[1]), subs: [] };
+    st.sec.items.push(st.item);
+    return;
+  }
+  const subItem = st.item ? /^\s+[-*] (.*)/.exec(line) : null;
+  if (subItem) { st.item.subs.push(specSub(unescMd(subItem[1]))); return; }
+  if (st.item && /^\s/.test(line)) { st.item.text += ' ' + unescMd(line.trim()); return; }
+  st.sec.paras.push(unescMd(line.trim()));
+}
+/** "Key: text" sub-items carry a key (a word, then words and spaces, up to the first colon). */
+function specSub(t) {
+  const k = /^\w[\w ]*:/.exec(t);
+  if (!k) return { key: '', text: t };
+  return { key: k[0].slice(0, -1).toLowerCase(), text: t.slice(k[0].length).trimStart() };
 }
 const isSpec = p => p.lede.length > 0 || p.sections.some(s => /^requirements$/i.test(s.name));
 function sub(s) {
@@ -164,8 +199,7 @@ function specBody(p, versions) {
   }
   for (const s of p.sections) {
     if (s === ba || s === reqs || (!s.items.length && !s.paras.length)) continue;
-    kids.push(h('h3', { class: 'sh', dir: 'auto' }, s.name));
-    kids.push(s.paras.map(t => h('p', { class: 'para', dir: 'auto' }, hl(t))));
+    kids.push(h('h3', { class: 'sh', dir: 'auto' }, s.name), s.paras.map(t => h('p', { class: 'para', dir: 'auto' }, hl(t))));
     if (s.items.length) kids.push(h('ul', {}, s.items.map(x => h('li', { class: 'para', dir: 'auto' }, hl(x.text), x.subs.map(sub)))));
   }
   kids.push(versionNote(versions));
@@ -173,8 +207,9 @@ function specBody(p, versions) {
 }
 function versionNote(versions) {
   const older = Math.max(0, (versions || []).length - 1);
+  const are = older === 1 ? 'version is' : 'versions are';
   return note('Repo documents are versioned by commit. When the document is amended, this page shows the new version and keeps the old one in history.' +
-    (older ? ` ${older} older ${older === 1 ? 'version is' : 'versions are'} in history now.` : ''));
+    (older ? ` ${older} older ${are} in history now.` : ''));
 }
 const CLAIM_GROUPS = { announcement: 'Announcement', decision: 'Decisions', requirement: 'Requirements', boundary: 'Boundaries', non_goal: 'Non-goals', assumption: 'Assumptions', audience: 'Audience', before_state: 'Before', after_state: 'After', why_it_matters: 'Why it matters', success_signal: 'Success signals' };
 const arr = v => Array.isArray(v) ? v.filter(x => x && typeof x === 'object') : [];
@@ -184,7 +219,7 @@ function frameBody(f) {
   const scope = arr(f.scope_entries), vague = arr(f.open_vagueness).filter(v => !v.resolved);
   const kinds = [...Object.keys(CLAIM_GROUPS), ...new Set(c.map(x => x.kind).filter(k => !(k in CLAIM_GROUPS)))];
   const groups = kinds.filter(k => c.some(x => x.kind === k)).map(k => [
-    h('h3', { class: 'sh' }, CLAIM_GROUPS[k] || String(k).replace(/_/g, ' ').replace(/^./, s => s.toUpperCase())),
+    h('h3', { class: 'sh' }, CLAIM_GROUPS[k] || String(k).replaceAll('_', ' ').replace(/^./, s => s.toUpperCase())),
     c.filter(x => x.kind === k).map(x => h('div', { class: 'claim' },
       h('span', { class: 'id' }, x.id),
       h('div', {},
@@ -212,29 +247,42 @@ function renderDoc(i, art, my) {
   const done = kids => { if (my === token) fill(prose, kids); };
   const fail = e => done(failed(e));
   const setTitle = t => { if (t && my === token) { title.textContent = t; i.heading = t; } };
-  const isJson = /\.json$/i.test(i.path);
-  const content = isJson ? apiText(`/api/repodocs/${i.id}/content`).then(t => { try { return JSON.parse(t); } catch (e) { return null; } }) : Promise.resolve(null);
-  content.then(data => {
-    if (data && typeof data === 'object' && Array.isArray(data.claims) && !Array.isArray(data.tasks) && (data.schema_version ?? 0) <= 6) {
-      setTitle(data.title || data.slug);
-      if (data.status && my === token) where.textContent = `${i.path.split('/').slice(0, -1).join('/')}, ${data.status}`;
-      return done(frameBody(data));
-    }
-    return Promise.all([api(`/api/repodocs/${i.id}/rendered`), api(`/api/repodocs/${i.id}`)]).then(([r, meta]) => {
-      setTitle(r.title);
-      if (r.format === 'html') {
-        const box = h('div', { class: 'fragment' });
-        const fragment = r.html; // escaped by culture_library.render.devague.render
-        box.innerHTML = fragment;
-        const inner = box.querySelector('header h2'); // the reader's own h2 shows the title
-        if (inner) inner.remove();
-        return done([box, versionNote(meta.versions)]);
-      }
-      const p = parseSpec(r.text);
-      if (/\.md$/i.test(i.path) && isSpec(p)) return done(specBody(p, meta.versions));
-      return done([h('pre', { class: 'text', dir: 'auto' }, hl(r.text)), versionNote(meta.versions)]);
-    });
-  }).catch(fail);
+  const setWhere = status => { if (status && my === token) where.textContent = `${i.path.split('/').slice(0, -1).join('/')}, ${status}`; };
+  docBody(i, setTitle, setWhere).then(done).catch(fail);
+}
+/** A devague frame (claims, no tasks, schema 6 or older) is drawn here from its JSON. */
+const isFrame = data => data && typeof data === 'object' && Array.isArray(data.claims) && !Array.isArray(data.tasks) && (data.schema_version ?? 0) <= 6;
+/** A JSON repo doc's parsed content, or null (not JSON, or it does not parse). */
+async function docJson(i) {
+  if (!/\.json$/i.test(i.path)) return null;
+  const t = await apiText(`/api/repodocs/${i.id}/content`);
+  try {
+    return JSON.parse(t);
+  } catch (e) {
+    return null; // not valid JSON: fall back to the server's rendering below
+  }
+}
+/** The reader body for a repo doc: a frame from its JSON, else the server's rendering. */
+async function docBody(i, setTitle, setWhere) {
+  const data = await docJson(i);
+  if (isFrame(data)) {
+    setTitle(data.title || data.slug);
+    setWhere(data.status);
+    return frameBody(data);
+  }
+  const [r, meta] = await Promise.all([api(`/api/repodocs/${i.id}/rendered`), api(`/api/repodocs/${i.id}`)]);
+  setTitle(r.title);
+  if (r.format === 'html') {
+    const box = h('div', { class: 'fragment' });
+    const fragment = r.html; // escaped by culture_library.render.devague.render
+    box.innerHTML = fragment;
+    const inner = box.querySelector('header h2'); // the reader's own h2 shows the title
+    if (inner) inner.remove();
+    return [box, versionNote(meta.versions)];
+  }
+  const p = parseSpec(r.text);
+  if (/\.md$/i.test(i.path) && isSpec(p)) return specBody(p, meta.versions);
+  return [h('pre', { class: 'text', dir: 'auto' }, hl(r.text)), versionNote(meta.versions)];
 }
 
 /* ---------- entry points ---------- */
@@ -246,7 +294,7 @@ export function render(i) {
 }
 /** A repo doc's real title arrived in the background: update the open reader's heading. */
 export function refreshHeading(i) {
-  if (!i || i.src !== 'doc' || !i.heading) return;
+  if (i?.src !== 'doc' || !i.heading) return;
   const t = $('reader').querySelector('h2.title');
   if (t) t.textContent = i.heading;
 }

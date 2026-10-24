@@ -96,7 +96,8 @@ def test_index_served_with_csp_and_no_inline_script(client: TestClient) -> None:
     assert p.handlers == [], "no inline event handlers"
     assert '<script type="module" src="/static/app.js">' in r.text
     assert 'href="/static/styles.css"' in r.text
-    assert "fonts.googleapis.com" not in r.text and "fonts.gstatic.com" not in r.text
+    assert "fonts.googleapis.com" not in r.text
+    assert "fonts.gstatic.com" not in r.text
 
 
 def test_index_keeps_the_prototype_markup(client: TestClient) -> None:
@@ -120,12 +121,14 @@ def test_static_modules_and_stylesheet_types(client: TestClient) -> None:
     css = client.get("/static/styles.css")
     assert css.status_code == 200
     assert css.headers["content-type"].startswith("text/css")
-    assert "--accent: #00684a" in css.text and "--accent: #5fd897" in css.text
+    assert "--accent: #00684a" in css.text
+    assert "--accent: #5fd897" in css.text
 
 
 def test_lato_is_self_hosted(client: TestClient) -> None:
     css = client.get("/static/styles.css").text
-    assert "googleapis" not in css and "gstatic" not in css
+    assert "googleapis" not in css
+    assert "gstatic" not in css
     for weight in (300, 400, 700, 900):
         for subset in ("latin", "latin-ext"):
             name = f"lato-{weight}-{subset}.woff2"

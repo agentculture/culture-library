@@ -79,16 +79,18 @@ def load_targets(data_dir: str | os.PathLike[str] | None = None) -> list[Target]
         raise SendConfigError(f"{source} is not valid JSON") from exc
     if not isinstance(entries, list):
         raise SendConfigError(f"{source} must be a JSON list of {{label, type, enabled}}")
-    targets: list[Target] = []
-    for entry in entries:
-        label = entry.get("label") if isinstance(entry, dict) else None
-        if not isinstance(label, str) or not label.strip():
-            raise SendConfigError(f"{source}: every target needs a non-empty label")
-        kind = entry.get("type", "")
-        if not isinstance(kind, str):
-            raise SendConfigError(f"{source}: a target's type must be text")
-        targets.append(Target(label.strip(), bool(entry.get("enabled", True)), kind.strip()))
-    return targets
+    return [_parse_target(entry, source) for entry in entries]
+
+
+def _parse_target(entry: Any, source: str) -> Target:
+    """One ``{label, type, enabled}`` entry of the targets list, or :class:`SendConfigError`."""
+    label = entry.get("label") if isinstance(entry, dict) else None
+    if not isinstance(label, str) or not label.strip():
+        raise SendConfigError(f"{source}: every target needs a non-empty label")
+    kind = entry.get("type", "")
+    if not isinstance(kind, str):
+        raise SendConfigError(f"{source}: a target's type must be text")
+    return Target(label.strip(), bool(entry.get("enabled", True)), kind.strip())
 
 
 def resolve_target(targets: list[Target], label: str) -> Target:

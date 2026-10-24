@@ -44,7 +44,12 @@ const wrap = area => ({
   get(k) {
     const key = safeKey(k);
     if (!key) return null;
-    try { const v = area().getItem(key); return v === null ? null : safeValue(v); } catch (e) { return null; }
+    try {
+      const v = area().getItem(key);
+      return v === null ? null : safeValue(v);
+    } catch (e) {
+      return null; // storage unavailable (private window, blocked site data): no saved value
+    }
   },
   set(k, v) {
     const key = safeKey(k);
@@ -135,7 +140,10 @@ export async function apiText(path) {
   if (key) headers.Authorization = 'Bearer ' + key;
   let r;
   try { r = await fetch(path, { headers, credentials: 'same-origin', cache: 'no-store' }); } catch (e) { throw new ApiError(0, 'network', 'could not reach the library'); }
-  if (!r.ok) { if (r.status === 401) askForKey(); throw new ApiError(r.status, 'error', r.statusText); }
+  if (!r.ok) {
+    if (r.status === 401) askForKey();
+    throw new ApiError(r.status, 'error', r.statusText);
+  }
   return r.text();
 }
 
@@ -213,14 +221,19 @@ async function loadItems() {
   }
 }
 async function loadDocs() {
-  try { return (await api('/api/repodocs')).docs; } catch (e) { if (e.status === 401) throw e; return []; }
+  try {
+    return (await api('/api/repodocs')).docs;
+  } catch (e) {
+    if (e.status === 401) throw e;
+    return [];
+  }
 }
 export async function reloadEntries() {
   const [items, docs] = await Promise.all([loadItems(), loadDocs()]);
   const old = new Map(S.entries.map(e => [e.key, e]));
   S.entries = [...items.map(fromItem), ...docs.map(fromDoc)].map(e => {
     const was = old.get(e.key);
-    if (was && was.excerpt !== undefined) { e.excerpt = was.excerpt; e.heading = was.heading; if (was.heading) e.title = was.title; }
+    if (was?.excerpt !== undefined) { e.excerpt = was.excerpt; e.heading = was.heading; if (was.heading) e.title = was.title; }
     return e;
   });
   S.loaded = true;
@@ -238,17 +251,18 @@ export async function fetchExcerpts(entries) {
     const docs = part.filter(e => e.src === 'doc').map(e => e.id).join(',');
     let r;
     try { r = await api(`/api/excerpts?items=${items}&docs=${docs}`); } catch (e) { return false; }
-    for (const e of part) {
-      e.excerpt = '';
-      if (e.src === 'item' && r.items[e.id] !== undefined) e.excerpt = r.items[e.id];
-      const d = e.src === 'doc' ? r.docs[e.id] : null;
-      if (d) {
-        e.excerpt = d.excerpt || '';
-        if (d.title) { e.heading = d.title; e.title = d.title + docSuffix(e.path); }
-      }
-    }
+    for (const e of part) applyExcerpt(e, r);
   }
   return true;
+}
+/** One entry's excerpt (and, for a repo doc, its real title) from an /api/excerpts reply. */
+function applyExcerpt(e, r) {
+  e.excerpt = '';
+  if (e.src === 'item' && r.items[e.id] !== undefined) e.excerpt = r.items[e.id];
+  const d = e.src === 'doc' ? r.docs[e.id] : null;
+  if (!d) return;
+  e.excerpt = d.excerpt || '';
+  if (d.title) { e.heading = d.title; e.title = d.title + docSuffix(e.path); }
 }
 
 /* ---------- theme ---------- */
@@ -363,4 +377,7 @@ async function load() {
 initConnect();
 home.init(); search.init(); send.init(); upload.init(); siteState.init();
 home.drawShelf(); home.drawHome();
-void load();
+// Top-level await: app.js is the entry module and nothing imports it after evaluation (the
+// other modules are its dependencies), so awaiting here only defers this module's own
+// completion, never another module's code.
+await load();

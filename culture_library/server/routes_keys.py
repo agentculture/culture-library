@@ -33,7 +33,9 @@ def list_keys(
     return {"keys": [k.to_dict() for k in keys.list_keys(store)]}
 
 
-@router.post("/api/keys", status_code=201)
+@router.post(
+    "/api/keys", status_code=201, responses={422: {"description": "invalid name, scopes or kinds"}}
+)
 def mint_key(
     body: MintRequest,
     principal: Principal = Depends(current_principal),
@@ -47,7 +49,7 @@ def mint_key(
     return {"api_key": key.to_dict(), "key": raw}
 
 
-@router.delete("/api/keys/{api_key_id}")
+@router.delete("/api/keys/{api_key_id}", responses={404: {"description": "no such key"}})
 def revoke_key(
     api_key_id: int,
     principal: Principal = Depends(current_principal),

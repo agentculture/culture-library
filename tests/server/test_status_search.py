@@ -142,7 +142,8 @@ def test_status_reflects_live_database_and_index_failures(tmp_path):
     ix.Indexer(store, _down, max_attempts=1).run_once()
     body = c.get("/api/status").json()
     assert body["counts"]["items"]["total"] == 1
-    assert body["index"]["failed"] == 1 and body["index"]["last_error"]
+    assert body["index"]["failed"] == 1
+    assert body["index"]["last_error"]
     _add(store, "Two")
     assert c.get("/api/status").json()["counts"]["items"]["total"] == 2
 
@@ -207,7 +208,8 @@ def test_semantic_unavailable_when_gateway_down_and_hybrid_degrades(tmp_path):
     store, c = _client(tmp_path, Principal("k", READ), embedder=_down)
     _add(store, "Whale song")
     r = c.get("/api/search?q=whale&mode=semantic")
-    assert r.status_code == 503 and r.json()["detail"]["code"] == "semantic_unavailable"
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "semantic_unavailable"
     body = c.get("/api/search?q=whale&mode=hybrid").json()
     assert [h["title"] for h in body["hits"]] == ["Whale song"]
 
@@ -219,7 +221,8 @@ def test_semantic_hits(tmp_path):
     ix.enqueue_missing(store)
     ix.Indexer(store, _embed).run_once()
     hits = c.get("/api/search?q=whale&mode=semantic").json()["hits"]
-    assert hits[0]["item_id"] == a.id and hits[0]["score"] > hits[1]["score"]
+    assert hits[0]["item_id"] == a.id
+    assert hits[0]["score"] > hits[1]["score"]
     assert b.id in [h["item_id"] for h in hits]
 
 
@@ -240,7 +243,9 @@ def test_indexer_started_without_embedder_for_body_fulltext(tmp_path, monkeypatc
     store = Store(tmp_path / "d")
     idx = routes_search.start_indexer(store)
     try:
-        assert idx is not None and idx.embed is None and idx._thread.is_alive()
+        assert idx is not None
+        assert idx.embed is None
+        assert idx._thread.is_alive()
     finally:
         routes_search.stop_indexer()
 
@@ -249,7 +254,8 @@ def test_indexer_started_and_stopped_with_embedder(tmp_path):
     store = Store(tmp_path / "d")
     idx = routes_search.start_indexer(store, embedder=_embed)
     try:
-        assert idx is not None and idx._thread.is_alive()
+        assert idx is not None
+        assert idx._thread.is_alive()
         assert routes_search.start_indexer(store, embedder=_embed) is idx  # idempotent
     finally:
         routes_search.stop_indexer()
@@ -297,7 +303,8 @@ def test_epub_body_fulltext_without_gateway(tmp_path, monkeypatch):
         r = c.get("/api/search?q=ribbon&mode=semantic")
         assert r.status_code == 503
         assert r.json()["detail"]["code"] == "semantic_unavailable"
-    assert ix.status(store)["failed"] == 0 and ix.status(store)["last_error"] is None
+    assert ix.status(store)["failed"] == 0
+    assert ix.status(store)["last_error"] is None
 
 
 def test_fulltext_over_200_items_under_one_second(tmp_path):
@@ -324,12 +331,15 @@ def test_fulltext_over_200_items_under_one_second(tmp_path):
     start = time.perf_counter()
     r = c.get("/api/search?q=zeppelin&mode=fulltext")
     elapsed = time.perf_counter() - start
-    assert r.status_code == 200 and [h["title"] for h in r.json()["hits"]] == ["Issue 137"]
+    assert r.status_code == 200
+    assert [h["title"] for h in r.json()["hits"]] == ["Issue 137"]
     start = time.perf_counter()
     r = c.get("/api/search?q=w42&mode=fulltext&limit=100")
     broad = time.perf_counter() - start
     print(
         f"fulltext 200 items: rare-term {elapsed * 1000:.1f} ms, common-term {broad * 1000:.1f} ms"
     )
-    assert r.status_code == 200 and r.json()["hits"]
-    assert elapsed < 1.0 and broad < 1.0
+    assert r.status_code == 200
+    assert r.json()["hits"]
+    assert elapsed < 1.0
+    assert broad < 1.0

@@ -95,7 +95,7 @@ class _SectionParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.sections: list[dict[str, Any]] = []
-        self._skip = 0
+        self._skip_depth = 0
         self._in_head = False
         self._buf: list[str] = []
         self._start("")
@@ -119,26 +119,26 @@ class _SectionParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if tag in self._SKIP:
-            self._skip += 1
-        elif not self._skip and (tag in self._HEAD or tag in self._BLOCK):
+            self._skip_depth += 1
+        elif not self._skip_depth and (tag in self._HEAD or tag in self._BLOCK):
             self._flush()
             if tag in self._HEAD:
                 self._in_head = True
 
     def handle_startendtag(self, tag, attrs):
-        if not self._skip and tag in self._BLOCK:
+        if not self._skip_depth and tag in self._BLOCK:
             self._flush()
 
     def handle_endtag(self, tag):
         if tag in self._SKIP:
-            self._skip = max(0, self._skip - 1)
-        elif not self._skip and (tag in self._HEAD or tag in self._BLOCK):
+            self._skip_depth = max(0, self._skip_depth - 1)
+        elif not self._skip_depth and (tag in self._HEAD or tag in self._BLOCK):
             self._flush()
             if tag in self._HEAD:
                 self._in_head = False
 
     def handle_data(self, data):
-        if not self._skip:
+        if not self._skip_depth:
             self._buf.append(data)
 
     def close(self) -> None:
@@ -202,12 +202,26 @@ def epub_text_and_sections(
     return "\n\n".join(c for c in chunks if c), sections
 
 
-_TRAILING_DATE = re.compile(r"[\s,\-\u2013\u2014:]*\(?\d{4}-\d{2}-\d{2}\)?\s*$")
+_DATE_AT_END = re.compile(r"\(?\d{4}-\d{2}-\d{2}\)?\Z")
+_DATE_SEPARATORS = ",-\u2013\u2014:"
 _ONLY_DATE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+Z?)?")
 
 
+def _strip_trailing_date(text: str) -> str:
+    """``text`` without a trailing ``YYYY-MM-DD`` (optionally parenthesised) and the
+    whitespace/``,-–—:`` run before it. Linear: no backtracking regex over the run."""
+    body = text.rstrip()
+    m = _DATE_AT_END.search(body)
+    if m is None:
+        return text
+    end = m.start()
+    while end and (body[end - 1].isspace() or body[end - 1] in _DATE_SEPARATORS):
+        end -= 1
+    return body[:end]
+
+
 def _bare(title: str) -> str:
-    return _TRAILING_DATE.sub("", title).strip().casefold()
+    return _strip_trailing_date(title).strip().casefold()
 
 
 def drop_masthead(sections: list[dict], title: str) -> list[dict]:

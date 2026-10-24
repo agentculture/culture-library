@@ -15,11 +15,14 @@ def test_mint_list_revoke(tmp_path, capsys) -> None:
     )
     out = json.loads(capsys.readouterr().out)
     raw = out["key"]
-    assert raw.startswith("clk_") and out["api_key"]["scopes"] == ["admin"]
+    assert raw.startswith("clk_")
+    assert out["api_key"]["scopes"] == ["admin"]
     assert keys.authenticate(Store(d), raw).key_id == out["api_key"]["key_id"]
     assert main(["keys", "list", "--data-dir", d, "--json"]) == 0
     listed = json.loads(capsys.readouterr().out)["keys"]
-    assert len(listed) == 1 and "key_hash" not in listed[0] and raw not in json.dumps(listed)
+    assert len(listed) == 1
+    assert "key_hash" not in listed[0]
+    assert raw not in json.dumps(listed)
     assert main(["keys", "revoke", "--id", str(listed[0]["id"]), "--data-dir", d]) == 0
     assert "revoked" in capsys.readouterr().out
 

@@ -145,7 +145,8 @@ def test_verify_rs256_rejects_wrong_length_signature():
 def test_constructing_a_verifier_makes_no_fetch():
     fetches: list = []
     v = verifier(fetches)
-    assert fetches == [] and v.jwks_url == f"https://{TEAM}/cdn-cgi/access/certs"
+    assert fetches == []
+    assert v.jwks_url == f"https://{TEAM}/cdn-cgi/access/certs"
 
 
 def test_pasted_url_scheme_is_dropped():

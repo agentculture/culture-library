@@ -101,8 +101,9 @@ def test_hybrid_falls_back_to_fulltext_when_embedder_down(store):
 
 
 def test_semantic_raises_when_embedder_down(store):
+    embed = DownEmbed()
     with pytest.raises(sr.EmbeddingError):
-        sr.semantic(store, "cat", DownEmbed())
+        sr.semantic(store, "cat", embed)
 
 
 def test_gateway_down_add_ok_title_searchable_then_catches_up(store):
@@ -116,14 +117,17 @@ def test_gateway_down_add_ok_title_searchable_then_catches_up(store):
     # body indexed (no gateway needed) but semantic still pending
     assert sr.fulltext(store, "family")[0].item_id == item.id
     st = ix.status(store, now=clock[0])
-    assert st["pending"] == 1 and st["done"] == 0
-    assert st["last_error"] and st["last_failure_at"] is not None
+    assert st["pending"] == 1
+    assert st["done"] == 0
+    assert st["last_error"]
+    assert st["last_failure_at"] is not None
     assert st["last_success_at"] is None
     with pytest.raises(sr.EmbeddingError):
         sr.semantic(store, "cat", emb)
     # backoff: immediate re-run does nothing
     calls = emb.calls
-    assert idx.run_once() == 0 and emb.calls == calls
+    assert idx.run_once() == 0
+    assert emb.calls == calls
     clock[0] += 11
     idx.run_once()
     assert emb.calls == calls + 1
@@ -135,8 +139,11 @@ def test_gateway_down_add_ok_title_searchable_then_catches_up(store):
     clock[0] += 200
     assert idx.run_once() == 1
     st = ix.status(store, now=clock[0])
-    assert st["pending"] == 0 and st["done"] == 1 and st["failed"] == 0
-    assert st["last_success_at"] is not None and st["lag_seconds"] == 0
+    assert st["pending"] == 0
+    assert st["done"] == 1
+    assert st["failed"] == 0
+    assert st["last_success_at"] is not None
+    assert st["lag_seconds"] == 0
     assert sr.semantic(store, "cat", emb)[0].item_id == item.id
 
 
@@ -149,7 +156,8 @@ def test_gives_up_after_max_attempts_and_requeue(store):
         clock[0] += 1000
         idx.run_once()
     st = ix.status(store, now=clock[0])
-    assert st["failed"] == 1 and st["pending"] == 0
+    assert st["failed"] == 1
+    assert st["pending"] == 0
     emb.up = True
     assert ix.requeue_failed(store) == 1
     clock[0] += 1
@@ -167,7 +175,8 @@ def test_lag_reported_for_pending(store):
         ix.enqueue(conn, item.id, now=clock[0])
     clock[0] += 42
     st = ix.status(store, now=clock[0])
-    assert st["pending"] == 1 and st["lag_seconds"] == 42
+    assert st["pending"] == 1
+    assert st["lag_seconds"] == 42
     idx.run_once()
     assert ix.status(store, now=clock[0])["lag_seconds"] == 0
 
@@ -210,7 +219,8 @@ def test_background_thread_indexes_and_stops(store):
 def test_chunking():
     assert sr.chunk_text("") == []
     chunks = sr.chunk_text("para one\n\n" + ("word " * 600), max_chars=500)
-    assert len(chunks) > 3 and all(len(c) <= 500 for c in chunks)
+    assert len(chunks) > 3
+    assert all(len(c) <= 500 for c in chunks)
 
 
 def test_vector_blob_roundtrip():
@@ -226,8 +236,11 @@ def test_indexer_without_embedder_indexes_body_and_completes(store):
     idx = ix.Indexer(store)  # no gateway configured
     assert idx.run_once() == 1
     st = ix.status(store)
-    assert st["done"] == 1 and st["pending"] == 0 and st["failed"] == 0
-    assert st["last_error"] is None and st["last_success_at"] is not None
+    assert st["done"] == 1
+    assert st["pending"] == 0
+    assert st["failed"] == 0
+    assert st["last_error"] is None
+    assert st["last_success_at"] is not None
     assert sr.fulltext(store, "narwhal")[0].item_id == item.id
     with store.reader() as conn:
         assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 0
@@ -247,7 +260,8 @@ def test_default_text_for_extracts_epub_and_markdown(store):
     # extracted text, not raw markup
     with store.reader() as conn:
         body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (md.id,)).fetchone()[0]
-    assert "**" not in body and "#" not in body
+    assert "**" not in body
+    assert "#" not in body
 
 
 def test_body_only_jobs_get_embeddings_once_an_embedder_appears(store):

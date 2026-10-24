@@ -45,6 +45,7 @@ PREFIX = "clk"
 SCOPES = ("read", "write", "admin")
 LAST_USED_INTERVAL_S = 60
 LAST_USED_BUSY_MS = 100
+_INVALID_KEY = "invalid key"
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -118,7 +119,7 @@ def parse_key(raw: str, prefix: str = PREFIX) -> str:
     """Return the key_id from a raw key or raise :class:`AuthError`."""
     parts = raw.split("_", 2) if isinstance(raw, str) else []
     if len(parts) != 3 or parts[0] != prefix or not parts[1] or not parts[2]:
-        raise AuthError("invalid key")
+        raise AuthError(_INVALID_KEY)
     return parts[1]
 
 
@@ -226,10 +227,10 @@ def authenticate(store: Store, raw: str) -> ApiKey:
             row = c.execute("SELECT * FROM api_keys WHERE key_id = ?", (key_id,)).fetchone()
     except sqlite3.OperationalError as exc:  # no api_keys table yet: no key can match
         if "no such table" in str(exc):
-            raise AuthError("invalid key") from None
+            raise AuthError(_INVALID_KEY) from None
         raise
     if row is None or row["revoked_at"] or not verify(raw, row["key_hash"]):
-        raise AuthError("invalid key")
+        raise AuthError(_INVALID_KEY)
     key = _row(row)
     when = datetime.now(UTC)
     cutoff = (when - timedelta(seconds=LAST_USED_INTERVAL_S)).isoformat(timespec="seconds")

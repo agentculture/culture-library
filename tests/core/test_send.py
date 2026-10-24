@@ -102,9 +102,11 @@ def test_cli_publisher_argv(monkeypatch):
     monkeypatch.setattr(send.subprocess, "run", run)
     send.publish_send_requested({"id": 1})
     assert seen["argv"][1:4] == ["emit", send.EVENT_TYPE, "--data"]
-    assert "--source" in seen["argv"] and send.SOURCE in seen["argv"]
+    assert "--source" in seen["argv"]
+    assert send.SOURCE in seen["argv"]
     assert json.loads(seen["kw"]["input"]) == {"id": 1}
-    assert seen["kw"]["timeout"] and not seen["kw"].get("shell")
+    assert seen["kw"]["timeout"]
+    assert not seen["kw"].get("shell")
 
 
 def test_cli_publisher_failure(monkeypatch):
@@ -139,11 +141,14 @@ def test_no_device_http_calls():
         text = py.read_text().lower()
         if py.name == "send.py" and py.parent.name == "core":
             # the module may mention the names in prose only; no URL/host usage
-            assert "http://xteink" not in text and "https://xteink" not in text
+            assert "http://xteink" not in text
+            assert "https://xteink" not in text
             continue
         for bad in ("xteink.", "reterminal."):
-            assert f"http://{bad}" not in text and f"https://{bad}" not in text, py
-        assert "requests.post" not in text and "httpx" not in text, py
+            assert f"http://{bad}" not in text, py
+            assert f"https://{bad}" not in text, py
+        assert "requests.post" not in text, py
+        assert "httpx" not in text, py
 
 
 # ------------------------------------------------------------------ type label (d4 item 3)

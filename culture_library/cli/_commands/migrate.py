@@ -10,6 +10,8 @@ from culture_library.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliErro
 from culture_library.cli._output import emit_result
 from culture_library.core.store import DATA_DIR_ENV, DEFAULT_DATA_DIR
 
+_JSON_HELP = "Emit structured JSON."
+
 
 def _json(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "json", False))
@@ -88,7 +90,7 @@ def cmd_from_xteink(args: argparse.Namespace) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("migrate", help="Migrations (see 'culture-library migrate overview').")
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
     p.set_defaults(func=cmd_overview, json=False)
     nsub = p.add_subparsers(dest="migrate_command", parser_class=type(p))
     fx = nsub.add_parser("from-xteink", help="Copy an xteink library (dry run unless --apply).")
@@ -101,8 +103,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         default="private",
         help="Visibility for migrated items (default private).",
     )
-    fx.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    fx.add_argument("--json", action="store_true", help=_JSON_HELP)
     fx.set_defaults(func=cmd_from_xteink)
     ov = nsub.add_parser("overview", help="Describe the migrate noun.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=_JSON_HELP)
     ov.set_defaults(func=cmd_overview)

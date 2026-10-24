@@ -40,7 +40,7 @@ function statusRows(st, health) {
   rows.push(items ? ['Newest item', 'good', when(items.at), `Newest per kind: ${items.text}.`] : ['Newest item', 'warning', 'None yet', 'Nothing has been uploaded or pushed.']);
   const docs = newest(st.last_push.repodocs.by_kind, k => k);
   rows.push(docs ? ['Newest repo document', 'good', when(docs.at), `Newest per type: ${docs.text}.`] : ['Newest repo document', 'warning', 'None yet', 'No repo has pushed a spec, plan or devague record.']);
-  const feed = newest(st.last_push.feed, k => k.replace(/_/g, ' '));
+  const feed = newest(st.last_push.feed, k => k.replaceAll('_', ' '));
   rows.push(feed ? ['Feed', 'good', plural(st.feed.cursor, 'event', 'events'), `Newest per type: ${feed.text}.`] : ['Feed', 'warning', 'Empty', 'No change events yet.']);
   return rows.map(r => h('div', { class: 'srow' }, h('span', { class: 'n' }, r[0]), h('span', { class: 'st' }, icon(SVG[r[1]]), r[2]), h('span', { class: 'x' }, r[3])));
 }
@@ -85,7 +85,16 @@ function hbars(c) {
         h('span', { class: 'val' }, fmtN(d[2]), d[3] ? [' ', h('span', { class: 'm' }, d[3])] : null)));
   }));
 }
-function nice(max) { if (!(max > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(max))); const m = max / p; return (m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; }
+/** A round axis top at or above ``max``: 2, 5 or 10 times a power of ten (1 when there is no data). */
+function nice(max) {
+  if (Number.isNaN(max) || max <= 0) return 1; // also covers NaN, as !(max > 0) did
+  const p = Math.pow(10, Math.floor(Math.log10(max)));
+  const m = max / p;
+  let step = 10;
+  if (m <= 2) step = 2;
+  else if (m <= 5) step = 5;
+  return step * p;
+}
 function vcols(c) {
   const top = nice(Math.max(...c.data.map(d => d[1]))), ticks = [0, top / 2, top];
   return [

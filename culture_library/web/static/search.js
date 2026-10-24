@@ -26,12 +26,15 @@ export function visibleList() {
 export function snippetFor(key) {
   const s = snippets.get(key);
   if (!s) return null;
+  // A linear scan (same pairs as /\[([^\]]*)\]/g): each "[" up to the next "]".
   const out = [];
-  const re = /\[([^\]]*)\]/g;
   let last = 0;
-  for (const m of s.matchAll(re)) {
-    out.push(s.slice(last, m.index), h('mark', {}, m[1]));
-    last = m.index + m[0].length;
+  for (;;) {
+    const open = s.indexOf('[', last);
+    const close = open < 0 ? -1 : s.indexOf(']', open + 1);
+    if (close < 0) break;
+    out.push(s.slice(last, open), h('mark', {}, s.slice(open + 1, close)));
+    last = close + 1;
   }
   out.push(s.slice(last));
   return out;
@@ -56,7 +59,12 @@ export function init() {
   $('q').addEventListener('input', e => {
     S.query = e.target.value;
     clearTimeout(timer);
-    if (!S.query.trim()) { seq++; snippets.clear(); if (S.current) openItem(S.current, true); return; }
+    if (!S.query.trim()) {
+      seq++;
+      snippets.clear();
+      if (S.current) openItem(S.current, true);
+      return;
+    }
     timer = setTimeout(run, 180);
   });
 }

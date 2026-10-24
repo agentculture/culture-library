@@ -34,10 +34,12 @@ def test_push_list_search_read(env):
     key = env.key("agent", ["read", "write"], private=True)
     out = call(env, key, "push_file", content="# Notes\nzebra crossing", filename="n.md",
                kind="document", title="Zebra")  # fmt: skip
-    assert out["created"] is True and out["item"]["title"] == "Zebra"
+    assert out["created"] is True
+    assert out["item"]["title"] == "Zebra"
     item_id = out["item"]["id"]
     again = call(env, key, "push_file", content="# Notes\nzebra crossing", filename="n.md")
-    assert again["created"] is False and again["item"]["id"] == item_id
+    assert again["created"] is False
+    assert again["item"]["id"] == item_id
     assert [i["id"] for i in call(env, key, "list_library")["items"]] == [item_id]
     assert call(env, key, "list_library", q="Zebra", kind="document")["items"]
     env.app.state.store  # indexer is not running; index text synchronously
@@ -45,9 +47,11 @@ def test_push_list_search_read(env):
 
     Indexer(env.store).run_once()
     hits = call(env, key, "search", q="zebra", mode="fulltext")["hits"]
-    assert hits and hits[0]["item_id"] == item_id
+    assert hits
+    assert hits[0]["item_id"] == item_id
     read = call(env, key, "read_item", item_id=item_id)
-    assert read["item"]["id"] == item_id and "zebra crossing" in read["text"]
+    assert read["item"]["id"] == item_id
+    assert "zebra crossing" in read["text"]
 
 
 def test_read_item_binary_is_base64_with_cap(env):
@@ -59,7 +63,8 @@ def test_read_item_binary_is_base64_with_cap(env):
     read = call(env, key, "read_item", item_id=iid)
     assert base64.b64decode(read["content_base64"]) == data
     capped = call(env, key, "read_item", item_id=iid, max_bytes=10)
-    assert "content_base64" not in capped and capped["truncated"] is True
+    assert "content_base64" not in capped
+    assert capped["truncated"] is True
 
 
 def test_push_validation(env):
@@ -89,7 +94,8 @@ def test_send_to_device(env):
     key = env.key("agent", ["read", "write"], private=True)
     iid = call(env, key, "push_file", content="hi", filename="a.md")["item"]["id"]
     out = call(env, key, "send_to_device", item_id=iid, target="x3-ori")
-    assert out["status"] == "requested" and env.published
+    assert out["status"] == "requested"
+    assert env.published
     with pytest.raises(tools.ToolError, match="unknown_target"):
         call(env, key, "send_to_device", item_id=iid, target="nope")
     ro = env.key("ro", ["read"], private=True)

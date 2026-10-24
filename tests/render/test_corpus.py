@@ -71,7 +71,8 @@ def test_plan_sections():
 
 def test_synthetic_schema_7_is_raw_with_notice():
     out = render({"schema_version": 7, "slug": "x", "claims": [{"id": "c1", "text": "<b>hi</b>"}]})
-    assert "dv-raw" in out and "dv-notice" in out
+    assert "dv-raw" in out
+    assert "dv-notice" in out
     assert "<pre>" in out
     assert "newer than the supported 6" in out
     assert "<b>" not in out
@@ -157,7 +158,8 @@ def test_home_git_corpus_renders():
         except (OSError, ValueError):
             continue
         out = render(data)  # must never raise
-        assert isinstance(out, str) and out
+        assert isinstance(out, str)
+        assert out
         if "dv-raw" in out:
             raw += 1
         else:

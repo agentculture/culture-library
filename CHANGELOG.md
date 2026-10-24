@@ -67,6 +67,12 @@ These were found by code review on PR #8.
   - PDF text is read from stdin;
   - browser-storage keys and values are bounded;
   - unhandled promises are handled.
+- The 259 SonarCloud maintainability findings on PR #8 are resolved:
+  - tests assert one fact per `assert`, and `pytest.raises` blocks hold a
+    single call;
+  - complex functions are split into helpers, with behaviour unchanged;
+  - regular expressions that could backtrack are replaced by linear ones;
+  - the site toast is an `<output>`, and the search label has accessible text.
 
 ### Changed
 

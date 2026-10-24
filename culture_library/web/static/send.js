@@ -11,7 +11,7 @@ import { $, ApiError, S, SVG, api, byKey, fill, h, icon } from './app.js';
 const sendBtn = $('send-btn'), sendMenu = $('send-menu');
 let targets = null, busy = false;
 
-const canSend = i => Boolean(i && i.src === 'item' && i.live);
+const canSend = i => Boolean(i?.src === 'item' && i.live);
 /* The prototype's "<type>. Enabled" / "<type>. Not enabled yet"; type is optional free text. */
 const targetNote = t => {
   const status = t.enabled ? 'Enabled' : 'Not enabled yet';
@@ -61,7 +61,10 @@ export function paintSendRow(key) {
   const art = $('reader');
   let row = art.querySelector('.sendrow');
   const s = S.sends[key];
-  if (!s) { if (row) row.remove(); return; }
+  if (!s) {
+    if (row) row.remove();
+    return;
+  }
   if (!row) {
     const head = art.querySelector('.reader-head'); if (!head) return;
     row = h('div', { class: 'sendrow' });

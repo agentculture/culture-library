@@ -79,7 +79,8 @@ def _spec_tables() -> tuple[dict[str, tuple[str, str]], dict[str, tuple[str, str
 def test_stylesheet_tokens_equal_the_design_doc() -> None:
     light, dark_media, dark_attr = _stylesheet_themes()
     tokens, kinds = _spec_tables()
-    assert len(tokens) == 9 and len(kinds) == 6, (tokens, kinds)
+    assert len(tokens) == 9, (tokens, kinds)
+    assert len(kinds) == 6, (tokens, kinds)
     assert dark_media == dark_attr or all(
         dark_media.get(k) == dark_attr.get(k) for k in {**tokens, **kinds}
     )
@@ -170,7 +171,8 @@ def test_only_lato_300_400_700_900(browser, site, scheme) -> None:
                 "() => [...document.fonts].filter(f => f.status === 'loaded')"
                 ".map(f => [f.family, f.weight])"
             )
-            assert loaded and all(f[0].strip('"') == "Lato" for f in loaded), loaded
+            assert loaded, loaded
+            assert all(f[0].strip('"') == "Lato" for f in loaded), loaded
             elements = page.evaluate(_TEXT_ELEMENTS)
             assert elements, view
             for el in elements:
@@ -209,7 +211,8 @@ def test_only_lato_300_400_700_900(browser, site, scheme) -> None:
             assert lato > 0, view
         finally:
             page.context.close()
-    assert seen_weights <= WEIGHTS and {"400", "700", "900"} <= seen_weights, seen_weights
+    assert seen_weights <= WEIGHTS, seen_weights
+    assert {"400", "700", "900"} <= seen_weights, seen_weights
 
 
 # ------------------------------------------------------------------ layout (o4)

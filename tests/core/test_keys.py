@@ -100,13 +100,13 @@ def test_scopes_are_normalised_and_deduped(store):
 
 def test_key_ids_are_unique_column(store):
     key, _ = keys.mint(store, "k", ["read"])
-    with pytest.raises(sqlite3.IntegrityError):
-        with store.connect() as c:
-            c.execute(
-                "INSERT INTO api_keys (name, key_id, key_hash, scopes, private, created_at)"
-                " VALUES ('x', ?, 'h', 'read', 0, 'now')",
-                (key.key_id,),
-            )
+    sql = (
+        "INSERT INTO api_keys (name, key_id, key_hash, scopes, private, created_at)"
+        " VALUES ('x', ?, 'h', 'read', 0, 'now')"
+    )
+    with store.connect() as c:
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(sql, (key.key_id,))
 
 
 # ------------------------------------------------------------------ authenticate is a read
@@ -133,7 +133,8 @@ def test_last_used_is_stamped_at_most_once_a_minute(store):
         c.execute("UPDATE api_keys SET last_used = '2026-01-01T00:00:00+00:00' WHERE id = ?",
                   (key.id,))  # fmt: skip
     first = keys.authenticate(store, raw).last_used
-    assert first != "2026-01-01T00:00:00+00:00" and _last_used(store, key.id) == first
+    assert first != "2026-01-01T00:00:00+00:00"
+    assert _last_used(store, key.id) == first
     recent = "9999-01-01T00:00:00+00:00"  # "just now" as far as the throttle can tell
     with store.connect() as c:
         c.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (recent, key.id))

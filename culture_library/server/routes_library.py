@@ -241,7 +241,7 @@ def _notify_indexer(store: Store) -> None:
     if callable(notify):
         notify(store)
         return
-    for running in list(getattr(owner, "_indexers", ())):
+    for running in getattr(owner, "_indexers", ()):
         if getattr(running, "store", None) is store:
             running.notify()
 

@@ -139,6 +139,27 @@ def read_only(path: str = "") -> Response:
     )
 
 
+def _root_listing(ms: ET.Element, store: Store, principal: Principal, deep: bool) -> None:
+    """PROPFIND ``/dav/``: the library collection and (``deep``) one collection per kind."""
+    _response(ms, "/dav/", "library", collection=True)
+    if deep:
+        summary = kind_summary(store, private=principal.private, owner=principal.key_id)
+        for kind in KINDS:
+            latest = summary[kind][1] if kind in summary else None
+            _response(ms, _href(kind, collection=True), kind, collection=True, modified=latest)
+
+
+def _kind_listing(
+    ms: ET.Element, store: Store, principal: Principal, kind: str, deep: bool
+) -> None:
+    """PROPFIND ``/dav/<kind>/``: the kind's collection and (``deep``) its visible files."""
+    _response(ms, _href(kind, collection=True), kind, collection=True)
+    if deep:
+        for item in _kind_items(store, principal, kind):
+            name = file_name(item)
+            _response(ms, _href(kind, name), name, collection=False, item=item)
+
+
 @router.api_route("/dav", methods=["PROPFIND"])
 @router.api_route("/dav/{path:path}", methods=["PROPFIND"])
 def propfind(
@@ -151,22 +172,13 @@ def propfind(
     deep = request.headers.get("depth", "1").strip() != "0"
     ms = ET.Element("multistatus", {"xmlns": DAV_NS})
     if not segs:
-        _response(ms, "/dav/", "library", collection=True)
-        if deep:
-            summary = kind_summary(store, private=principal.private, owner=principal.key_id)
-            for kind in KINDS:
-                latest = summary[kind][1] if kind in summary else None
-                _response(ms, _href(kind, collection=True), kind, collection=True, modified=latest)
+        _root_listing(ms, store, principal, deep)
         return _multistatus(ms)
     kind = segs[0]
     if kind not in KINDS or len(segs) > 2:
         return not_found(f"/dav/{path}")
     if len(segs) == 1:
-        _response(ms, _href(kind, collection=True), kind, collection=True)
-        if deep:
-            for item in _kind_items(store, principal, kind):
-                name = file_name(item)
-                _response(ms, _href(kind, name), name, collection=False, item=item)
+        _kind_listing(ms, store, principal, kind, deep)
         return _multistatus(ms)
     item = _resolve_file(store, principal, kind, segs[1])
     if item is None:

@@ -176,11 +176,11 @@ class _TextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
-        self._skip = 0
+        self._skip_depth = 0
 
     def handle_starttag(self, tag, attrs):
         if tag in self._SKIP:
-            self._skip += 1
+            self._skip_depth += 1
         elif tag in self._BLOCK:
             self.parts.append("\n")
 
@@ -190,12 +190,12 @@ class _TextParser(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in self._SKIP:
-            self._skip = max(0, self._skip - 1)
+            self._skip_depth = max(0, self._skip_depth - 1)
         elif tag in self._BLOCK:
             self.parts.append("\n")
 
     def handle_data(self, data):
-        if not self._skip:
+        if not self._skip_depth:
             self.parts.append(data)
 
 
@@ -344,6 +344,12 @@ def _validate(data: bytes, filename: str, limits: IngestLimits) -> str:
     fmt = _EXT_FORMAT.get(ext)
     if fmt is None:
         raise _unsupported(f"Unsupported file type {ext or '(none)'}. ")
+    _check_content(data, fmt, limits)
+    return fmt
+
+
+def _check_content(data: bytes, fmt: str, limits: IngestLimits) -> None:
+    """Raise ValidationError when ``data`` is not a well-formed ``fmt`` file."""
     if fmt == "pdf" and not data.startswith(PDF_MAGIC):
         raise ValidationError("not a valid PDF", "bad_magic")
     if fmt == "epub" and _open_epub(data, limits) is None:
@@ -355,7 +361,6 @@ def _validate(data: bytes, filename: str, limits: IngestLimits) -> str:
             json.loads(_decode(data))
         except ValueError as exc:
             raise ValidationError("file is not valid JSON", "invalid_json") from exc
-    return fmt
 
 
 def _record_refusal(store: Store, err: ValidationError, filename: str, size: int) -> None:

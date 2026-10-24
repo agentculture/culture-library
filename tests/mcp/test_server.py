@@ -54,7 +54,8 @@ def test_http_app_requires_bearer():
     app = server.build_http_app()
     with TestClient(app) as c:
         r = c.post("/mcp/", json={})
-        assert r.status_code == 401 and r.headers["www-authenticate"] == "Bearer"
+        assert r.status_code == 401
+        assert r.headers["www-authenticate"] == "Bearer"
         r = c.post("/mcp/", json={}, headers={"Authorization": "Bearer nope"})
         assert r.status_code == 401
 
@@ -72,7 +73,8 @@ def test_stdio_style_server_lists_and_calls_tools(env):
             listed = await session.list_tools()
             assert {t.name for t in listed.tools} >= {"push_file", "diary_write"}
             res = await session.call_tool("diary_write", {"text": "hello"})
-            assert not res.isError and json.loads(res.content[0].text)["item"]["kind"] == "diary"
+            assert not res.isError
+            assert json.loads(res.content[0].text)["item"]["kind"] == "diary"
             bad = await session.call_tool("read_item", {})
             assert bad.isError
 

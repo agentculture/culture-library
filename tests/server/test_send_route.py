@@ -45,7 +45,9 @@ def test_send_ok(env):
     assert r.status_code == 202
     assert len(published) == 1
     ev = published[0]
-    assert ev["sha256"] == item.sha256 and ev["target"] == "x3-ori" and ev["requester"] == "kid"
+    assert ev["sha256"] == item.sha256
+    assert ev["target"] == "x3-ori"
+    assert ev["requester"] == "kid"
     assert ev["content_url"].endswith(f"/api/library/{item.id}/file")
     feed = TestClient(app).get("/api/feed").json()["events"]
     assert [e["type"] for e in feed if e["type"] == "send_requested"] == ["send_requested"]
@@ -56,9 +58,11 @@ def test_refusals(env):
     item = _item(store)
     c = TestClient(app)
     r = c.post(f"/api/library/{item.id}/send", json={"target": "reTerminal Sticky"})
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "target_disabled"
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "target_disabled"
     r = c.post(f"/api/library/{item.id}/send", json={"target": "nope"})
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "unknown_target"
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "unknown_target"
     assert c.post("/api/library/999/send", json={"target": "x3-ori"}).status_code == 404
     assert published == []
 
@@ -84,7 +88,8 @@ def test_broker_down_503_and_no_feed(env, monkeypatch):
     monkeypatch.setattr(routes_send, "publish", boom)
     c = TestClient(app)
     r = c.post(f"/api/library/{item.id}/send", json={"target": "x3-ori"})
-    assert r.status_code == 503 and r.json()["detail"]["code"] == "publish_unavailable"
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "publish_unavailable"
     assert not [e for e in c.get("/api/feed").json()["events"] if e["type"] == "send_requested"]
 
 

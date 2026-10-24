@@ -97,7 +97,8 @@ def test_doc_has_cultureflare_dry_run():
     first = cmd.group(0)
     assert "--hostname library.culture.dev" in first
     assert "--service http://library:8796" in first
-    assert "--allow" in first and "--shushu" in first
+    assert "--allow" in first
+    assert "--shushu" in first
     assert "--tunnel-name" in first
     assert "--apply" not in first, "first command must be the dry run"
     assert "--apply" in doc

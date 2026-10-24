@@ -55,7 +55,8 @@ def test_epub_text_is_plain_and_runs_nothing(site: Site, hostile: dict) -> None:
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/json")
     body = r.json()
-    assert body["format"] == "epub" and body["kind"] == "book"
+    assert body["format"] == "epub"
+    assert body["kind"] == "book"
     strings = _all_strings({"text": body["text"], "sections": body["sections"]})
     joined = "\n".join(strings)
     for bad in FORBIDDEN:
@@ -96,7 +97,9 @@ def test_markdown_text_has_no_markup(site: Site) -> None:
     md = b'# Title\n\nSome *bold* text with <b onclick="x()">raw html</b> and [a](javascript:x).\n'
     item = site.upload(md, "note.md", visibility="public")
     text = site.c.get(f"/api/library/{item['id']}/text").json()["text"]
-    assert "onclick" not in text and "<b" not in text and "javascript:" not in text
+    assert "onclick" not in text
+    assert "<b" not in text
+    assert "javascript:" not in text
     assert "raw html" in text
 
 
@@ -156,20 +159,25 @@ def test_repodoc_rendered_frame_is_escaped(site: Site) -> None:
     assert html.startswith('<article class="devague devague-frame"')
     for raw in ("<script", "<img", "<svg", "<a ", "<b>"):
         assert raw not in html, raw
-    assert "&lt;script&gt;" in html and "&lt;img src=x onerror=" in html
+    assert "&lt;script&gt;" in html
+    assert "&lt;img src=x onerror=" in html
 
 
 def test_repodoc_rendered_plan_and_unknown_json(site: Site) -> None:
     plan = {"slug": "p", "schema_version": 6, "tasks": [{"id": "t1", "summary": "<i>x</i>"}]}
     doc = site.push_doc(".devague/plans/p.json", json.dumps(plan))
     html = site.c.get(f"/api/repodocs/{doc['id']}/rendered").json()["html"]
-    assert "devague-plan" in html and "<i>" not in html and "&lt;i&gt;x&lt;/i&gt;" in html
+    assert "devague-plan" in html
+    assert "<i>" not in html
+    assert "&lt;i&gt;x&lt;/i&gt;" in html
     other = site.push_doc(".devague/reviews/x.json", '{"x": "<script>"}')
     body = site.c.get(f"/api/repodocs/{other['id']}/rendered").json()
-    assert body["format"] == "html" and "<script" not in body["html"]
+    assert body["format"] == "html"
+    assert "<script" not in body["html"]
     broken = site.push_doc(".devague/frames/broken.json", "{not json <script>")
     body = site.c.get(f"/api/repodocs/{broken['id']}/rendered").json()
-    assert body["format"] == "text" and body["text"] == "{not json <script>"
+    assert body["format"] == "text"
+    assert body["text"] == "{not json <script>"
     assert "html" not in body
 
 
@@ -193,7 +201,8 @@ def test_repodoc_rendered_visibility(site: Site) -> None:
     assert site.c.get(f"/api/repodocs/{doc['id']}/rendered").status_code == 200
     site.as_(READER)
     r = site.c.get(f"/api/repodocs/{doc['id']}/rendered")
-    assert r.status_code == 404 and "Secret" not in r.text
+    assert r.status_code == 404
+    assert "Secret" not in r.text
     assert site.c.get("/api/repodocs/999/rendered").status_code == 404
 
 
@@ -286,9 +295,11 @@ def test_text_of_a_stored_corrupt_epub_degrades_not_500(site: Site, how: str) ->
     item = site.store.add_item(corrupt_epub(how), kind="book", title="Bad", format="epub").item
     r = site.c.get(f"/api/library/{item.id}/text")
     assert r.status_code == 200, r.text
-    assert r.json()["reason"] == "corrupt_archive" and r.json()["text"] == ""
+    assert r.json()["reason"] == "corrupt_archive"
+    assert r.json()["text"] == ""
     ex = site.c.get("/api/excerpts", params={"items": str(item.id)})
-    assert ex.status_code == 200 and ex.json()["items"] == {str(item.id): ""}
+    assert ex.status_code == 200
+    assert ex.json()["items"] == {str(item.id): ""}
 
 
 @pytest.mark.parametrize("raw", ["²", "1,²", "١٢", "٣"])
@@ -322,7 +333,8 @@ def test_item_text_serves_the_indexed_body_without_extracting(site: Site, monkey
 
     monkeypatch.setattr(ingest, "extract_text_ex", boom)
     body = site.c.get(f"/api/library/{item.id}/text").json()
-    assert body["text"] == "the indexed walrus body" and body["reason"] == ""
+    assert body["text"] == "the indexed walrus body"
+    assert body["reason"] == ""
 
 
 def _count_epub_opens(monkeypatch) -> list:
@@ -365,5 +377,6 @@ def test_item_text_of_an_indexed_epub_only_parses_sections(site: Site, monkeypat
         search.set_body(conn, item, "indexed epub body")
     calls = _count_epub_opens(monkeypatch)
     body = site.c.get(f"/api/library/{item.id}/text").json()
-    assert len(calls) == 1 and body["text"] == "indexed epub body"
+    assert len(calls) == 1
+    assert body["text"] == "indexed epub body"
     assert body["sections"] == [{"heading": "One", "paragraphs": ["Para"]}]

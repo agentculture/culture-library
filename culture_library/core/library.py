@@ -172,6 +172,41 @@ def uploaded_by(store: Store, item_id: int, key_id: str | None) -> bool:
         return uploaders.uploaded_by(conn, item_id, key_id)
 
 
+def _own_private_retry(store: Store, item_id: int, uploader: str | None) -> Item:
+    """The existing private item for the uploader's own idempotent retry, else a conflict."""
+    with store.reader() as conn:
+        current = _row(conn, item_id)
+        own = uploaders.uploaded_by(conn, item_id, uploader)
+    if current is not None and current.archived_at is None and own:
+        return current
+    raise ConflictError(CONFLICT_DETAIL)
+
+
+def _reuse_existing(
+    store: Store, item_id: int, data: bytes, writable_kinds: frozenset[str] | None
+) -> Item | None:
+    """Re-announce (and restore, if archived and the kind is writable) an already-stored
+    item; ``None`` when it was purged in the meantime."""
+    with store.connect() as conn:
+        current = _row(conn, item_id)
+        if current is None:
+            return None
+        if (
+            current.archived_at is not None
+            and writable_kinds is not None
+            and current.kind not in writable_kinds
+        ):
+            raise ForbiddenKindError(f"this key cannot write kind {current.kind}")
+        if not store.blob_path(current.sha256).exists():
+            store.write_blob(data)
+        _announce(conn, current)
+        if current.archived_at is not None:
+            conn.execute("UPDATE items SET archived_at = NULL WHERE id = ?", (current.id,))
+            _event(conn, "updated", current, {"restored": True})
+            current = _row(conn, current.id) or current
+    return current
+
+
 def add(
     store: Store,
     data: bytes,
@@ -226,29 +261,8 @@ def add(
     if created:
         return item, True
     if item.visibility != "public" and not include_private:
-        with store.reader() as conn:
-            current = _row(conn, item.id)
-            own = uploaders.uploaded_by(conn, item.id, uploader)
-        if current is not None and current.archived_at is None and own:
-            return current, False
-        raise ConflictError(CONFLICT_DETAIL)
-    with store.connect() as conn:
-        current = _row(conn, item.id)
-        if (
-            current is not None
-            and current.archived_at is not None
-            and writable_kinds is not None
-            and current.kind not in writable_kinds
-        ):
-            raise ForbiddenKindError(f"this key cannot write kind {current.kind}")
-        if current is not None:
-            if not store.blob_path(current.sha256).exists():
-                store.write_blob(data)
-            _announce(conn, current)
-            if current.archived_at is not None:
-                conn.execute("UPDATE items SET archived_at = NULL WHERE id = ?", (current.id,))
-                _event(conn, "updated", current, {"restored": True})
-                current = _row(conn, current.id) or current
+        return _own_private_retry(store, item.id, uploader), False
+    current = _reuse_existing(store, item.id, data, writable_kinds)
     if current is None:  # purged between the dedup and now: store it afresh
         return add(
             store,

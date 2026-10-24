@@ -78,7 +78,8 @@ def make_pdf(text="Hello PDF world"):
 def test_supported_formats_store_original_bytes(store, name, data, fmt):
     data = {"epub": make_epub, "pdf": make_pdf}.get(data, lambda: data)()
     item, created, text = ingest(store, data, name, kind="document")
-    assert created is True and item.format == fmt
+    assert created is True
+    assert item.format == fmt
     assert store.read_bytes(item.id) == data  # byte-identical round trip
     assert isinstance(text, str)
     assert fmt in SUPPORTED_FORMATS
@@ -87,7 +88,8 @@ def test_supported_formats_store_original_bytes(store, name, data, fmt):
 def test_dedup_reports_not_created(store):
     a, c1, _ = ingest(store, b"same", "a.txt", kind="document")
     b, c2, _ = ingest(store, b"same", "b.txt", kind="document")
-    assert (c1, c2) == (True, False) and a.id == b.id
+    assert (c1, c2) == (True, False)
+    assert a.id == b.id
 
 
 def test_title_defaults_to_filename_stem(store):
@@ -164,31 +166,36 @@ def test_zip_bomb_refused_and_recorded(store):
     records = read_refusals(store)
     assert len(records) == 1
     rec = records[0]
-    assert rec["code"] == "zip_bomb" and rec["filename"] == "bomb.epub"
-    assert rec["size"] == len(bomb) and rec["at"]
+    assert rec["code"] == "zip_bomb"
+    assert rec["filename"] == "bomb.epub"
+    assert rec["size"] == len(bomb)
+    assert rec["at"]
     assert not store.files_dir.exists() or not any(p.is_file() for p in store.files_dir.rglob("*"))
 
 
 def test_zip_member_count_cap(store):
     many = make_epub(extra={f"m{i}.txt": "x" for i in range(20)})
+    limits = IngestLimits(max_zip_entries=10)
     with pytest.raises(ValidationError) as ei:
-        ingest(store, many, "many.epub", kind="book", limits=IngestLimits(max_zip_entries=10))
+        ingest(store, many, "many.epub", kind="book", limits=limits)
     assert ei.value.code == "zip_bomb"
 
 
 def test_zip_lying_header_caught_while_reading(store):
     """A member whose declared size is small but inflates past the byte cap is refused."""
     data = make_epub(chapters={"c1.xhtml": "<p>" + "a" * 5000 + "</p>"})
+    limits = IngestLimits(max_uncompressed_bytes=1000)
     with pytest.raises(ValidationError) as ei:
-        extract_text(data, "epub", IngestLimits(max_uncompressed_bytes=1000))
+        extract_text(data, "epub", limits)
     assert ei.value.code == "zip_bomb"
 
 
 def test_refusals_recorded_for_every_refusal(store):
     with pytest.raises(ValidationError):
         ingest(store, b"ID3....", "a.mp3", kind="document")
+    big, limits = b"x" * 20, IngestLimits(max_bytes=5)
     with pytest.raises(ValidationError):
-        ingest(store, b"x" * 20, "a.txt", kind="document", limits=IngestLimits(max_bytes=5))
+        ingest(store, big, "a.txt", kind="document", limits=limits)
     assert [r["code"] for r in read_refusals(store)] == ["unsupported_format", "too_large"]
 
 
@@ -198,7 +205,8 @@ def test_read_refusals_empty(store):
 
 def test_epub_text_is_plain(store):
     text = extract_text(make_epub(), "epub")
-    assert "Title" in text and "Hello world" in text.replace("\n", " ")
+    assert "Title" in text
+    assert "Hello world" in text.replace("\n", " ")
     for bad in ("<", ">", "evil()", "p{}"):
         assert bad not in text
 
@@ -209,7 +217,9 @@ def test_epub_text_skips_non_content_and_orders(store):
         extra={"OEBPS/style.css": "body{color:red}", "OEBPS/img.png": b"\x89PNG"},
     )
     text = extract_text(epub, "epub")
-    assert "first & foremost" in text and "second" in text and "color" not in text
+    assert "first & foremost" in text
+    assert "second" in text
+    assert "color" not in text
 
 
 def test_markdown_text_is_plain():
@@ -228,15 +238,18 @@ def test_markdown_text_is_plain():
 def test_pdf_text_extraction(store):
     item, _, text = ingest(store, make_pdf("Searchable words"), "d.pdf", kind="document")
     assert "Searchable words" in text
-    assert "%PDF" not in text and "<<" not in text
+    assert "%PDF" not in text
+    assert "<<" not in text
 
 
 def test_pdf_without_pdftotext_degrades(monkeypatch, store):
     monkeypatch.setattr(ingest_mod.shutil, "which", lambda name: None)
     item, created, text = ingest(store, make_pdf(), "d.pdf", kind="document")
-    assert created and text == ""
+    assert created
+    assert text == ""
     notes = ingest_mod.extract_text_ex(make_pdf(), "pdf")
-    assert notes.text == "" and notes.reason == "pdftotext_missing"
+    assert notes.text == ""
+    assert notes.reason == "pdftotext_missing"
 
 
 def test_pdf_timeout(monkeypatch):
@@ -245,8 +258,9 @@ def test_pdf_timeout(monkeypatch):
 
     monkeypatch.setattr(ingest_mod.shutil, "which", lambda name: "/usr/bin/pdftotext")
     monkeypatch.setattr(ingest_mod.subprocess, "run", boom)
+    pdf, limits = make_pdf(), IngestLimits(convert_timeout_s=0.5)
     with pytest.raises(ValidationError) as ei:
-        extract_text(make_pdf(), "pdf", IngestLimits(convert_timeout_s=0.5))
+        extract_text(pdf, "pdf", limits)
     assert ei.value.code == "conversion_timeout"
 
 
@@ -261,7 +275,8 @@ def test_pdftotext_invoked_without_shell(monkeypatch):
 
     monkeypatch.setattr(ingest_mod.subprocess, "run", spy)
     extract_text(make_pdf(), "pdf")
-    assert isinstance(seen["argv"], list) and seen["shell"] is False
+    assert isinstance(seen["argv"], list)
+    assert seen["shell"] is False
     assert seen["timeout"] == 60.0
 
 
@@ -278,13 +293,15 @@ def test_convert_markup_optional_pandoc(monkeypatch):
 def test_ingest_never_requires_pandoc(monkeypatch, store):
     monkeypatch.setattr(ingest_mod.shutil, "which", lambda name: None)
     item, created, _ = ingest(store, b"# x", "a.md", kind="article")
-    assert created and item.format == "md"
+    assert created
+    assert item.format == "md"
 
 
 def test_json_roundtrip_file_fixture(store, tmp_path):
     payload = json.dumps({"x": 1}).encode()
     item, _, _ = ingest(store, payload, "x.json", kind="document", visibility="public")
-    assert item.visibility == "public" and store.read_bytes(item.id) == payload
+    assert item.visibility == "public"
+    assert store.read_bytes(item.id) == payload
 
 
 def test_ingest_threads_on_insert_to_the_store(store):
@@ -292,7 +309,8 @@ def test_ingest_threads_on_insert_to_the_store(store):
     item, created, _ = ingest(
         store, b"hello", "h.txt", kind="document", on_insert=lambda c, i: calls.append(i.id)
     )
-    assert created and calls == [item.id]
+    assert created
+    assert calls == [item.id]
     ingest(store, b"hello", "h.txt", kind="document", on_insert=lambda c, i: calls.append(0))
     assert calls == [item.id]
 
@@ -344,14 +362,16 @@ def corrupt_epub(how: str) -> bytes:
 
 @pytest.mark.parametrize("how", ["crc", "deflate", "method", "encrypted", "mimetype_crc"])
 def test_corrupt_archive_is_a_recorded_refusal(store, how):
+    data = corrupt_epub(how)
     with pytest.raises(ValidationError) as exc:
-        ingest(store, corrupt_epub(how), "bad.epub", kind="book")
+        ingest(store, data, "bad.epub", kind="book")
     assert exc.value.code == "corrupt_archive"
     assert read_refusals(store)[-1]["code"] == "corrupt_archive"
 
 
 @pytest.mark.parametrize("how", ["crc", "deflate", "method", "encrypted"])
 def test_extract_text_maps_corrupt_members(how):
+    data = corrupt_epub(how)
     with pytest.raises(ValidationError) as exc:
-        extract_text(corrupt_epub(how), "epub")
+        extract_text(data, "epub")
     assert exc.value.code == "corrupt_archive"

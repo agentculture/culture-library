@@ -16,6 +16,8 @@ from culture_library.cli._commands.overview import emit_overview
 from culture_library.cli._errors import EXIT_ENV_ERROR, CliError
 from culture_library.server import DEFAULT_HOST, DEFAULT_PORT, ServerConfig
 
+_JSON_HELP = "Emit structured JSON."
+
 
 def _json(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "json", False))
@@ -61,14 +63,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("server", help="HTTP server (see 'culture-library server overview').")
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
     p.set_defaults(func=cmd_overview, json=False)
     nsub = p.add_subparsers(dest="server_command", parser_class=type(p))
     sv = nsub.add_parser("serve", help="Start the HTTP server.")
     sv.add_argument("--host", default=DEFAULT_HOST, help=f"Bind address (default {DEFAULT_HOST}).")
     sv.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port.")
-    sv.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    sv.add_argument("--json", action="store_true", help=_JSON_HELP)
     sv.set_defaults(func=cmd_serve)
     ov = nsub.add_parser("overview", help="Describe the server noun.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=_JSON_HELP)
     ov.set_defaults(func=cmd_overview)

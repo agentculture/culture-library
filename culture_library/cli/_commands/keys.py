@@ -14,6 +14,8 @@ from culture_library.cli._errors import EXIT_USER_ERROR, CliError
 from culture_library.cli._output import emit_result
 from culture_library.core.store import DATA_DIR_ENV
 
+_JSON_HELP = "Emit structured JSON."
+
 
 def _json(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "json", False))
@@ -81,13 +83,13 @@ def cmd_list(args: argparse.Namespace) -> int:
     rows = [k.to_dict() for k in keys.list_keys(_store(args))]
     if _json(args):
         emit_result({"keys": rows}, json_mode=True)
-        return 0
-    lines = [
-        f"{r['id']}\t{r['key_id']}\t{r['name']}\t{','.join(r['scopes'])}\t"
-        f"{'private' if r['private'] else '-'}\t{'revoked' if r['revoked_at'] else 'active'}"
-        for r in rows
-    ]
-    emit_result("\n".join(lines) or "no keys", json_mode=False)
+    else:
+        lines = [
+            f"{r['id']}\t{r['key_id']}\t{r['name']}\t{','.join(r['scopes'])}\t"
+            f"{'private' if r['private'] else '-'}\t{'revoked' if r['revoked_at'] else 'active'}"
+            for r in rows
+        ]
+        emit_result("\n".join(lines) or "no keys", json_mode=False)
     return 0
 
 
@@ -110,13 +112,13 @@ def cmd_revoke(args: argparse.Namespace) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("keys", help="API keys (see 'culture-library keys overview').")
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
     p.set_defaults(func=cmd_overview, json=False)
     nsub = p.add_subparsers(dest="keys_command", parser_class=type(p))
 
     def common(q: argparse.ArgumentParser) -> None:
         q.add_argument("--data-dir", help=f"Library data dir (default ${DATA_DIR_ENV}).")
-        q.add_argument("--json", action="store_true", help="Emit structured JSON.")
+        q.add_argument("--json", action="store_true", help=_JSON_HELP)
 
     m = nsub.add_parser("mint", help="Create a key and print it once.")
     m.add_argument("--name", required=True, help="Who or what the key is for.")
@@ -133,5 +135,5 @@ def register(sub: argparse._SubParsersAction) -> None:
     common(rv)
     rv.set_defaults(func=cmd_revoke)
     ov = nsub.add_parser("overview", help="Describe the keys noun.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=_JSON_HELP)
     ov.set_defaults(func=cmd_overview)

@@ -94,7 +94,66 @@ def _dest_lookup(dest: Path) -> tuple[dict[int, str], dict[str, int]]:
         rows = conn.execute("SELECT id, sha256 FROM items").fetchall()
     finally:
         conn.close()
-    return {i: s for i, s in rows}, {s: i for i, s in rows}
+    return dict(rows), {s: i for i, s in rows}
+
+
+def _blob_path(source: Path, sha256: str) -> Path:
+    return source / "files" / sha256[:2] / sha256
+
+
+def _plan_row(it: sqlite3.Row, by_id: dict[int, str], by_sha: dict[str, int]) -> Row:
+    """The report row for one source item, or :class:`MigrationConflict`."""
+    row = Row(
+        id=it["id"],
+        sha256=it["sha256"],
+        old_kind=it["kind"],
+        new_kind=map_kind(it["kind"], it["title"]),
+        title=it["title"],
+        status="new",
+    )
+    if by_id.get(row.id) == row.sha256:
+        row.status = "unchanged"
+    elif row.id in by_id or by_sha.get(row.sha256, row.id) != row.id:
+        raise MigrationConflict(
+            f"item {row.id} ({row.sha256[:12]}) conflicts with an existing destination item"
+        )
+    return row
+
+
+def _check_blob(source: Path, row: Row, apply: bool) -> None:
+    """Set ``row.sha_ok``; raise when a blob that must be copied is missing or corrupt."""
+    blob = _blob_path(source, row.sha256)
+    if not blob.is_file():
+        if apply or row.status == "new":
+            raise MigrationError(f"blob missing for item {row.id}: {blob}")
+        return
+    data = blob.read_bytes()
+    row.sha_ok = hashlib.sha256(data).hexdigest() == row.sha256
+    if not row.sha_ok and row.status == "new":
+        raise MigrationError(f"sha256 mismatch for item {row.id}")
+
+
+def _apply_plan(
+    source: Path, dest: Path, plan: list[tuple[sqlite3.Row, Row]], visibility: str
+) -> None:
+    store = Store(dest)
+    for it, row in plan:
+        if row.status == "unchanged":
+            continue
+        data = _blob_path(source, row.sha256).read_bytes()
+        res = store.add_item(
+            data,
+            kind=row.new_kind,
+            title=row.title,
+            format=it["format"],
+            author=it["author"],
+            visibility=visibility,
+            item_id=row.id,
+            created_at=it["created_at"],
+        )
+        if res.item.id != row.id:
+            raise MigrationConflict(f"item {row.id} landed as {res.item.id}")
+        row.status = "copied"
 
 
 def migrate_from_xteink(
@@ -110,50 +169,12 @@ def migrate_from_xteink(
     report = Report(apply=apply, visibility=visibility)
     plan = []
     for it in items:
-        row = Row(
-            id=it["id"],
-            sha256=it["sha256"],
-            old_kind=it["kind"],
-            new_kind=map_kind(it["kind"], it["title"]),
-            title=it["title"],
-            status="new",
-        )
-        if by_id.get(row.id) == row.sha256:
-            row.status = "unchanged"
-        elif row.id in by_id or by_sha.get(row.sha256, row.id) != row.id:
-            raise MigrationConflict(
-                f"item {row.id} ({row.sha256[:12]}) conflicts with an existing destination item"
-            )
+        row = _plan_row(it, by_id, by_sha)
         report.rows.append(row)
         plan.append((it, row))
 
-    for it, row in plan:
-        blob = source / "files" / row.sha256[:2] / row.sha256
-        if not blob.is_file():
-            if apply or row.status == "new":
-                raise MigrationError(f"blob missing for item {row.id}: {blob}")
-            continue
-        data = blob.read_bytes()
-        row.sha_ok = hashlib.sha256(data).hexdigest() == row.sha256
-        if not row.sha_ok and row.status == "new":
-            raise MigrationError(f"sha256 mismatch for item {row.id}")
+    for _it, row in plan:
+        _check_blob(source, row, apply)
     if apply:
-        store = Store(dest)
-        for it, row in plan:
-            if row.status == "unchanged":
-                continue
-            data = (source / "files" / row.sha256[:2] / row.sha256).read_bytes()
-            res = store.add_item(
-                data,
-                kind=row.new_kind,
-                title=row.title,
-                format=it["format"],
-                author=it["author"],
-                visibility=visibility,
-                item_id=row.id,
-                created_at=it["created_at"],
-            )
-            if res.item.id != row.id:
-                raise MigrationConflict(f"item {row.id} landed as {res.item.id}")
-            row.status = "copied"
+        _apply_plan(source, dest, plan, visibility)
     return report

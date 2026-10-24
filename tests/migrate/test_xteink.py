@@ -64,7 +64,8 @@ def test_dry_run_changes_nothing(xteink, tmp_path):
 def test_apply_copies_same_ids_and_sha(xteink, tmp_path):
     dest = tmp_path / "dest"
     report = migrate_from_xteink(xteink, dest, apply=True)
-    assert report.matched == 17 and report.total == 17
+    assert report.matched == 17
+    assert report.total == 17
     store = Store(dest)
     for i in IDS:
         item = store.get_item(i)
@@ -104,7 +105,8 @@ def test_cli_dry_run_and_apply_json(xteink, tmp_path, capsys):
     argv = ["migrate", "from-xteink", "--data-dir", str(xteink), "--dest", str(dest), "--json"]
     assert main(argv) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["apply"] is False and out["total"] == 17
+    assert out["apply"] is False
+    assert out["total"] == 17
     assert main(argv + ["--apply", "--visibility", "public"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["matched"] == 17
@@ -117,7 +119,8 @@ def test_cli_missing_library_db(tmp_path, capsys):
     )
     assert rc == 1
     err = capsys.readouterr().err
-    assert "error:" in err and "hint:" in err
+    assert "error:" in err
+    assert "hint:" in err
 
 
 def test_cli_conflict_exits_user_error(xteink, tmp_path, capsys):

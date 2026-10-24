@@ -81,7 +81,7 @@ class Store:
     def ensure_schema(self) -> None:
         """Apply the base schema and every registered fragment (idempotent)."""
         with self.connect() as conn:
-            for ddl in list(SCHEMA):
+            for ddl in SCHEMA:
                 for stmt in ddl.split(";"):
                     if stmt.strip():
                         conn.execute(stmt)

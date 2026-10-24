@@ -72,10 +72,12 @@ def test_uploader_reads_its_own_private_item_everywhere(api):
     iid = _entry(api)
     ix.Indexer(api.store).run_once()
     c = api.as_(ALICE)
-    assert _ids_list(c) == [iid] and _ids_list(c, kind="diary") == [iid]
+    assert _ids_list(c) == [iid]
+    assert _ids_list(c, kind="diary") == [iid]
     assert _ids_list(c, q="dear") == [iid]
     got = c.get(f"/api/library/{iid}")
-    assert got.status_code == 200 and got.json()["uploaded_by_you"] is True
+    assert got.status_code == 200
+    assert got.json()["uploaded_by_you"] is True
     assert c.get(f"/api/library/{iid}/file").content.startswith(b"# Dear diary")
     assert "aardvark" in c.get(f"/api/library/{iid}/text").json()["text"]
     assert str(iid) in c.get(f"/api/excerpts?items={iid}").json()["items"]
@@ -106,11 +108,13 @@ def test_uploader_sends_archives_and_restores_its_own_item(api):
     iid = _entry(api)
     c = api.as_(ALICE)
     assert c.post(f"/api/library/{iid}/send", json={"target": "x3"}).status_code == 202
-    assert api.published and api.published[0]["id"] == iid
+    assert api.published
+    assert api.published[0]["id"] == iid
     assert c.delete(f"/api/library/{iid}").status_code == 204
     assert _ids_list(c) == []
     r = c.post(f"/api/library/{iid}/restore")
-    assert r.status_code == 200 and r.json()["archived_at"] is None
+    assert r.status_code == 200
+    assert r.json()["archived_at"] is None
     types = [e["type"] for e in c.get("/api/feed").json()["events"]]
     assert types == ["created", "send_requested", "archived", "updated"]
 
@@ -119,7 +123,8 @@ def test_other_keys_still_cannot_see_or_touch_it(api):
     iid = _entry(api)
     ix.Indexer(api.store).run_once()
     c = api.as_(BOB)
-    assert _ids_list(c) == [] and _ids_list(c, q="dear") == []
+    assert _ids_list(c) == []
+    assert _ids_list(c, q="dear") == []
     for path in (f"/api/library/{iid}", f"/api/library/{iid}/file", f"/api/library/{iid}/text"):
         assert c.get(path).status_code == 404, path
     assert c.get(f"/api/excerpts?items={iid}").json()["items"] == {}
@@ -132,7 +137,8 @@ def test_other_keys_still_cannot_see_or_touch_it(api):
     assert c.post(f"/api/library/{iid}/restore").status_code == 404
     # identical bytes: the opaque 409, no id
     r = api.upload(BOB, b"# Dear diary\n\nthe aardvark sleeps", "x.md", kind="diary")
-    assert r.status_code == 409 and r.json() == {
+    assert r.status_code == 409
+    assert r.json() == {
         "detail": "an item with these bytes already exists",
         "code": "conflict",
     }
@@ -146,7 +152,8 @@ def test_nothing_else_widens(api):
     assert c.get(f"/api/library/{secret}").status_code == 404
     assert _ids_list(c) == [mine]
     r = api.upload(ALICE, b"not a diary", "d.md", kind="document")
-    assert r.status_code == 403 and r.json()["code"] == "forbidden_kind"
+    assert r.status_code == 403
+    assert r.json()["code"] == "forbidden_kind"
     # the owner sees both, and is told which one it uploaded
     c = api.as_(OWNER)
     assert c.get(f"/api/library/{secret}").json()["uploaded_by_you"] is True

@@ -22,7 +22,7 @@
       <button role="tab" aria-selected="true" data-view="home">Library</button>
       <button role="tab" aria-selected="false" data-view="state">Site state</button>
     </nav>
-    <label class="search" for="q">
+    <label class="search" for="q" aria-label="Search the library">
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--muted)" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"/></svg>
       <input id="q" type="search" placeholder="Search titles and full text, e.g. Thor, RTL, scopes" autocomplete="off">
     </label>
@@ -128,7 +128,7 @@
   </form>
 </dialog>
 <div class="tip" id="tip" hidden></div>
-<div class="toast" id="toast" role="status" hidden></div>
+<output class="toast" id="toast" hidden></output>
 <dialog id="connect" aria-labelledby="cn-title">
   <form class="dlg" id="cn-form" method="dialog">
     <h2 id="cn-title">Sign in to the library</h2>

@@ -6,6 +6,8 @@ does nothing further: delivery and its status belong to culture-rules.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -33,7 +35,7 @@ def _targets(store: Store) -> list[send.Target]:
 
 
 @router.get("/api/send/targets", tags=["send"])
-def targets(request: Request, principal: Principal = Depends(current_principal)) -> dict:
+def targets(request: Request, principal: Annotated[Principal, Depends(current_principal)]) -> dict:
     check(principal, "read")
     return {"targets": [t.as_dict() for t in _targets(get_store(request))]}
 
@@ -43,7 +45,7 @@ def send_item(
     item_id: int,
     body: SendBody,
     request: Request,
-    principal: Principal = Depends(current_principal),
+    principal: Annotated[Principal, Depends(current_principal)],
 ) -> dict:
     check(principal, "write")
     store = get_store(request)
