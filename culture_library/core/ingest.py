@@ -29,6 +29,7 @@ import logging
 import os
 import re
 import shutil
+import sqlite3
 import subprocess  # nosec B404 - shell=False, fixed argv (pdftotext / pandoc)
 import tempfile
 import zipfile
@@ -36,6 +37,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Callable
 
 from .errors import ValidationError
 from .models import Item
@@ -361,13 +363,15 @@ def ingest(
     author: str = "",
     visibility: str | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
+    on_insert: Callable[[sqlite3.Connection, Item], None] | None = None,
 ) -> tuple[Item, bool, str]:
     """Validate and store an upload as-is; return ``(item, created, extracted_text)``.
 
     Raises :class:`ValidationError` (``.code`` in unsupported_format, too_large, empty,
     bad_magic, invalid_encoding, invalid_json, zip_bomb, conversion_timeout, plus the store's
     own validation) after recording the refusal. PDF text degrades to ``""`` when pdftotext
-    is absent.
+    is absent. ``on_insert`` is passed to :meth:`Store.add_item` (runs in the insert's
+    transaction; not called for a duplicate).
     """
     try:
         fmt = _validate(data, filename, limits)
@@ -383,6 +387,7 @@ def ingest(
         format=fmt,
         author=author,
         visibility=visibility,
+        on_insert=on_insert,
     )
     return result.item, result.created, text
 
