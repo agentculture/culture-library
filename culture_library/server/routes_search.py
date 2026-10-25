@@ -5,8 +5,11 @@
 Snippets mark matches with ``[ ]``. Private hits appear only for ``Principal.private``
 callers and for the key that uploaded them; archived items never appear.
 
-The embedder is ``app.state.embedder`` when set (tests, or a deployment that injects one),
-else :meth:`GatewayEmbedder.from_env` (``None`` unless ``GATEWAY_API_KEY`` is set), cached.
+The query embedder is ``app.state.embedder`` when set (a legacy explicit override: tests, or a
+deployment that injects one), else ``app.state.query_embedder`` (set by the lifespan, or injected),
+else :meth:`GatewayEmbedder.from_env` ``("query")`` (``None`` unless ``GATEWAY_API_KEY`` is set),
+cached. Queries are embedded with the ``Retrieval-query`` prompt, vectors with
+``Retrieval-document`` (``LOBES_EMBED_PROMPTS=off`` disables both).
 ``mode`` defaults to ``hybrid`` with an embedder and ``fulltext`` without. ``hybrid`` without
 an embedder, or with the gateway down, degrades to full-text (the response ``mode`` is what
 was requested/defaulted; ``source`` on each hit says what produced it). ``semantic`` without
@@ -17,7 +20,13 @@ Indexer ownership: this module always starts the background :class:`Indexer` (de
 ``text_for``, i.e. ingest's text extraction) on app startup and stops it on shutdown. With
 an embedder configured in the environment it also computes embeddings (and re-opens jobs
 finished while none was configured); without ``GATEWAY_API_KEY`` it indexes item bodies for
-full-text only.
+full-text only. The indexer embeds with :meth:`GatewayEmbedder.from_env` ``("document")`` and
+records its ``label`` (``gemma2-embed+Retrieval-document``) in ``embeddings.model``.
+
+``app.state`` after startup: ``doc_embedder`` (the indexer's embedder or ``None``),
+``query_embedder`` and ``reranker`` (:class:`GatewayReranker` or ``None``); an object injected
+on ``app.state`` before startup is kept. Their ``model``/``prompt_name``/``label`` attributes
+are what ``/api/status`` reports.
 """
 
 from __future__ import annotations
@@ -32,7 +41,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from culture_library.core import KINDS, Store
 from culture_library.core import search as sr
 from culture_library.core.indexer import Indexer, enqueue_missing, requeue_unembedded
-from culture_library.gateway import GatewayEmbedder
+from culture_library.gateway import GatewayEmbedder, GatewayReranker
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
 _lock = threading.Lock()
@@ -44,12 +53,15 @@ _FILTER_WINDOW = 200
 def start_indexer(store: Store, embedder: sr.Embedder | None | object = _UNSET) -> Indexer:
     """Start (once per store) the background indexer; without an embedder it is full-text only."""
     if embedder is _UNSET:
-        embedder = GatewayEmbedder.from_env()
+        embedder = GatewayEmbedder.from_env("document")
     with _lock:
         for existing in _indexers:
             if existing.store is store:
                 return existing
-        indexer = Indexer(store, embedder)  # type: ignore[arg-type]
+        # ``label`` records the prompt too, so vectors from mixed configs are detectable;
+        # plain callables fall back to Indexer's own ``embed.model`` lookup.
+        model = getattr(embedder, "label", "") or ""
+        indexer = Indexer(store, embedder, model=model)  # type: ignore[arg-type]
         _indexers.append(indexer)
     indexer.start()
     return indexer
@@ -78,6 +90,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if store is None:
         store = app.state.store = Store()
     indexer = start_indexer(store)
+    app.state.doc_embedder = getattr(indexer, "embed", None)
+    if not hasattr(app.state, "query_embedder"):
+        app.state.query_embedder = GatewayEmbedder.from_env("query")
+    if not hasattr(app.state, "reranker"):
+        app.state.reranker = GatewayReranker.from_env()
     if indexer is not None:
         enqueue_missing(store)
         if getattr(indexer, "embed", None) is not None:
@@ -94,9 +111,11 @@ router = APIRouter(lifespan=_lifespan)
 
 def _embedder(request: Request) -> sr.Embedder | None:
     state = request.app.state
-    if not hasattr(state, "embedder"):
-        state.embedder = GatewayEmbedder.from_env()
-    return state.embedder
+    if hasattr(state, "embedder"):  # explicit override (tests inject it)
+        return state.embedder
+    if not hasattr(state, "query_embedder"):  # no lifespan ran (e.g. TestClient without with)
+        state.query_embedder = GatewayEmbedder.from_env("query")
+    return state.query_embedder
 
 
 def _unavailable(reason: str) -> HTTPException:
