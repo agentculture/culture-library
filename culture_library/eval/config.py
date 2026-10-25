@@ -17,6 +17,10 @@ from .errors import EvalApiError, EvalPolicyError
 DEFAULT_JUDGE_MODEL = "cortex"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8001"
 DEFAULT_JUDGE_MAX_TOKENS = 8192
+ENV_JUDGE_URL = "CULTURE_LIBRARY_EVAL_LLM_URL"
+ENV_JUDGE_MODEL = "CULTURE_LIBRARY_EVAL_LLM_MODEL"
+ENV_JUDGE_MAX_TOKENS = "CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS"
+ENV_JUDGE_KEY = "CULTURE_LIBRARY_EVAL_LLM_KEY"
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "host.docker.internal"})
 
 
@@ -38,23 +42,28 @@ class JudgeConfig:
     max_tokens: int = DEFAULT_JUDGE_MAX_TOKENS
 
     @classmethod
-    def from_env(cls, env: dict | None = None) -> JudgeConfig:
+    def from_env(
+        cls,
+        env: dict | None = None,
+        *,
+        url: str | None = None,
+        model: str | None = None,
+        max_tokens: int | None = None,
+    ) -> JudgeConfig:
+        """The judge from overrides (CLI flags), else ``env``, else the defaults.
+
+        The key follows the effective URL: the lobes gateway key only goes to the gateway or a
+        local judge; any other judge gets ``CULTURE_LIBRARY_EVAL_LLM_KEY`` or nothing.
+        """
         e = os.environ if env is None else env
-        url = e.get("CULTURE_LIBRARY_EVAL_LLM_URL") or e.get("LOBES_GATEWAY_URL") or ""
-        url = url or DEFAULT_GATEWAY_URL
-        # The lobes gateway key only goes to the gateway (or a local judge); any other judge
-        # gets CULTURE_LIBRARY_EVAL_LLM_KEY or nothing.
+        url = url or e.get(ENV_JUDGE_URL) or e.get("LOBES_GATEWAY_URL") or DEFAULT_GATEWAY_URL
         to_gateway = is_local(url) or url == e.get("LOBES_GATEWAY_URL")
-        key = e.get("CULTURE_LIBRARY_EVAL_LLM_KEY") or (
-            e.get("GATEWAY_API_KEY", "") if to_gateway else ""
-        )
+        key = e.get(ENV_JUDGE_KEY) or (e.get("GATEWAY_API_KEY", "") if to_gateway else "")
         return cls(
             url=url,
-            model=e.get("CULTURE_LIBRARY_EVAL_LLM_MODEL") or DEFAULT_JUDGE_MODEL,
+            model=model or e.get(ENV_JUDGE_MODEL) or DEFAULT_JUDGE_MODEL,
             api_key=key,
-            max_tokens=int(
-                e.get("CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS") or DEFAULT_JUDGE_MAX_TOKENS
-            ),
+            max_tokens=int(max_tokens or e.get(ENV_JUDGE_MAX_TOKENS) or DEFAULT_JUDGE_MAX_TOKENS),
         )
 
     @property
@@ -115,3 +124,19 @@ class OpenAIChat:
             return payload["choices"][0]["message"]["content"] or ""
         except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
             raise EvalApiError(f"judge call failed: {exc}") from exc
+
+
+def judge_settings(env: dict | None = None) -> list[tuple[str, str, str]]:
+    """``(setting, effective value, source)`` for the judge, for ``eval overview``."""
+    e = os.environ if env is None else env
+    judge = JudgeConfig.from_env(e)
+
+    def src(*names: str) -> str:
+        return next((n for n in names if e.get(n)), "default")
+
+    return [
+        ("url", judge.url, src(ENV_JUDGE_URL, "LOBES_GATEWAY_URL")),
+        ("model", judge.model, src(ENV_JUDGE_MODEL)),
+        ("max_tokens", str(judge.max_tokens), src(ENV_JUDGE_MAX_TOKENS)),
+        ("key", "set" if judge.api_key else "none", src(ENV_JUDGE_KEY, "GATEWAY_API_KEY")),
+    ]
