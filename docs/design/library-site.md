@@ -125,6 +125,8 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     repo-document lists). The prototype's migration-time rows (xteink, DNS,
     waiting recordings) are not shown (deviation d3). The re-approved
     reference screenshots for home and site state replace the originals.
+  - The newspaper reader's references (and the send menu and "sent" views drawn
+    over it) were re-approved for #18: source titles render as links.
   - Every chart has a hover tooltip, a *Table* toggle, and a source line.
   - Single-series marks use `--accent`.
   - Kind charts use the kind colors with direct labels.
