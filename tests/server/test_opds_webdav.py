@@ -394,7 +394,8 @@ def test_collection_dates_follow_an_in_place_replace(env, monkeypatch):
     diary = [
         e for e in root.findall(ATOM + "entry") if e.find(ATOM + "title").text.lower() == "diary"
     ]
-    assert diary and diary[0].find(ATOM + "updated").text == at
+    assert diary
+    assert diary[0].find(ATOM + "updated").text == at
     got = responses(propfind(env, "/dav/"))
     from email.utils import format_datetime
 
