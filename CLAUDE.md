@@ -37,6 +37,10 @@ it all, published at **library.culture.dev**.
   - `web/static/`: the site.
   - `render/`: the devague renderer.
   - `migrate/`: the xteink migration.
+  - `cli/_commands/deploy.py`: `culture-library deploy restart` recreates the live
+    `library` and `mcp` containers from the host env file
+    (`$HOME/.config/culture-library/live.env`), after refusing a missing or placeholder
+    setting, then checks health and the send targets.
 - **Site design.** `docs/design/library-site.md` is the contract. 30
   operator-approved screenshots in `docs/design/reference/` back it, and the
   opt-in visual tests check against them.

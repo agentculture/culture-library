@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-25
+
+### Added
+
+- `culture-library deploy restart` recreates the live stack's `library` and `mcp` containers from the host env file (`$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`). It refuses a missing, empty or placeholder setting, or send targets that do not parse, before anything runs, then runs the runbook's `grant run … up -d --no-deps library mcp` with no shell, waits for `/api/health` and lists the send targets the new container loads. `--build` rebuilds the image first; `--dry-run` prints the commands. `deploy overview` and `explain deploy` describe it.
+- `send.parse_targets()` parses a JSON targets list; `load_targets` uses it.
+
 ## [0.12.0] - 2026-10-25
 
 ### Added

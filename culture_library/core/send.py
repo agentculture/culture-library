@@ -73,6 +73,11 @@ def load_targets(data_dir: str | os.PathLike[str] | None = None) -> list[Target]
             raw, source = path.read_text(encoding="utf-8"), str(path)
     if raw is None or not raw.strip():
         return []
+    return parse_targets(raw, source)
+
+
+def parse_targets(raw: str, source: str = TARGETS_ENV) -> list[Target]:
+    """Parse a JSON targets list (*source* names it in errors), or :class:`SendConfigError`."""
     try:
         entries = json.loads(raw)
     except ValueError as exc:
