@@ -71,6 +71,22 @@ _SPECS: list[dict[str, Any]] = [
         ["q"],
     ),
     _spec(
+        "rag_retrieve",
+        "Retrieve the passages most relevant to a question (chunk-level, semantic or hybrid; "
+        "optionally reranked). Returns the server's payload: `passages` with item_id, title, "
+        "kind, chunk_no, text, score, rerank_score and source.",
+        {
+            "query": {"type": "string", "minLength": 1},
+            "k": {"type": "integer", "minimum": 1, "maximum": 50},
+            "mode": {"type": "string", "enum": ["semantic", "hybrid"]},
+            "kind": _KIND,
+            "item_ids": {"type": "array", "items": _ID},
+            "rerank": {"type": "boolean"},
+            "candidates": {"type": "integer", "minimum": 1, "maximum": 200},
+        },
+        ["query"],
+    ),
+    _spec(
         "read_item",
         "Read an item: its metadata plus `text` for Markdown/text/JSON items, otherwise the file "
         "as `content_base64` (omitted, with `truncated: true`, when larger than max_bytes).",
@@ -259,6 +275,15 @@ def _handlers() -> dict[str, Any]:
         },
         "search": lambda c, a: c.search(
             _need(a, "q"), a.get("mode"), a.get("kind"), a.get("limit", 20)
+        ),
+        "rag_retrieve": lambda c, a: c.rag_retrieve(
+            _need(a, "query"),
+            a.get("k"),
+            a.get("mode"),
+            a.get("kind"),
+            a.get("item_ids"),
+            a.get("rerank"),
+            a.get("candidates"),
         ),
         "read_item": _read_item,
         "send_to_device": lambda c, a: c.send(_need(a, "item_id"), _need(a, "target")),
