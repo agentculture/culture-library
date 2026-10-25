@@ -386,3 +386,40 @@ def test_file_changed_at_ignores_restores_and_other_events(env):
     library.archive(env.store, env.book.id)
     library.restore(env.store, env.book.id)
     assert library.file_changed_at(env.store, [env.book.id, env.pdf.id]) == {}
+
+
+def test_collection_dates_follow_an_in_place_replace(env, monkeypatch):
+    at = _replace_later(env, monkeypatch)
+    root = parse(env.c.get("/opds", headers=env.basic(env.reader)))
+    diary = [
+        e for e in root.findall(ATOM + "entry") if e.find(ATOM + "title").text.lower() == "diary"
+    ]
+    assert diary and diary[0].find(ATOM + "updated").text == at
+    got = responses(propfind(env, "/dav/"))
+    from email.utils import format_datetime
+
+    from culture_library.server.routes_opds import parse_when
+
+    assert prop(got["/dav/diary/"], "getlastmodified").text == format_datetime(
+        parse_when(at), usegmt=True
+    )
+
+
+def test_modified_at_compares_instants_not_strings():
+    from culture_library.core import Item
+    from culture_library.server.routes_opds import modified_at
+
+    item = Item(  # created 09:00 local-naive in an old shape, replaced at 08:00Z later day
+        id=1,
+        sha256="s",
+        kind="todo",
+        title="t",
+        author="",
+        format="md",
+        size=1,
+        visibility="public",
+        created_at="2026-10-20 09:00:00",
+        archived_at=None,
+    )
+    assert modified_at(item, {1: "2026-10-21T08:00:00+00:00"}) == "2026-10-21T08:00:00+00:00"
+    assert modified_at(item, {1: "2026-10-20T08:00:00+00:00"}) == "2026-10-20 09:00:00"

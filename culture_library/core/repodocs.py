@@ -244,6 +244,8 @@ class RepoDocs:
         blob = self.store.write_blob(data)
         stamp = now()
         with self.store.connect() as conn:
+            if not self.store.blob_path(blob).exists():  # a replace/purge cleanup raced us
+                self.store.write_blob(data)
             row = conn.execute(
                 "SELECT id, current_version_id FROM repodocs WHERE repo = ? AND path = ?",
                 (repo, rel),

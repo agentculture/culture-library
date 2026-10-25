@@ -314,3 +314,27 @@ def test_concurrent_replaces_never_leave_a_live_item_without_its_blob(store):
     assert store.blob_path(final).exists()
     other = _sha(b) if final == _sha(a) else _sha(a)
     assert not store.blob_path(other).exists()  # the unused version was unlinked
+
+
+def test_cleanup_failure_after_commit_does_not_fail_the_replace(store, monkeypatch, capsys):
+    item = _add(store, b"# Old\n\nalpha\n")
+
+    def broken(store_, shas):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(library, "_unlink_now", broken)
+    out = _rep(store, item.id, b"# New\n\nomega\n", "a.md")
+    assert out.sha256 == _sha(b"# New\n\nomega\n")
+    assert "could not remove" in capsys.readouterr().err
+
+
+def test_still_referenced_old_blob_takes_no_cleanup_transaction(store, monkeypatch):
+    item = _add(store, b"# Old\n\nalpha\n")
+    with store.connect() as conn:  # a repo-doc version also names the old bytes
+        conn.execute("CREATE TABLE IF NOT EXISTS extra_refs (sha256 TEXT NOT NULL)")
+        conn.execute("INSERT INTO extra_refs VALUES (?)", (item.sha256,))
+    calls = []
+    monkeypatch.setattr(library, "_unlink_now", lambda s, shas: calls.append(shas))
+    _rep(store, item.id, b"# New\n\nomega\n", "a.md")
+    assert calls == []
+    assert store.blob_path(item.sha256).exists()

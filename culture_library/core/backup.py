@@ -245,36 +245,21 @@ class _BlobGone(BackupError):
     replace or purge committed after the snapshot was taken."""
 
 
-def _live_references(src: Path, sha: str) -> bool:
-    """Whether the live database still names ``sha`` (read-only, a fresh snapshot)."""
-    conn = sqlite3.connect(f"file:{src / DB_FILE}?mode=ro", uri=True)
-    try:
-        for table in _tables(conn):
-            cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-            if "sha256" in cols and table != "feed":
-                hit = conn.execute(
-                    f"SELECT 1 FROM {table} WHERE sha256 = ? LIMIT 1", (sha,)  # nosec B608
-                ).fetchone()
-                if hit:
-                    return True
-        return False
-    finally:
-        conn.close()
-
-
 def _copy_blob(src: Path, root: Path, sha: str) -> int:
     """Copy one blob if absent in the backup; return 1 if copied. Verifies the copy."""
     out = _blob(root, sha)
     if out.is_file():
         return 0
     inp = _blob(src, sha)
-    if not inp.is_file():
-        if not _live_references(src, sha):
-            raise _BlobGone(f"blob {sha} was replaced or purged after the snapshot")
-        raise BackupError(f"blob {sha} is missing from the library files tree")
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(f"{sha}.{os.getpid()}.tmp")
-    shutil.copyfile(inp, tmp)
+    try:
+        shutil.copyfile(inp, tmp)  # a missing file, before or during the copy, lands here
+    except FileNotFoundError:
+        tmp.unlink(missing_ok=True)
+        if sha not in _referenced_blobs(src / DB_FILE):  # the live database, read-only
+            raise _BlobGone(f"blob {sha} was replaced or purged after the snapshot") from None
+        raise BackupError(f"blob {sha} is missing from the library files tree") from None
     if _sha256_file(tmp) != sha:
         tmp.unlink()
         raise BackupError(f"blob {sha} changed or is corrupt in the library files tree")

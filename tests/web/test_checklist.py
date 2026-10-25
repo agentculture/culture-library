@@ -55,3 +55,11 @@ def test_checklist_lines_headings_notes_and_hidden_comments() -> None:
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_multiline_comment_is_hidden() -> None:
     assert _parse("<!-- a\nb -->\n- [ ] x\n") == [{"type": "check", "done": False, "text": "x"}]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_empty_items_stay_checkboxes() -> None:
+    assert _parse("- [ ] <!-- todo:3 -->\n- [x]\n") == [
+        {"type": "check", "done": False, "text": ""},
+        {"type": "check", "done": True, "text": ""},
+    ]

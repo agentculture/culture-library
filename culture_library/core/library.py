@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+import sys
 import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -368,7 +369,8 @@ def replace(
             updated,  # type: ignore[arg-type]
             {"replaced": True, "old_sha256": item.sha256, "size": len(data), "format": fmt},
         )
-    _unlink_unreferenced(store, [item.sha256])
+        dropped = [] if _blob_referenced(conn, item.sha256) else [item.sha256]
+    _unlink_unreferenced(store, dropped)
     return updated  # type: ignore[return-value]
 
 
@@ -545,14 +547,25 @@ def file_changed_at(store: Store, item_ids: Iterable[int]) -> dict[int, str]:
 def _unlink_unreferenced(store: Store, shas: list[str]) -> None:
     """Delete each blob no row names, *after* the change that dropped it has committed.
 
-    Unlinking inside that transaction would let other connections see the committed old
-    row pointing at a deleted file until COMMIT. Here a fresh write transaction re-checks the
-    references under the lock: an upload or replace that brought the same bytes back has
-    either committed (so the blob is kept) or re-writes a missing blob in its own
-    transaction (``add`` and ``replace`` both do).
+    The caller passes only blobs that were unreferenced at its commit, so the common case
+    (bytes still named elsewhere) costs nothing. Unlinking inside that transaction would let
+    other connections see the committed old row pointing at a deleted file until COMMIT.
+    Here a fresh write transaction re-checks the references under the lock: every writer
+    that stores a blob (``add``, ``replace``, ``RepoDocs.push``) re-writes a missing one
+    inside its own transaction, so bytes that came back meanwhile are kept or restored.
+
+    Best-effort: the change has already committed, so a busy database or an I/O error here
+    is reported on stderr and leaves an orphan file, never fails the caller.
     """
     if not shas:
         return
+    try:
+        _unlink_now(store, shas)
+    except (sqlite3.Error, OSError) as exc:
+        sys.stderr.write(f"culture-library: could not remove unreferenced blobs {shas}: {exc}\n")
+
+
+def _unlink_now(store: Store, shas: list[str]) -> None:
     with store.connect() as conn:
         for sha in shas:
             if not _blob_referenced(conn, sha):
@@ -580,7 +593,8 @@ def purge_expired(store: Store, now: datetime | None = None) -> list[int]:
             conn.execute("DELETE FROM search_fts WHERE rowid = ?", (item.id,))
             conn.execute("DELETE FROM items WHERE id = ?", (item.id,))
             _event(conn, "purged", item, {"archived_at": item.archived_at})
-            dropped.append(item.sha256)
+            if not _blob_referenced(conn, item.sha256):
+                dropped.append(item.sha256)
             purged.append(item.id)
     _unlink_unreferenced(store, dropped)
     return purged

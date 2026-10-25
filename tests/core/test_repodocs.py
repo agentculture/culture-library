@@ -452,3 +452,23 @@ def test_fixture_sample_round_trip(docs: RepoDocs) -> None:
         assert found.id == doc_id
         assert docs.content(doc_id, include_private=False).decode() == content
     assert len(docs.list(include_private=False)) == len(manifest)
+
+
+def test_push_rewrites_a_blob_removed_before_its_transaction(docs, store, monkeypatch) -> None:
+    """A replace/purge cleanup can unlink the same bytes between push's write_blob and its
+    write lock; push must re-write them inside the transaction (PR #16 review)."""
+    import hashlib
+
+    sha = hashlib.sha256(b"v-a\n").hexdigest()
+    real = store.connect
+    fired = []
+
+    def racing_connect():
+        if not fired:
+            fired.append(True)
+            store.blob_path(sha).unlink(missing_ok=True)
+        return real()
+
+    monkeypatch.setattr(store, "connect", racing_connect)
+    _push(docs)
+    assert store.blob_path(sha).read_bytes() == b"v-a\n"

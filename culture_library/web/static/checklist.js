@@ -5,7 +5,7 @@
  * Pure: no DOM, no imports, so it runs under Node in the tests.
  */
 // Prefixes only (no trailing `.*`), matched against a trimmed line: linear, no backtracking.
-const CHECK = /^[-*+] \[([ xX])\] /;
+const CHECK = /^[-*+] \[([ xX])\](?: |$)/;
 const HEADING = /^#{1,6} /;
 
 export function parseChecklist(text) {

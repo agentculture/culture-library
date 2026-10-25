@@ -198,3 +198,24 @@ def test_blob_missing_while_still_referenced_still_fails(tmp_path):
     store.blob_path(item.sha256).unlink()
     with pytest.raises(backup.BackupError, match="missing"):
         backup.run_backup(store.data_dir, tmp_path / "bk")
+
+
+def test_blob_unlinked_during_copy_also_retries(tmp_path, monkeypatch):
+    """The race can also land between the is_file() check and the copy itself."""
+    from culture_library.core import backup, library
+    from culture_library.core.store import Store
+
+    store = Store(tmp_path / "data")
+    item, _ = library.add(store, b"# v1\n\nfirst\n", "a.md")
+    real_copy = backup.shutil.copyfile
+    fired = []
+
+    def racing_copy(src, dst, *a, **kw):
+        if not fired:
+            fired.append(True)
+            library.replace(store, item.id, b"# v2\n\nsecond\n", "a.md", include_private=True)
+        return real_copy(src, dst, *a, **kw)
+
+    monkeypatch.setattr(backup.shutil, "copyfile", racing_copy)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    assert backup.verify(snap.path).ok
