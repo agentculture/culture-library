@@ -182,7 +182,18 @@ docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{printl
   | grep -E '^CULTURE_LIBRARY_(ACCESS_TEAM_DOMAIN|ACCESS_AUD|SEND_TARGETS)='
 ```
 
-Recreate `library` and `mcp` with the current image (cloudflared keeps its tunnel):
+Recreate `library` and `mcp` with the current image (cloudflared keeps its tunnel). The
+CLI does it in one step: it refuses an env file with a missing, empty or placeholder
+setting, or send targets that do not parse, before anything runs. Then it recreates the
+containers, waits for `/api/health` and lists the send targets the new container loads:
+
+```bash
+uv run culture-library deploy restart            # --build rebuilds the image first
+uv run culture-library deploy restart --dry-run  # print the commands, run nothing
+```
+
+It reads `$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`, and
+runs exactly this, which also works by hand:
 
 ```bash
 grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \

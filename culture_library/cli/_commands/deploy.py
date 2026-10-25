@@ -1,0 +1,335 @@
+"""``culture-library deploy`` — recreate the live stack's library and mcp containers.
+
+``deploy restart`` is the CLI seam for the runbook's "Restart the live stack"
+(``docs/operations/deploy.md``): it checks the host env file first (every required
+setting present, no placeholder, send targets that parse), then runs, with a fixed argv
+and no shell::
+
+    grant run --inject TUNNEL_TOKEN=<secret> -- docker compose -f deploy/compose.yaml \\
+      --env-file <env file> --profile remote up -d --no-deps library mcp
+
+and checks ``/api/health`` and the send targets inside the new container. ``--build``
+rebuilds the image first; ``--dry-run`` prints the commands and runs nothing. The tunnel
+token stays in ``grant`` and never passes through this process.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess  # nosec B404 - fixed argv, no shell
+import time
+import urllib.request
+from pathlib import Path
+
+from culture_library.cli._commands.overview import emit_overview
+from culture_library.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
+from culture_library.cli._output import emit_diagnostic, emit_result
+from culture_library.core import send
+
+LIVE_ENV_VAR = "CULTURE_LIBRARY_LIVE_ENV"
+# The grant secret's *name*; the token itself never enters this process.
+DEFAULT_TUNNEL_SECRET = "CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN"  # nosec B105
+REQUIRED_SETTINGS = (
+    "COMPOSE_PROJECT_NAME",
+    "CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN",
+    "CULTURE_LIBRARY_ACCESS_AUD",
+    send.TARGETS_ENV,
+)
+SERVICES = ("library", "mcp")
+DEFAULT_PORT = "8796"
+STEP_TIMEOUT = 900
+_RUNBOOK = "docs/operations/deploy.md, 'Restart the live stack'"
+_JSON_HELP = "Emit structured JSON."
+_PLACEHOLDER = re.compile(r"<[^>]*>|\.\.\.")
+_TARGETS_PROBE = (
+    "import json; from culture_library.core import send; "
+    "print(json.dumps([t.label for t in send.load_targets('/data')]))"
+)
+
+# Seams for tests.
+_run = subprocess.run
+_which = shutil.which
+
+
+def _json(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "json", False))
+
+
+def default_env_file() -> Path:
+    """``$CULTURE_LIBRARY_LIVE_ENV``, else ``$HOME/.config/culture-library/live.env``."""
+    raw = os.environ.get(LIVE_ENV_VAR)
+    return Path(raw) if raw else Path.home() / ".config" / "culture-library" / "live.env"
+
+
+def _default_compose() -> Path:
+    checkout = Path(__file__).resolve().parents[3] / "deploy" / "compose.yaml"
+    return checkout if checkout.is_file() else Path.cwd() / "deploy" / "compose.yaml"
+
+
+def _env_value(key: str, raw: str, source: str) -> str:
+    """One value the way compose's env-file reader takes it, or refuse what we cannot check.
+
+    Single quotes are literal; double quotes and unquoted values end at the closing quote or
+    at an unquoted `` #`` comment. A ``$`` outside single quotes would be interpolated by
+    compose, so the checked text would not be the value compose uses: that is refused.
+    """
+    raw = raw.strip()
+    if raw[:1] in ("'", '"'):
+        quote = raw[0]
+        end = raw.find(quote, 1)
+        value = raw[1:end] if end != -1 else raw[1:]
+        literal = quote == "'"
+    else:
+        hit = re.search(r"\s#", raw)
+        value = (raw[: hit.start()] if hit else raw).strip()
+        literal = False
+    if not literal and "$" in value:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"{source}: {key} uses ${{...}} interpolation, which this check cannot follow",
+            "write the literal value, or single-quote it",
+        )
+    return value
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """``KEY=VALUE`` lines read like compose's ``--env-file``: comments, ``export``, quotes."""
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
+        values[key] = _env_value(key, raw, str(path))
+    return values
+
+
+def _placeholder(source: str, what: str, value: str) -> CliError:
+    return CliError(
+        EXIT_USER_ERROR,
+        f"{source}: {what} looks like a placeholder ({value!r})",
+        "put the real value in the env file",
+    )
+
+
+def check_settings(values: dict[str, str], source: str) -> None:
+    """Refuse a missing, empty or placeholder setting, or send targets that do not parse."""
+    for key in REQUIRED_SETTINGS:
+        value = values.get(key, "")
+        if not value.strip():
+            raise CliError(
+                EXIT_USER_ERROR, f"{source}: {key} is missing or empty", f"set it; see {_RUNBOOK}"
+            )
+        if key != send.TARGETS_ENV and _PLACEHOLDER.search(value):
+            raise _placeholder(source, key, value)
+    try:
+        targets = send.parse_targets(values[send.TARGETS_ENV], f"{source}: {send.TARGETS_ENV}")
+    except send.SendConfigError as exc:
+        raise CliError(
+            EXIT_USER_ERROR,
+            str(exc),
+            "write the targets as a JSON list in single quotes, e.g. "
+            '\'[{"label":"x3","type":"reader","enabled":true}]\'',
+        ) from None
+    for target in targets:
+        for field in (target.label, target.type):
+            if _PLACEHOLDER.search(field):
+                raise _placeholder(source, f"{send.TARGETS_ENV} target", field)
+
+
+def _child_env(values: dict[str, str]) -> dict[str, str]:
+    """This process's environment minus every key the env file sets.
+
+    Compose prefers a shell variable over ``--env-file``; dropping them makes the checked
+    file the only source of those settings.
+    """
+    drop = set(values) | set(REQUIRED_SETTINGS)
+    return {k: v for k, v in os.environ.items() if k not in drop}
+
+
+def _compose_base(compose: Path, env_file: Path) -> list[str]:
+    return ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
+
+
+def plan(compose: Path, env_file: Path, secret: str, *, build: bool) -> list[list[str]]:
+    """The commands ``restart`` runs, in order."""
+    base = _compose_base(compose, env_file)
+    steps = [base + ["build", "library"]] if build else []
+    up = base + ["--profile", "remote", "up", "-d", "--no-deps", *SERVICES]
+    steps.append(["grant", "run", "--inject", f"TUNNEL_TOKEN={secret}", "--", *up])
+    return steps
+
+
+def _step(argv: list[str], env: dict[str, str], *, verbose: bool) -> subprocess.CompletedProcess:
+    tools = [argv[0]] + (["docker"] if argv[0] != "docker" and "docker" in argv else [])
+    for tool in tools:
+        if _which(tool) is None:
+            raise CliError(EXIT_ENV_ERROR, f"{tool} is not on PATH", f"install {tool}")
+    try:
+        proc = _run(  # nosec B603 - argv is assembled from fixed literals and checked paths
+            argv, capture_output=True, text=True, timeout=STEP_TIMEOUT, check=False, env=env
+        )
+    except subprocess.TimeoutExpired:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"{argv[0]} {argv[1]} timed out after {STEP_TIMEOUT}s",
+            "check 'docker compose -f deploy/compose.yaml ps' and the library logs",
+        ) from None
+    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    if proc.returncode != 0:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"{argv[0]} {argv[1]} exited {proc.returncode}: {output[-800:]}",
+            "read the output above; the previous containers keep running if 'up' failed",
+        )
+    if output and verbose:  # --json keeps stderr for the one JSON error
+        emit_diagnostic(output)
+    return proc
+
+
+def _health(url: str, timeout: float) -> dict:
+    """Poll *url* until it answers ``status: ok`` or *timeout* seconds pass."""
+    deadline = time.monotonic() + timeout
+    last = "no answer"
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:  # nosec B310 - fixed http URL
+                body = json.loads(resp.read().decode("utf-8"))
+            if isinstance(body, dict) and body.get("status") == "ok":
+                return body
+            last = str(body)[:200]
+        except (OSError, ValueError) as exc:
+            last = str(exc)
+        if time.monotonic() >= deadline:
+            raise CliError(
+                EXIT_ENV_ERROR,
+                f"{url} did not report healthy within {timeout:.0f}s ({last})",
+                "check 'docker compose -f deploy/compose.yaml logs library'",
+            )
+        time.sleep(2)
+
+
+def _health_url(values: dict[str, str]) -> str:
+    """Where compose publishes the library: ``LIBRARY_PUBLISH_BIND``/``_PORT`` or loopback."""
+    bind = values.get("LIBRARY_PUBLISH_BIND", "").strip()
+    wildcard = ("", "0.0.0.0", "::")  # nosec B104 - a wildcard bind is reached via loopback
+    host = "127.0.0.1" if bind in wildcard else bind
+    if ":" in host:
+        host = f"[{host}]"
+    port = values.get("LIBRARY_PUBLISH_PORT") or DEFAULT_PORT
+    # The library serves plain HTTP on its published port (TLS ends at the tunnel).
+    return f"http://{host}:{port}/api/health"  # NOSONAR - local health probe, not a remote URL
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    env_file = Path(args.env_file) if args.env_file else default_env_file()
+    if not env_file.is_file():
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"env file {env_file} does not exist",
+            f"create it as described in {_RUNBOOK}, or pass --env-file",
+        )
+    compose = Path(args.compose) if args.compose else _default_compose()
+    if not compose.is_file():
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"compose file {compose} does not exist",
+            "run from the culture-library checkout, or pass --compose",
+        )
+    values = read_env_file(env_file)
+    check_settings(values, str(env_file))
+    steps = plan(compose, env_file, args.tunnel_secret, build=args.build)
+    if args.dry_run:
+        emit_result(
+            (
+                {"dry_run": True, "steps": steps}
+                if _json(args)
+                else "\n".join(shlex.join(s) for s in steps)
+            ),
+            json_mode=_json(args),
+        )
+        return 0
+    env = _child_env(values)
+    verbose = not _json(args)
+    for argv in steps:
+        _step(argv, env, verbose=verbose)
+    health = _health(_health_url(values), args.timeout)
+    probe = _step(
+        _compose_base(compose, env_file)
+        + ["exec", "-T", "library", "python3", "-c", _TARGETS_PROBE],
+        env,
+        verbose=False,
+    )
+    try:
+        targets = json.loads(probe.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"the send-targets check printed no JSON: {probe.stdout[-300:]!r}",
+            "run the check from docs/operations/deploy.md by hand",
+        ) from None
+    result = {"dry_run": False, "steps": steps, "health": health, "send_targets": targets}
+    text = (
+        f"restarted {', '.join(SERVICES)}: version {health.get('version')}, "
+        f"send targets {', '.join(targets) or '(none)'}"
+    )
+    emit_result(result if _json(args) else text, json_mode=_json(args))
+    return 0
+
+
+def cmd_overview(args: argparse.Namespace) -> int:
+    emit_overview(
+        "culture-library deploy",
+        [
+            {
+                "title": "Verbs",
+                "items": [
+                    "restart — recreate library + mcp from the host env file, then check them",
+                    "overview — this description",
+                ],
+            },
+            {
+                "title": "Configuration",
+                "items": [
+                    f"--env-file (default ${LIVE_ENV_VAR}, else "
+                    "$HOME/.config/culture-library/live.env)",
+                    "--compose (default deploy/compose.yaml in this checkout)",
+                    f"--tunnel-secret (grant secret name, default {DEFAULT_TUNNEL_SECRET})",
+                    "needs grant and docker on PATH",
+                ],
+            },
+        ],
+        json_mode=_json(args),
+    )
+    return 0
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("deploy", help="Live stack (see 'culture-library deploy overview').")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
+    p.set_defaults(func=cmd_overview, json=False)
+    nsub = p.add_subparsers(dest="deploy_command", parser_class=type(p))
+    rs = nsub.add_parser("restart", help="Recreate library + mcp from the host env file.")
+    rs.add_argument("--env-file", help="Host env file (default: see 'deploy overview').")
+    rs.add_argument("--compose", help="Compose file (default deploy/compose.yaml).")
+    rs.add_argument(
+        "--tunnel-secret", default=DEFAULT_TUNNEL_SECRET, help="grant secret holding the token."
+    )
+    rs.add_argument("--build", action="store_true", help="Rebuild the image first.")
+    rs.add_argument("--dry-run", action="store_true", help="Print the commands; run nothing.")
+    rs.add_argument(
+        "--timeout", type=float, default=90.0, help="Seconds to wait for health (default 90)."
+    )
+    rs.add_argument("--json", action="store_true", help=_JSON_HELP)
+    rs.set_defaults(func=cmd_restart)
+    ov = nsub.add_parser("overview", help="Describe the deploy noun.")
+    ov.add_argument("--json", action="store_true", help=_JSON_HELP)
+    ov.set_defaults(func=cmd_overview)

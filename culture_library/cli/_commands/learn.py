@@ -38,6 +38,8 @@ Commands
   culture-library backup run         Snapshot DB + files to a second location.
   culture-library backup restore     Restore a snapshot into an empty dir (verified).
   culture-library backup overview    Describe the backup noun.
+  culture-library deploy restart     Recreate library + mcp from the host env file.
+  culture-library deploy overview    Describe the deploy noun.
 
 Machine-readable output
 -----------------------
@@ -78,6 +80,8 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["backup", "run"], "summary": "Snapshot DB + files to a second location."},
             {"path": ["backup", "restore"], "summary": "Restore a snapshot (verified)."},
             {"path": ["backup", "overview"], "summary": "Describe the backup noun."},
+            {"path": ["deploy", "restart"], "summary": "Recreate library + mcp (env file)."},
+            {"path": ["deploy", "overview"], "summary": "Describe the deploy noun."},
         ],
         "exit_codes": {
             "0": "success",
