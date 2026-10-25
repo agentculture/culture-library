@@ -39,11 +39,14 @@ def _as(library, **kw):
 def test_post_set_stores_and_roundtrips(library):
     item = library.add_item(b"hello world")
     body = _make_set(library, item)
-    assert body["id"] and body["version"] == 1
-    assert len(body["samples"]) == 2 and all(s["id"] for s in body["samples"])
+    assert body["id"]
+    assert body["version"] == 1
+    assert len(body["samples"]) == 2
+    assert all(s["id"] for s in body["samples"])
     full = library.http.get(f"/api/eval/sets/{body['id']}").json()
     parsed = EvalSet.from_dict(full)
-    assert parsed.item_id == item.id and parsed.chunker == {"size": 100}
+    assert parsed.item_id == item.id
+    assert parsed.chunker == {"size": 100}
     assert [s.question for s in parsed.samples] == ["q0?", "q1?"]
 
 
@@ -53,7 +56,9 @@ def test_list_sets_summaries_without_samples(library):
     _make_set(library, item)
     _make_set(library, other)
     sets = library.http.get(f"/api/eval/sets?item_id={item.id}").json()["sets"]
-    assert len(sets) == 1 and sets[0]["item_id"] == item.id and "samples" not in sets[0]
+    assert len(sets) == 1
+    assert sets[0]["item_id"] == item.id
+    assert "samples" not in sets[0]
     assert len(library.http.get("/api/eval/sets").json()["sets"]) == 2
 
 
@@ -73,11 +78,15 @@ def test_post_run_roundtrip_and_aggregate_rule(library):
     r = library.http.post("/api/eval/runs", json=run.to_dict())
     assert r.status_code == 201, r.text
     stored = r.json()
-    assert stored["id"] and stored["set_version"] == 1 and stored["aggregates"] == {"hit": 0.5}
+    assert stored["id"]
+    assert stored["set_version"] == 1
+    assert stored["aggregates"] == {"hit": 0.5}
     got = library.http.get(f"/api/eval/runs/{stored['id']}").json()
-    assert got["samples"][0]["scores"] == {"hit": 1.0} and got["config"] == {"mode": "hybrid"}
+    assert got["samples"][0]["scores"] == {"hit": 1.0}
+    assert got["config"] == {"mode": "hybrid"}
     runs = library.http.get(f"/api/eval/runs?set_id={s['id']}").json()["runs"]
-    assert [x["id"] for x in runs] == [stored["id"]] and "samples" not in runs[0]
+    assert [x["id"] for x in runs] == [stored["id"]]
+    assert "samples" not in runs[0]
 
 
 @pytest.mark.parametrize("status", ["partial", "failed"])
@@ -87,7 +96,8 @@ def test_aggregates_refused_unless_complete(library, status):
     assert library.http.post("/api/eval/runs", json=bad.to_dict()).status_code == 422
     ok = EvalRun(set_id=s["id"], status=status, total=2, completed=1)
     r = library.http.post("/api/eval/runs", json=ok.to_dict())
-    assert r.status_code == 201 and r.json()["aggregates"] in ({}, None)
+    assert r.status_code == 201
+    assert r.json()["aggregates"] in ({}, None)
 
 
 def test_bad_status_and_foreign_sample_422(library):
@@ -122,7 +132,8 @@ def test_invisible_item_hidden_everywhere(library):
     assert library.http.get(f"/api/eval/sets?item_id={item.id}").json()["sets"] == []
     assert library.http.get("/api/eval/runs").json()["runs"] == []
     r = library.http.get(f"/api/eval/sets/{s['id']}")
-    assert r.status_code == 404 and "q0" not in r.text
+    assert r.status_code == 404
+    assert "q0" not in r.text
     assert library.http.get(f"/api/eval/runs/{run['id']}").status_code == 404
     assert library.http.post("/api/eval/sets", json=_set_body(item)).status_code == 404
     assert (

@@ -110,8 +110,9 @@ def test_egress_guard_runs_before_chunks_fetched(library, monkeypatch):
     fetched: list = []
     real = library.client.get_chunks
     monkeypatch.setattr(library.client, "get_chunks", lambda i: fetched.append(i) or real(i))
+    adapter, judge = FakeAdapter(), FakeJudge()
     with pytest.raises(EvalPolicyError):
-        generate_book_set(library.client, FakeAdapter(), FakeJudge(), REMOTE, item.id)
+        generate_book_set(library.client, adapter, judge, REMOTE, item.id)
     assert fetched == []
 
 
@@ -135,8 +136,9 @@ def test_newspaper_requires_sources(library, monkeypatch):
     item = _index_item(library, ARTICLES, kind="newspaper")
     fetched: list = []
     monkeypatch.setattr(library.client, "get_chunks", lambda i: fetched.append(i))
+    adapter, judge = FakeAdapter(), FakeJudge()
     with pytest.raises(GenerateError) as e:
-        generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
+        generate_newspaper_set(library.client, adapter, judge, LOCAL, item.id)
     assert e.value.hint
     assert fetched == []
 
@@ -166,6 +168,7 @@ def test_newspaper_guard_before_chunks(library, monkeypatch):
     library.client.put_sources(item.id, _manifest((ARTICLES[0][:60], "https://a.example/u")))
     fetched: list = []
     monkeypatch.setattr(library.client, "get_chunks", lambda i: fetched.append(i))
+    adapter, judge = FakeAdapter(), FakeJudge()
     with pytest.raises(EvalPolicyError):
-        generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), REMOTE, item.id)
+        generate_newspaper_set(library.client, adapter, judge, REMOTE, item.id)
     assert fetched == []

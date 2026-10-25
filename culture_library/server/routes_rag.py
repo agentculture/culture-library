@@ -26,7 +26,7 @@ is_header}]}`` for sample generators; an invisible, archived or missing item is 
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
@@ -109,11 +109,18 @@ def _passage(p: sr.Passage, rerank_score: float | None) -> dict:
     }
 
 
-@router.post("/api/rag/retrieve", tags=["rag"])
+@router.post(
+    "/api/rag/retrieve",
+    tags=["rag"],
+    responses={
+        422: {"description": "invalid request or retrieval mode"},
+        503: {"description": "no query embedder, or the embedding gateway is down"},
+    },
+)
 def retrieve(
     body: RetrieveRequest,
     request: Request,
-    principal: Principal = Depends(current_principal),
+    principal: Annotated[Principal, Depends(current_principal)],
 ) -> dict:
     check(principal, "read")
     embed = _query_embedder(request)
@@ -160,11 +167,15 @@ def retrieve(
     }
 
 
-@router.get("/api/rag/items/{item_id}/chunks", tags=["rag"])
+@router.get(
+    "/api/rag/items/{item_id}/chunks",
+    tags=["rag"],
+    responses={404: {"description": "item missing, archived or not visible"}},
+)
 def item_chunks(
     item_id: int,
     request: Request,
-    principal: Principal = Depends(current_principal),
+    principal: Annotated[Principal, Depends(current_principal)],
 ) -> dict:
     check(principal, "read")
     store = get_store(request)

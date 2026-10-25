@@ -253,30 +253,41 @@ class RagasAdapter:
             raise EvalError(
                 f"score() got {len(samples)} samples but {len(retrieved)} retrieval results"
             )
-        per: list[dict[str, float | None]] = []
+        per = [self._id_row(s, ps) for s, ps in zip(samples, retrieved)]
         judge_items: list[tuple[str, str, list[str]]] = []
         judge_rows: list[int] = []
         for i, (sample, passages) in enumerate(zip(samples, retrieved)):
-            got = [p.chunk_sha for p in passages]
-            ref = list(sample.reference_chunk_shas)
-            row: dict[str, float | None] = dict.fromkeys(METRICS)
-            if ref:
-                row[ID_PRECISION] = _clean(self.backend.id_precision(got, ref)) if got else None
-                row[ID_RECALL] = _clean(self.backend.id_recall(got, ref))
-            per.append(row)
             contexts = [p.text for p in passages if p.text]
             if llm is not None and contexts and sample.question and sample.reference_answer:
                 judge_items.append((sample.question, sample.reference_answer, contexts))
                 judge_rows.append(i)
         if judge_items:
-            try:
-                scores = asyncio.run(self.backend.llm_scores(judge_items))
-            except EvalError:
-                raise
-            except Exception as exc:  # ragas / openai / instructor failures
-                raise EvalApiError(f"ragas LLM metrics failed: {exc}") from exc
-            for i, (p, r) in zip(judge_rows, scores):
-                per[i][LLM_PRECISION] = _clean(p)
-                per[i][LLM_RECALL] = _clean(r)
+            self._apply_llm_scores(per, judge_items, judge_rows)
         aggregate = {m: _mean([row[m] for row in per]) for m in METRICS}
         return ScoreResult(per_sample=per, aggregate=aggregate)
+
+    def _id_row(self, sample: Sample, passages: Sequence[Passage]) -> dict[str, float | None]:
+        """ID-based precision/recall over chunk_sha; None when undefined."""
+        got = [p.chunk_sha for p in passages]
+        ref = list(sample.reference_chunk_shas)
+        row: dict[str, float | None] = dict.fromkeys(METRICS)
+        if ref:
+            row[ID_PRECISION] = _clean(self.backend.id_precision(got, ref)) if got else None
+            row[ID_RECALL] = _clean(self.backend.id_recall(got, ref))
+        return row
+
+    def _apply_llm_scores(
+        self,
+        per: list[dict[str, float | None]],
+        judge_items: list[tuple[str, str, list[str]]],
+        judge_rows: list[int],
+    ) -> None:
+        try:
+            scores = asyncio.run(self.backend.llm_scores(judge_items))
+        except EvalError:
+            raise
+        except Exception as exc:  # ragas / openai / instructor failures
+            raise EvalApiError(f"ragas LLM metrics failed: {exc}") from exc
+        for i, (p, r) in zip(judge_rows, scores):
+            per[i][LLM_PRECISION] = _clean(p)
+            per[i][LLM_RECALL] = _clean(r)

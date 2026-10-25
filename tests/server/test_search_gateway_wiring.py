@@ -59,9 +59,12 @@ def test_lifespan_sets_query_embedder_and_reranker(gateway_env):
     app = server_app.create_app(ServerConfig())
     with TestClient(app):
         doc, query, rr = app.state.doc_embedder, app.state.query_embedder, app.state.reranker
-        assert isinstance(doc, GatewayEmbedder) and doc.prompt_name == "Retrieval-document"
-        assert isinstance(query, GatewayEmbedder) and query.prompt_name == "Retrieval-query"
-        assert isinstance(rr, GatewayReranker) and rr.model == "reranker"
+        assert isinstance(doc, GatewayEmbedder)
+        assert doc.prompt_name == "Retrieval-document"
+        assert isinstance(query, GatewayEmbedder)
+        assert query.prompt_name == "Retrieval-query"
+        assert isinstance(rr, GatewayReranker)
+        assert rr.model == "reranker"
         assert doc.model == query.model == "gemma2-embed"
 
 

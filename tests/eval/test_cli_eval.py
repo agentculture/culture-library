@@ -62,36 +62,46 @@ def test_generate_run_show_round_trip(cli, capsys):
     rc, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "4", "--json")
     assert rc == 0
     gen = json.loads(out)
-    assert gen["samples"] == 4 and gen["kind"] == "book" and gen["item_id"] == item.id
+    assert gen["samples"] == 4
+    assert gen["kind"] == "book"
+    assert gen["item_id"] == item.id
     set_id = gen["set_id"]
 
     rc, out, _ = _run(capsys, "eval", "run", str(set_id), "--json")
     assert rc == 0
     run = json.loads(out)
-    assert run["status"] == "complete" and run["completed"] == run["total"] == 4
+    assert run["status"] == "complete"
+    assert run["completed"] == run["total"] == 4
     assert run["set_id"] == set_id
-    assert run["config"]["mode"] == "hybrid" and run["config"]["k"] == 5
+    assert run["config"]["mode"] == "hybrid"
+    assert run["config"]["k"] == 5
     assert {"hit"} <= set(run["aggregates"]) or run["aggregates"]
 
     rc, out, _ = _run(capsys, "eval", "show", "--run", str(run["run_id"]), "--json")
-    assert rc == 0 and json.loads(out)["id"] == run["run_id"]
+    assert rc == 0
+    assert json.loads(out)["id"] == run["run_id"]
     rc, out, _ = _run(capsys, "eval", "show", "--set", str(set_id), "--json")
-    assert rc == 0 and len(json.loads(out)["samples"]) == 4
+    assert rc == 0
+    assert len(json.loads(out)["samples"]) == 4
     rc, out, _ = _run(capsys, "eval", "show", "--item", str(item.id), "--json")
     listing = json.loads(out)
     assert [s["id"] for s in listing["sets"]] == [set_id]
     assert [r["id"] for r in listing["runs"]] == [run["run_id"]]
 
     rc, out, _ = _run(capsys, "eval", "show")
-    assert f"set {set_id}" in out and f"run {run['run_id']}" in out
+    assert f"set {set_id}" in out
+    assert f"run {run['run_id']}" in out
 
 
 def test_text_output(cli, capsys):
     item = _item(cli)
     rc, out, err = _run(capsys, "eval", "generate", str(item.id), "--samples", "3")
-    assert rc == 0 and "3 samples" in out and err == ""
+    assert rc == 0
+    assert "3 samples" in out
+    assert err == ""
     rc, out, _ = _run(capsys, "eval", "run", "1")
-    assert rc == 0 and "complete" in out
+    assert rc == 0
+    assert "complete" in out
 
 
 def test_two_configs_over_one_set(cli, capsys):
@@ -103,7 +113,8 @@ def test_two_configs_over_one_set(cli, capsys):
         capsys, "eval", "run", str(set_id), "--mode", "hybrid", "--k", "7", "--no-rerank", "--json"
     )
     a, b = json.loads(a), json.loads(b)
-    assert a["run_id"] != b["run_id"] and a["set_id"] == b["set_id"] == set_id
+    assert a["run_id"] != b["run_id"]
+    assert a["set_id"] == b["set_id"] == set_id
     assert (a["config"]["mode"], a["config"]["k"], a["config"]["rerank"]) == ("semantic", 2, None)
     assert (b["config"]["mode"], b["config"]["k"], b["config"]["rerank"]) == ("hybrid", 7, False)
     _, out, _ = _run(capsys, "eval", "show", "--json")
@@ -114,32 +125,39 @@ def test_run_no_llm_skips_llm(cli, capsys):
     item = _item(cli)
     _, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "2", "--json")
     rc, out, _ = _run(capsys, "eval", "run", str(json.loads(out)["set_id"]), "--no-llm", "--json")
-    assert rc == 0 and json.loads(out)["config"]["judge_model"] is None
+    assert rc == 0
+    assert json.loads(out)["config"]["judge_model"] is None
 
 
 def test_overview_default_and_json(capsys):
     rc, out, _ = _run(capsys, "eval")
-    assert rc == 0 and "generate" in out
+    assert rc == 0
+    assert "generate" in out
     rc, out, _ = _run(capsys, "eval", "overview", "--json")
     data = json.loads(out)
-    assert rc == 0 and data["subject"] == "culture-library eval" and data["sections"]
+    assert rc == 0
+    assert data["subject"] == "culture-library eval"
+    assert data["sections"]
 
 
 def test_unknown_set_is_environment_error(cli, capsys):
     rc, _, err = _run(capsys, "eval", "run", "999", "--json")
     assert rc == 2
     e = json.loads(err)
-    assert "404" in e["message"] and e["remediation"]
+    assert "404" in e["message"]
+    assert e["remediation"]
 
 
 def test_wrong_kind_and_no_samples_are_user_errors(cli, capsys):
     doc = cli.add_item(b"text", kind="article")
     rc, _, err = _run(capsys, "eval", "generate", str(doc.id))
-    assert rc == 1 and "hint:" in err
+    assert rc == 1
+    assert "hint:" in err
     # a book that was never indexed has no chunks: GenerateError -> exit 1 with its hint
     book = cli.add_item(b"hello", kind="book")
     rc, _, err = _run(capsys, "eval", "generate", str(book.id), "--json")
-    assert rc == 1 and json.loads(err)["remediation"]
+    assert rc == 1
+    assert json.loads(err)["remediation"]
 
 
 def test_non_public_item_to_remote_judge_is_policy_error(cli, capsys, monkeypatch):
@@ -148,19 +166,22 @@ def test_non_public_item_to_remote_judge_is_policy_error(cli, capsys, monkeypatc
     )
     item = cli.add_item(b"secret", kind="book", visibility="private")
     rc, _, err = _run(capsys, "eval", "generate", str(item.id))
-    assert rc == 1 and "not public" in err
+    assert rc == 1
+    assert "not public" in err
 
 
 def test_show_rejects_two_selectors(cli, capsys):
     rc, _, err = _run(capsys, "eval", "show", "--set", "1", "--run", "1")
-    assert rc == 1 and "hint:" in err
+    assert rc == 1
+    assert "hint:" in err
 
 
 def test_missing_key_is_user_error(monkeypatch, capsys):
     monkeypatch.delenv(eval_cmd.ENV_KEY, raising=False)
     monkeypatch.setattr(eval_cmd, "_make_adapter", lambda judge: FakeAdapter())
     rc, _, err = _run(capsys, "eval", "run", "1", "--json")
-    assert rc == 1 and eval_cmd.ENV_KEY in json.loads(err)["message"]
+    assert rc == 1
+    assert eval_cmd.ENV_KEY in json.loads(err)["message"]
 
 
 def test_client_defaults_from_env(monkeypatch):

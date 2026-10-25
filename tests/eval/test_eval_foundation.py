@@ -33,7 +33,8 @@ def test_fake_adapter_satisfies_protocol_and_runs():
     chunks = [Chunk(0, "sha0", "alpha"), Chunk(1, "sha1", "beta")]
     judge = FakeJudge()
     samples = a.generate_samples(chunks, 2, judge)
-    assert len(samples) == 2 and len(judge.payloads) == 2
+    assert len(samples) == 2
+    assert len(judge.payloads) == 2
     res = a.score(samples, [[Passage(1, "sha0")], [Passage(1, "nope")]], None)
     assert res.aggregate == {"hit": 0.5}
     assert res.per_sample == [{"hit": 1.0}, {"hit": 0.0}]
@@ -41,13 +42,15 @@ def test_fake_adapter_satisfies_protocol_and_runs():
 
 def test_judge_config_env_defaults_and_overrides():
     c = JudgeConfig.from_env({})
-    assert c.model == "cortex" and c.is_local
+    assert c.model == "cortex"
+    assert c.is_local
     env = {
         "LOBES_GATEWAY_URL": "http://gw:1",
         "GATEWAY_API_KEY": "sekret",
     }
     c = JudgeConfig.from_env(env)
-    assert c.url == "http://gw:1" and c.api_key == "sekret"
+    assert c.url == "http://gw:1"
+    assert c.api_key == "sekret"
     assert "sekret" not in repr(c)
     env["CULTURE_LIBRARY_EVAL_LLM_URL"] = "https://api.example.com"
     env["CULTURE_LIBRARY_EVAL_LLM_MODEL"] = "m"
@@ -75,12 +78,15 @@ def test_is_local(url, expected):
 
 def test_guard_text_egress():
     private = [{"id": 3, "visibility": "private"}]
+    remote = JudgeConfig(url="https://api.example.com")
     with pytest.raises(EvalPolicyError):
-        guard_text_egress(private, JudgeConfig(url="https://api.example.com"))
+        guard_text_egress(private, remote)
     guard_text_egress(private, JudgeConfig(url="http://127.0.0.1:8001"))
     guard_text_egress([{"id": 1, "visibility": "public"}], JudgeConfig(url="https://x.com"))
+    unknown = [{"id": 2}]
+    x_cfg = JudgeConfig(url="https://x.com")
     with pytest.raises(EvalPolicyError):  # unknown visibility is non-public
-        guard_text_egress([{"id": 2}], JudgeConfig(url="https://x.com"))
+        guard_text_egress(unknown, x_cfg)
 
 
 def test_guard_runs_before_any_text_read():
@@ -90,8 +96,10 @@ def test_guard_runs_before_any_text_read():
         yield {"id": 1, "visibility": "private"}
         read.append("text")  # would only run if the guard kept iterating
 
+    stream = items()
+    cfg = JudgeConfig(url="https://x.com")
     with pytest.raises(EvalPolicyError):
-        guard_text_egress(items(), JudgeConfig(url="https://x.com"))
+        guard_text_egress(stream, cfg)
     assert read == []
 
 
@@ -116,13 +124,15 @@ def test_openai_chat_posts_payload(fake_judge_server):
     llm = OpenAIChat(fake_judge_server.config(model="cortex", api_key="k1"))
     assert llm.complete([{"role": "user", "content": "hi"}]) == "hello"
     p = fake_judge_server.payloads[0]
-    assert p["model"] == "cortex" and p["messages"][0]["content"] == "hi"
+    assert p["model"] == "cortex"
+    assert p["messages"][0]["content"] == "hi"
     assert fake_judge_server.auth_headers == ["Bearer k1"]
 
 
 def test_openai_chat_error_wrapped():
+    llm = OpenAIChat(JudgeConfig(url="http://127.0.0.1:1"), timeout=1)
     with pytest.raises(EvalApiError):
-        OpenAIChat(JudgeConfig(url="http://127.0.0.1:1"), timeout=1).complete([])
+        llm.complete([])
 
 
 def test_client_error_and_no_redirect():
@@ -130,8 +140,9 @@ def test_client_error_and_no_redirect():
         assert headers["Authorization"] == "Bearer k"
         return 302, b""
 
+    client = LibraryClient("http://x", "k", transport=t)
     with pytest.raises(EvalApiError) as ei:
-        LibraryClient("http://x", "k", transport=t).status()
+        client.status()
     assert ei.value.status == 302
 
 

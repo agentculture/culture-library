@@ -212,8 +212,10 @@ def test_generate_samples_propagates_judge_errors():
         def complete(self, messages):
             raise EvalApiError("judge down")
 
+    adapter = RagasAdapter(backend=StubBackend())
+    chunks = _chunks()
     with pytest.raises(EvalApiError):
-        RagasAdapter(backend=StubBackend()).generate_samples(_chunks(), 1, Boom())
+        adapter.generate_samples(chunks, 1, Boom())
 
 
 # --- scoring (ragas calls stubbed) -----------------------------------------------------
@@ -272,8 +274,10 @@ def test_score_length_mismatch_is_an_error():
     from culture_library.eval.ragas_adapter import RagasAdapter
 
     samples, retrieved = _two_sample_set()
+    adapter = RagasAdapter(backend=StubBackend())
+    short = retrieved[:1]
     with pytest.raises(EvalError):
-        RagasAdapter(backend=StubBackend()).score(samples, retrieved[:1], llm=None)
+        adapter.score(samples, short, llm=None)
 
 
 # --- real ragas 0.4.3 ------------------------------------------------------------------
@@ -312,7 +316,8 @@ def test_ragas_two_sample_set_against_fake_openai_server(fake_judge_server):
     # precision: one call per retrieved context (2 + 3); recall: one call per sample (2)
     assert len(fake_judge_server.payloads) == 7
     sent = json.dumps(fake_judge_server.payloads)
-    assert "The door at the back is red." in sent and "Green." in sent
+    assert "The door at the back is red." in sent
+    assert "Green." in sent
 
 
 @pytest.mark.ragas

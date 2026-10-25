@@ -43,7 +43,8 @@ def test_partial_run_prints_status_instead_of_crashing(cli, capsys):  # noqa: F8
 
     cli.client.retrieve = flaky
     rc, out, err = _run(capsys, "eval", "run", str(set_id), "--no-llm")
-    assert "Traceback" not in err and "internal" not in err.lower()
+    assert "Traceback" not in err
+    assert "internal" not in err.lower()
     assert "partial" in out
     rc, out, _ = _run(capsys, "eval", "show", "--set", str(set_id), "--json")
     assert rc == 0
@@ -239,4 +240,5 @@ def test_sources_get_with_meta(cli):  # noqa: F811
         assert sources.get_with_meta(conn, item.id) is None
         sources.put(conn, item.id, [{"x": 1}])
         manifest, updated_at = sources.get_with_meta(conn, item.id)
-    assert manifest == [{"x": 1}] and updated_at
+    assert manifest == [{"x": 1}]
+    assert updated_at

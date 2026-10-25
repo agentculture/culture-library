@@ -133,17 +133,7 @@ def _article_excerpt(article: dict) -> str:
     return str(article.get("excerpt") or article.get("text") or article.get("title") or "")
 
 
-def generate_newspaper_set(
-    client: LibraryClient,
-    adapter: EvalAdapter,
-    llm: ChatLLM,
-    judge: JudgeConfig,
-    item_id: int,
-    *,
-    samples: int = 20,
-    seed: int = 0,
-) -> EvalSet:
-    item = _prepare(client, judge, item_id)
+def _sidecar_articles(client: LibraryClient, item_id: int) -> list[dict]:
     try:
         manifest: Any = client.get_sources(item_id)
     except EvalApiError as exc:
@@ -157,9 +147,14 @@ def generate_newspaper_set(
             f"PUT /api/library/{item_id}/sources with a list of "
             "{article_title, source_urls, excerpt} (culture-rules pushes it with each issue)",
         )
-    chunks = _body_chunks(client, item_id)
-    normalized = [(c, _norm(c.text)) for c in chunks]
+    return articles
 
+
+def _match_articles(
+    articles: list[dict], chunks: list[Chunk]
+) -> tuple[list[tuple[dict, list[Chunk]]], int]:
+    """(article, matching chunks) for each article with URLs, plus the unmatched count."""
+    normalized = [(c, _norm(c.text)) for c in chunks]
     matched: list[tuple[dict, list[Chunk]]] = []
     unmatched = 0
     for art in articles:
@@ -174,10 +169,13 @@ def generate_newspaper_set(
             "no sidecar article matched any chunk",
             "check the manifest excerpts against the item text and that each has source_urls",
         )
-    if len(matched) > samples:
-        keep = sorted(sorted(range(len(matched)), key=lambda i: _rank(seed, i))[:samples])
-        matched = [matched[i] for i in keep]
+    return matched, unmatched
 
+
+def _article_samples(
+    adapter: EvalAdapter, llm: ChatLLM, matched: list[tuple[dict, list[Chunk]]]
+) -> list[Sample]:
+    """One sample per matched article, anchored to its chunks and carrying its URLs."""
     out: list[Sample] = []
     for art, hits in matched:
         by_sha = {c.chunk_sha: c for c in hits}
@@ -187,6 +185,26 @@ def generate_newspaper_set(
             s.reference_contexts = [by_sha[sha].text for sha in shas]
             s.source_urls = _article_urls(art)
             out.append(s)
+    return out
+
+
+def generate_newspaper_set(
+    client: LibraryClient,
+    adapter: EvalAdapter,
+    llm: ChatLLM,
+    judge: JudgeConfig,
+    item_id: int,
+    *,
+    samples: int = 20,
+    seed: int = 0,
+) -> EvalSet:
+    item = _prepare(client, judge, item_id)
+    articles = _sidecar_articles(client, item_id)
+    matched, unmatched = _match_articles(articles, _body_chunks(client, item_id))
+    if len(matched) > samples:
+        keep = sorted(sorted(range(len(matched)), key=lambda i: _rank(seed, i))[:samples])
+        matched = [matched[i] for i in keep]
+    out = _article_samples(adapter, llm, matched)
     if not out:
         raise GenerateError("the adapter produced no usable samples", "check the judge model")
     return EvalSet(

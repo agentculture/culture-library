@@ -46,21 +46,29 @@ def validate_manifest(body: Any) -> str | None:
     if len(body) > MAX_ENTRIES:
         return f"at most {MAX_ENTRIES} entries are allowed"
     for i, entry in enumerate(body):
-        if not isinstance(entry, dict):
-            return f"entry {i} must be an object"
-        title = entry.get("article_title")
-        if not isinstance(title, str) or not title.strip():
-            return f"entry {i}: article_title must be a non-empty string"
-        urls = entry.get("source_urls")
-        if not isinstance(urls, list) or not urls:
-            return f"entry {i}: source_urls must be a non-empty list"
-        if any(_bad_url(u) for u in urls):
-            return f"entry {i}: source_urls must be http(s) URL strings"
-        excerpt = entry.get("excerpt")
-        if not isinstance(excerpt, str):
-            return f"entry {i}: excerpt must be a string"
-        if len(excerpt) > MAX_EXCERPT:
-            return f"entry {i}: excerpt is longer than {MAX_EXCERPT} characters"
+        problem = _entry_problem(entry)
+        if problem:
+            return f"entry {i}{problem}"
+    return None
+
+
+def _entry_problem(entry: Any) -> str | None:
+    """The problem with one manifest entry (as a suffix after "entry N"), or None."""
+    if not isinstance(entry, dict):
+        return " must be an object"
+    title = entry.get("article_title")
+    if not isinstance(title, str) or not title.strip():
+        return ": article_title must be a non-empty string"
+    urls = entry.get("source_urls")
+    if not isinstance(urls, list) or not urls:
+        return ": source_urls must be a non-empty list"
+    if any(_bad_url(u) for u in urls):
+        return ": source_urls must be http(s) URL strings"
+    excerpt = entry.get("excerpt")
+    if not isinstance(excerpt, str):
+        return ": excerpt must be a string"
+    if len(excerpt) > MAX_EXCERPT:
+        return f": excerpt is longer than {MAX_EXCERPT} characters"
     return None
 
 

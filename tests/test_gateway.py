@@ -85,13 +85,16 @@ def test_embedder_sends_prompt_name_when_set():
 
 def test_embedder_errors_wrapped():
     with fake_gateway(lambda p, b: (500, {}, b"boom")) as (url, _):
+        embedder = gw.GatewayEmbedder(url, "k", "m")
         with pytest.raises(EmbeddingError):
-            gw.GatewayEmbedder(url, "k", "m")(["a"])
+            embedder(["a"])
+    dead = gw.GatewayEmbedder("http://127.0.0.1:9", "k", "m", timeout=2)
     with pytest.raises(EmbeddingError):  # nothing listening
-        gw.GatewayEmbedder("http://127.0.0.1:9", "k", "m", timeout=2)(["a"])
+        dead(["a"])
     with fake_gateway(lambda p, b: (200, {}, {"data": []})) as (url, _):
+        embedder = gw.GatewayEmbedder(url, "k", "m")
         with pytest.raises(EmbeddingError):
-            gw.GatewayEmbedder(url, "k", "m")(["a"])
+            embedder(["a"])
 
 
 def test_from_env_document_and_query(monkeypatch):
@@ -113,7 +116,8 @@ def test_from_env_document_and_query(monkeypatch):
     assert doc.prompt_name == "Retrieval-document"
     assert query.prompt_name == "Retrieval-query"
     assert doc.label == "gemma2-embed+Retrieval-document"
-    assert "sekret" not in repr(doc) and "sekret" not in repr(query)
+    assert "sekret" not in repr(doc)
+    assert "sekret" not in repr(query)
     with pytest.raises(ValueError):
         gw.GatewayEmbedder.from_env("bogus")
 
@@ -124,7 +128,8 @@ def test_embed_prompts_off_disables_both(monkeypatch, off):
     monkeypatch.setenv("LOBES_EMBED_PROMPTS", off)
     doc = gw.GatewayEmbedder.from_env("document")
     query = gw.GatewayEmbedder.from_env("query")
-    assert doc.prompt_name is None and query.prompt_name is None
+    assert doc.prompt_name is None
+    assert query.prompt_name is None
     assert doc.label == query.label == "gemma2-embed"
 
 
@@ -179,11 +184,13 @@ def test_reranker_empty_documents_makes_no_request():
 )
 def test_reranker_errors_wrapped(payload):
     with fake_gateway(lambda p, b: (200, {}, payload)) as (url, _):
+        reranker = gw.GatewayReranker(url, "k")
         with pytest.raises(gw.RerankError):
-            gw.GatewayReranker(url, "k")("q", ["a"])
+            reranker("q", ["a"])
     with fake_gateway(lambda p, b: (503, {}, b"down")) as (url, _):
+        reranker = gw.GatewayReranker(url, "k")
         with pytest.raises(gw.RerankError):
-            gw.GatewayReranker(url, "k")("q", ["a"])
+            reranker("q", ["a"])
 
 
 # ------------------------------------------------------------------ redirects refused
@@ -197,9 +204,11 @@ def test_both_clients_refuse_redirects(code):
             return code, {"Location": f"{elsewhere}{path}"}, b""
 
         with fake_gateway(redirect) as (url, seen):
+            embedder = gw.GatewayEmbedder(url, "sekret", "m")
+            reranker = gw.GatewayReranker(url, "sekret")
             with pytest.raises(EmbeddingError, match="redirect"):
-                gw.GatewayEmbedder(url, "sekret", "m")(["a"])
+                embedder(["a"])
             with pytest.raises(gw.RerankError, match="redirect"):
-                gw.GatewayReranker(url, "sekret")("q", ["a"])
+                reranker("q", ["a"])
         assert len(seen) == 2  # one request per client, no follow-up
     assert elsewhere_seen == []  # the key never reached the other origin

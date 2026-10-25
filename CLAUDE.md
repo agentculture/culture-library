@@ -290,7 +290,8 @@ Pass `--visibility private` to keep a record in `$HOME/.eidetic/memory`.
   The `pypi`/`testpypi` GitHub environments and the PyPI Trusted Publisher
   must be configured before those jobs can succeed. SonarCloud
   (`agentculture_culture-library`) runs only when `SONAR_TOKEN` is set, and
-  then blocks on a red quality gate.
+  then blocks on a red quality gate or on any OPEN/CONFIRMED issue in the PR
+  (`scripts/sonar-pr-issues.py`, cited from culture-rules; accepted issues pass).
 - **Worktrees** you create by hand go in
   `../.worktrees.culture-library/<name>/`, never a shared `../worktrees/`.
   Use work-scoped branch prefixes (e.g. `ingest/t2`). The vendored

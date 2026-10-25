@@ -84,6 +84,13 @@ def _post_json(url: str, key: str, payload: dict, timeout: float) -> object:
         return json.loads(resp.read())
 
 
+def _object(reply: object) -> dict:
+    """``reply`` as a JSON object; anything else is a ``ValueError`` (a malformed reply)."""
+    if not isinstance(reply, dict):
+        raise ValueError(f"expected a JSON object, got {type(reply).__name__}")
+    return reply
+
+
 def _gateway_from_env() -> tuple[str, str] | None:
     key = os.environ.get("GATEWAY_API_KEY", "")
     if not key:
@@ -152,8 +159,10 @@ class GatewayEmbedder:
         if self.prompt_name:
             payload["prompt_name"] = self.prompt_name
         try:
-            reply = _post_json(f"{self.url}/v1/embeddings", self._key, payload, self.timeout)
-            rows = sorted(reply["data"], key=lambda r: r.get("index", 0))  # type: ignore[index]
+            reply = _object(
+                _post_json(f"{self.url}/v1/embeddings", self._key, payload, self.timeout)
+            )
+            rows = sorted(reply["data"], key=lambda r: r.get("index", 0))
             vecs = [[float(x) for x in r["embedding"]] for r in rows]
         except _ERRORS as exc:  # URLError/HTTPError/RedirectRefusedError are OSErrors
             raise EmbeddingError(f"embedding gateway failed: {exc}") from exc
@@ -191,11 +200,8 @@ class GatewayReranker:
             return []
         payload = {"model": self.model, "query": query, "documents": docs}
         try:
-            reply = _post_json(f"{self.url}/v1/rerank", self._key, payload, self.timeout)
-            scored = [
-                (int(r["index"]), float(r["relevance_score"]))
-                for r in reply["results"]  # type: ignore[index]
-            ]
+            reply = _object(_post_json(f"{self.url}/v1/rerank", self._key, payload, self.timeout))
+            scored = [(int(r["index"]), float(r["relevance_score"])) for r in reply["results"]]
         except _ERRORS as exc:
             raise RerankError(f"rerank gateway failed: {exc}") from exc
         if any(not 0 <= i < len(docs) for i, _ in scored):

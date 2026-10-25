@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `culture-library eval {overview,generate,run,show}`, backed by the `culture_library.eval` package. It holds a framework-neutral adapter interface, with RAGAS 0.4.3 as the first adapter scoring ID-based and LLM context precision/recall. Book sets are generated from the book's own chunks, and newspaper sets from the sources sidecar. Runs refuse stale, archived or re-indexing items and record the server's retrieval config. Text from non-public items is never sent to a non-local judge.
 - An optional `[eval]` extra: `ragas==0.4.3`, `openai>=1` and `langchain-community<0.4.2`. Without the cap, ragas 0.4.3 fails to import. Base dependencies stay empty, and an opt-in CI job runs the real-ragas tests.
 - Runbook: "Enable embeddings" in `docs/operations/deploy.md`.
+- CI fails a pull request that has any OPEN or CONFIRMED SonarCloud issue; accepted and false-positive issues pass (`scripts/sonar-pr-issues.py`, cited from culture-rules@dcddf88).
 
 ### Changed
 

@@ -63,7 +63,8 @@ def test_roundtrip_and_json_decoding(tmp_path):
         sources.put(conn, item.id, {"urls": []})
         assert sources.get(conn, item.id) == {"urls": []}
         s = eval_store.get_set(conn, set_id)
-        assert s["chunker_json"] == {"size": 5} and s["version"] == 1
+        assert s["chunker_json"] == {"size": 5}
+        assert s["version"] == 1
         assert eval_store.list_samples(conn, set_id)[0]["reference_chunk_shas"] == ["c1"]
         assert eval_store.get_run(conn, run_id)["aggregates_json"] == {"m": 1}
         assert len(eval_store.list_run_samples(conn, run_id)) == 2

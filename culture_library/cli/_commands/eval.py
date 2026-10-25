@@ -102,10 +102,10 @@ def _map_errors(fn):
             code = EXIT_ENV_ERROR
         else:
             code = EXIT_USER_ERROR
-        raise CliError(code, text, getattr(exc, "hint", "") or _default_hint(exc, text)) from None
+        raise CliError(code, text, getattr(exc, "hint", "") or _default_hint(text)) from None
 
 
-def _default_hint(exc: Exception, text: str) -> str:
+def _default_hint(text: str) -> str:
     if _INSTALL in text:
         return _INSTALL
     return "run 'culture-library explain eval' for usage"
@@ -257,7 +257,11 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def _fmt(v: Any) -> str:
-    return "n/a" if v is None else f"{v:.3f}" if isinstance(v, float) else str(v)
+    if v is None:
+        return "n/a"
+    if isinstance(v, float):
+        return f"{v:.3f}"
+    return str(v)
 
 
 def _emit(args: argparse.Namespace, data: dict, text: str) -> None:

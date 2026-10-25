@@ -55,7 +55,9 @@ def test_semantic_returns_full_chunk_text_ranked_by_cosine(lib):
     assert ps, "expected passages"
     top = ps[0]
     assert isinstance(top, sr.Passage)
-    assert top.item_id == cat.id and top.title == "Felines" and top.kind == "document"
+    assert top.item_id == cat.id
+    assert top.title == "Felines"
+    assert top.kind == "document"
     assert top.source == "semantic"
     # full stored chunk text, not a snippet
     with store.reader() as conn:
@@ -90,7 +92,8 @@ def test_header_chunk_is_flagged(lib):
     with store.reader() as conn:
         ps = sr.passages(conn, [0.0, 0.0, 1.0], 50, "semantic", PUBLIC)
     headers = [p for p in ps if p.is_header]
-    assert headers and all(p.chunk_no == 0 for p in headers)
+    assert headers
+    assert all(p.chunk_no == 0 for p in headers)
     assert all(not p.is_header for p in ps if p.chunk_no != 0)
     assert any(p.item_id == cat.id and p.text == "Felines" for p in headers)
 
@@ -220,9 +223,11 @@ def test_kind_and_item_ids_filter_before_cutoff(store):
         top1 = sr.passages(conn, q, 1, "semantic", PUBLIC)
         assert top1[0].kind == "document"
         only_art = sr.passages(conn, q, 1, "semantic", PUBLIC, kind="article")
-        assert len(only_art) == 1 and only_art[0].item_id == art.id
+        assert len(only_art) == 1
+        assert only_art[0].item_id == art.id
         only_id = sr.passages(conn, q, 1, "hybrid", PUBLIC, item_ids=[art.id], query="cat")
-        assert len(only_id) == 1 and only_id[0].item_id == art.id
+        assert len(only_id) == 1
+        assert only_id[0].item_id == art.id
         assert sr.passages(conn, q, 5, "semantic", PUBLIC, item_ids=[]) == []
         assert sr.passages(conn, q, 5, "semantic", PUBLIC, kind="book") == []
 
@@ -234,7 +239,8 @@ def test_item_chunks_lists_in_order_and_respects_visibility(store):
     with store.reader() as conn:
         chunks = sr.item_chunks(conn, pub.id, PUBLIC)
         assert [c.chunk_no for c in chunks] == list(range(len(chunks)))
-        assert chunks[0].is_header and chunks[0].text == "Felines"
+        assert chunks[0].is_header
+        assert chunks[0].text == "Felines"
         assert not any(c.is_header for c in chunks[1:])
         for c in chunks:
             assert c.chunk_sha == sr.chunk_sha(c.text)

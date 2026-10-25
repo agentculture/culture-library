@@ -84,24 +84,27 @@ def lib():
 
 def test_refuses_when_item_sha_changed(lib):
     lib.chunks_info["item_sha256"] = "c" * 64
+    eval_set, adapter = _set(Sample(question="q")), FakeAdapter()
     with pytest.raises(EvalStaleError) as ei:
-        run_set(lib.client, _set(Sample(question="q")), FakeAdapter())
+        run_set(lib.client, eval_set, adapter)
     assert ei.value.hint
     assert lib.retrieve_bodies == []
 
 
 def test_refuses_when_item_archived_or_missing(lib):
     del lib.items[1]
+    eval_set, adapter = _set(Sample(question="q")), FakeAdapter()
     with pytest.raises(EvalStaleError) as ei:
-        run_set(lib.client, _set(Sample(question="q")), FakeAdapter())
+        run_set(lib.client, eval_set, adapter)
     assert "archived" in str(ei.value)
     assert ei.value.hint
 
 
 def test_refuses_when_index_not_done(lib):
     lib.chunks_info["index_state"] = "pending"
+    eval_set, adapter = _set(Sample(question="q")), FakeAdapter()
     with pytest.raises(EvalStaleError):
-        run_set(lib.client, _set(Sample(question="q")), FakeAdapter())
+        run_set(lib.client, eval_set, adapter)
     assert lib.retrieve_bodies == []
 
 
