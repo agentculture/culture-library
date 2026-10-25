@@ -125,6 +125,24 @@ def requeue_unembedded(store: Store) -> int:
         return cur.rowcount
 
 
+def requeue_stale_model(store: Store, label: str) -> int:
+    """Re-open finished jobs whose embeddings were made under another model/prompt label.
+
+    Run at startup with the indexer's label so a prompt or model change re-embeds the corpus
+    instead of comparing new query vectors with old document vectors.
+    """
+    if not label:
+        return 0
+    with store.connect() as conn:
+        cur = conn.execute(
+            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0 "
+            "WHERE state='done' AND item_id IN "
+            "(SELECT DISTINCT item_id FROM embeddings WHERE model != ?)",
+            (label,),
+        )
+        return cur.rowcount
+
+
 def requeue_all(store: Store) -> int:
     """Re-run every job (e.g. after the text extractor improves)."""
     with store.connect() as conn:

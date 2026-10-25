@@ -205,6 +205,32 @@ class Client:
         query = {"q": q, "mode": mode, "kind": kind, "limit": limit}
         return self._request("GET", "/api/search", query=query)
 
+    def rag_retrieve(
+        self,
+        query: str,
+        k: int | None = None,
+        mode: str | None = None,
+        kind: str | None = None,
+        item_ids: list[int] | None = None,
+        rerank: bool | None = None,
+        candidates: int | None = None,
+    ) -> dict:
+        """``POST /api/rag/retrieve``; unset options are omitted so the server's defaults apply."""
+        body = {
+            "query": query,
+            "k": k,
+            "mode": mode,
+            "kind": kind,
+            "item_ids": item_ids,
+            "rerank": rerank,
+            "candidates": candidates,
+        }
+        return self._request(
+            "POST",
+            "/api/rag/retrieve",
+            json_body={k_: v for k_, v in body.items() if v is not None},
+        )
+
     def send(self, item_id: int, target: str) -> dict:
         return self._request(
             "POST", f"/api/library/{int(item_id)}/send", json_body={"target": target}

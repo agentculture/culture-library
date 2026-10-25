@@ -37,6 +37,17 @@ jobs:
         env:
           SONAR_HOST_URL: https://sonarcloud.io
 
+      # No unresolved SonarCloud issue on the PR. A code smell leaves the quality gate
+      # green, so this fails the job while the PR has any OPEN or CONFIRMED issue;
+      # ACCEPTED and FALSE_POSITIVE ones pass. Cited from culture-rules (#43).
+      - name: SonarCloud unresolved issues
+        if: env.SONAR_TOKEN != '' && github.event_name == 'pull_request'
+        env:
+          SONAR_HOST_URL: https://sonarcloud.io
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/sonar-pr-issues.py
+
   lint:
     runs-on: ubuntu-latest
     permissions:
@@ -200,3 +211,24 @@ jobs:
           else
             echo "Version bumped: $MAIN_VERSION -> $PR_VERSION"
           fi
+
+  ragas:
+    # Opt-in real-ragas tests: installs the pinned [eval] extra. The `test` job stays ragas-free.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+
+      - run: uv python install 3.12
+
+      - run: uv sync --extra eval
+
+      # importorskip would silently skip on a broken install; fail loudly instead.
+      - name: ragas imports
+        run: uv run python -c "import ragas; assert ragas.__version__ == '0.4.3', ragas.__version__"
+
+      - name: real-ragas tests
+        run: uv run pytest -m ragas -v

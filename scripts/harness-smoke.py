@@ -106,10 +106,14 @@ GUILD_HARNESS = {
 #: are upstream's to fix (never patch a verbatim vendored copy), so they are
 #: WAIVED — reported every run, never silently dropped. Any finding outside
 #: this allowlist fails the check.
+#: The devague frame below is also waived: decision c42 once named the live env file
+#: as a literal ``~/.config`` path, and devague keeps every amended claim's earlier
+#: text in its append-only ``revisions`` history, which must never be hand-edited.
 STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
     {
         ".claude/skills/recall/SKILL.md",
         ".claude/skills/remember/SKILL.md",
+        ".devague/frames/rag-endpoints-ragas-evals.json",
     }
 )
 

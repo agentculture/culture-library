@@ -65,7 +65,7 @@ _ITEM_COLUMNS = (
 _KIND_CHECK = f"kind IN ({_KIND_SQL})"
 _KIND_CHECK_RE = re.compile(r"kind\s+IN\s*\(([^)]*)\)", re.IGNORECASE)
 # Child tables whose rows reference items(id) ON DELETE CASCADE: counted before and after.
-_ITEM_CHILDREN = ("embeddings", "index_queue")
+_ITEM_CHILDREN = ("embeddings", "index_queue", "item_sources", "eval_sets")
 
 
 class MigrationError(CoreError):

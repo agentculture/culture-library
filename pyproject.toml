@@ -1,6 +1,6 @@
 [project]
 name = "culture-library"
-version = "0.15.0"
+version = "0.16.0"
 description = "Culture's library of your own content and media: recordings, books, newspapers, articles, EPUBs, PDFs, docs and more. One catalog to ingest, index, search and serve it all, published at library.culture.dev."
 readme = "README.md"
 license = "Apache-2.0"
@@ -21,6 +21,14 @@ server = [
     "uvicorn>=0.29",
     "mcp>=1.2,<2",
     "python-multipart>=0.0.9",
+]
+# Opt-in RAG evaluation (culture_library.eval, `culture-library eval ...`): pinned ragas plus
+# the OpenAI-compatible client. Never part of base dependencies or the dev group.
+# langchain-community 0.4.2 removed chat_models.vertexai, which ragas 0.4.3 imports at load.
+eval = [
+    "ragas==0.4.3",
+    "openai>=1",
+    "langchain-community<0.4.2",
 ]
 
 [project.urls]
@@ -94,5 +102,6 @@ skips = ["B101", "B404", "B603"]
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
+    "ragas: real-ragas tests (opt-in: `uv sync --extra eval`, then `pytest -m ragas`; skipped unless ragas is installed)",
     "visual: Playwright visual-parity tests against docs/design/reference (opt-in: -m visual or CULTURE_LIBRARY_VISUAL=1)",
 ]

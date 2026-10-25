@@ -1,0 +1,196 @@
+# Build Plan — RAG endpoints + RAGAS evals
+
+slug: `rag-endpoints-ragas-evals` · status: `exported` · from frame: `rag-endpoints-ragas-evals`
+
+> culture-library ships RAG retrieval endpoints and a pluggable eval harness (RAGAS first): books get benchmarks generated from their text, newspapers get evals grounded in their sources and links, and every run proves search fetches what we want
+
+## Tasks
+
+### t1 — core/search.py: chunk-level passages() with `chunk_sha`
+
+- instruction: Add Passage dataclass + passages() + `chunk_sha`() in `culture_library`/core/search.py only. Reuse `unpack_vec`/cosine and the visibility SQL the existing semantic() uses; do NOT change Hit, semantic(), hybrid() or fulltext(). Query embedding is passed in as a vector (core stays network-free); the caller embeds. Header `chunk_no` 0 is returned like any chunk but flagged `is_header`=True so generators can skip it.
+- covers: c2, h2, c10, h9
+- acceptance:
+  - tests/core/`test_passages.py`: passages(conn, qvec, k, mode, vis, kind=None, `item_ids`=None) returns Passage(`item_id`, title, kind, `chunk_no`, `chunk_sha`, text, score, source) with FULL chunk text, ranked by cosine for semantic and RRF(k=60) with FTS item rank for hybrid
+  - `chunk_sha` == sha256(stored chunk text, utf-8) hex; same text -> same sha across re-index
+  - visibility parity: an item hidden from /api/search for a principal never yields a passage; archived items never yield
+  - `item_ids` and kind filters apply before ranking cutoff; existing search tests pass unchanged
+  - tests/core/`test_store.py`::`test_core_source_has_no_network_imports` still passes
+
+### t2 — core: eval + sources tables (`eval_store.py`, sources.py) registered as item children
+
+- instruction: Follow the embeddings/`index_queue` pattern: `register_schema` DDL at import, ON DELETE CASCADE. Only edit store.py to extend `_ITEM_CHILDREN` (`eval_samples`/`eval_runs`/`eval_run_samples` cascade via `eval_sets`; list only tables with an `item_id` column). Stdlib only, no network. Visibility-filtered list functions take the same `include_private`/owner args library.py uses.
+- covers: c5, h5, c37, h28, c19, h15
+- acceptance:
+  - new `culture_library`/core/`eval_store.py` registers `eval_sets`(id, `item_id` FK CASCADE, `item_sha256`, `chunker_json`, adapter, `adapter_version`, `generator_json`, `created_at`), `eval_samples`(id, `set_id` FK CASCADE, question, `reference_answer`, `reference_chunk_shas` JSON, `reference_contexts` JSON, `source_urls` JSON), `eval_runs`(id, `set_id` FK CASCADE, status complete|partial|failed, `config_json`, total, completed, `aggregates_json` NULL unless complete, `created_at`), `eval_run_samples`(`run_id` FK CASCADE, `sample_id`, `retrieved_chunk_shas` JSON, `scores_json`)
+  - new `culture_library`/core/sources.py registers `item_sources`(`item_id` PK FK CASCADE, `manifest_json`, `updated_at`) with put/get
+  - store.py `_ITEM_CHILDREN` includes `item_sources` and `eval_sets`; `test_store_migration` seeds rows in every new table, forces a kinds rebuild, asserts counts unchanged and no FK violations
+  - deleting / purging an item leaves zero rows in all new tables
+  - two runs are reported comparable only when `set_id` and set version match (helper comparable(`run_a`, `run_b`) tested)
+
+### t3 — gateway.py: `prompt_name` for gemma2-embed + GatewayReranker; document-prompt indexer wiring
+
+- instruction: Edit `culture_library`/gateway.py and the lifespan in server/`routes_search.py` only. Copy embodiment/embodiment/vectors.py's redirect-refusing opener idea (stdlib urllib HTTPRedirectHandler override). embeddings.model column records 'gemma2-embed+Retrieval-document' style so mixed configs are detectable.
+- covers: c50, h36, c46, h37, c49, h35
+- acceptance:
+  - GatewayEmbedder(`prompt_name`=...) sends `prompt_name` only when set; `from_env` builds a document embedder (Retrieval-document) for the indexer and a query embedder (Retrieval-query) for retrieval; `LOBES_EMBED_PROMPTS`=off disables both
+  - GatewayReranker.`from_env`() (`LOBES_RERANK_MODEL` default 'reranker') POSTs {model, query, documents} to /v1/rerank and returns \[(index, `relevance_score`)\]; None when `GATEWAY_API_KEY` unset
+  - both clients refuse HTTP redirects (key never leaves the configured origin) — tested with a fake server issuing 302
+  - `routes_search` lifespan builds the indexer with the document embedder and stores query embedder + reranker on app.state; existing `test_status_search` tests pass
+
+### t4 — `culture_library`/eval/: adapter protocol, dataset/run models, judge config + locality gate
+
+- instruction: New package `culture_library`/eval/ (`__init__`, adapter.py, models.py, config.py, errors.py, client.py). Stdlib only. client.py is the ONE small stdlib HTTP client for the library API (Bearer key, JSON, no redirects) that generate.py and runner.py both use. Also create tests/eval/conftest.py with FakeAdapter, a fake OpenAI-compatible judge that records payloads, and a TestClient-backed library fixture — wave-1 tasks add test files but never edit this conftest. Models are plain dataclasses that serialize to the JSON shapes `eval_store` stores.
+- covers: c7, h6, c15, h14, c36, h27
+- acceptance:
+  - eval/adapter.py defines EvalAdapter Protocol: name, version, `generate_samples`(chunks, n, llm) -> \[Sample\], score(samples, retrieved, llm|None) -> per-sample + aggregate metrics; a FakeAdapter in tests plugs in with no other change
+  - eval/config.py: JudgeConfig from env (`CULTURE_LIBRARY_EVAL_LLM_URL` default `LOBES_GATEWAY_URL`, `_MODEL` default 'cortex', `GATEWAY_API_KEY`); `is_local`(url) true only for 127.0.0.1/localhost/::1/host.docker.internal
+  - `guard_text_egress`(items, judge) raises before any text is read when judge is non-local and any item is non-public — test: private item + <https://api.example.com> -> EvalPolicyError; same item + 127.0.0.1 -> ok
+  - no module outside eval/`ragas_adapter.py` imports ragas (grep test)
+  - eval/client.py and tests/eval/conftest.py exist and are the only shared modules t12/t13 import
+
+### t5 — packaging: \[eval\] extra, zero-deps guard, opt-in ragas marker
+
+- instruction: Touch pyproject.toml, tests/`test_zero_deps.py` and .github/workflows/tests.yml only. Mirror the 'visual' group pattern if a separate opt-in group is useful; do not add ragas to the dev group.
+- covers: c8, h7, c12, h11, c32, h23
+- acceptance:
+  - pyproject \[project.optional-dependencies\] eval = \['ragas==0.4.3', 'openai>=1'\] (pinned); dependencies stays \[\]
+  - tests/`test_zero_deps.py` blocks ragas, langchain\*, openai, datasets, instructor and still passes; asserts the \[eval\] extra contents
+  - pytest marker 'ragas' registered; real-ragas tests skip unless the eval extra is installed; default CI 'uv sync' does not install ragas
+
+### t6 — deploy: gateway reachability + enable-embeddings runbook
+
+- instruction: No live changes in this task — files only. Check whether deploy restart (cli/`_commands`/deploy.py) needs to pass the new vars through; if so, note it as a deviation rather than editing deploy.py here.
+- covers: c45, h33, c49, h35, c9, h8
+- acceptance:
+  - deploy/compose.yaml library + mcp services gain `extra_hosts` host.docker.internal:host-gateway; .env.example documents `LOBES_GATEWAY_URL`=<http://host.docker.internal:8001>, `LOBES_EMBED_MODEL`=gemma2-embed, `LOBES_RERANK_MODEL`=reranker
+  - docs/operations/deploy.md 'Enable embeddings' section: live.env vars, deploy restart, `requeue_all`, wait for `index_queue` all done + embeddings > 0, verify /api/status; rollback = unset + restart -> full-text search keeps working
+  - Dockerfile still installs .\[server\] only (unchanged)
+  - markdownlint clean; scripts/scan-secrets.py passes
+
+### t7 — culture-rules issue: newspaper sources sidecar (incl. backfill of existing issues)
+
+- instruction: Use the communicate skill (agtag). Body signed by the script. Ask culture-rules to confirm field names; the library side ships first and works without them (h16).
+- covers: c20, h16
+- acceptance:
+  - issue filed on agentculture/culture-rules via /communicate, linking the spec, proposing PUT /api/library/{id}/sources with the c33 manifest shape and a one-off backfill for the 15 live issues; issue URL recorded in the delivery
+
+### t8 — `routes_status`: report retrieval config
+
+- instruction: Edit server/`routes_status.py` only; read app.state set by t3.
+- depends on: t3
+- covers: c40, h31
+- acceptance:
+  - /api/status adds retrieval: {`embed_model`, `embed_prompts`, `chunker_max_chars`, `chunk_count`, `reranker_model`|null}; tests assert values equal the configured objects
+
+### t9 — `routes_rag.py`: POST /api/rag/retrieve with rerank + GET item chunks
+
+- instruction: New file server/`routes_rag.py` (auto-included). Use app.state query embedder + reranker from t3. Fake embedder/reranker injected via app.state in tests, as `test_status_search` does.
+- depends on: t1, t3
+- covers: c3, h3, c4, h4, c47, h38, c48, h34, c26, h17
+- acceptance:
+  - POST /api/rag/retrieve {query, k (1-50), mode semantic|hybrid, kind?, `item_ids`?, rerank?, candidates (k..200, default 50)} -> {query, mode, reranked, passages:\[{`item_id`,title,kind,`chunk_no`,`chunk_sha`,text,score,`rerank_score`|null,source}\]}; read scope
+  - 503 `rag_unavailable` with no query embedder; reranker failure -> reranked:false, original order, 200
+  - GET /api/rag/items/{id}/chunks (read scope, visibility) lists {`chunk_no`, `chunk_sha`, text, `is_header`} for generators
+  - visibility parity test vs /api/search for private/owner/public keys; tests/server/`test_status_search.py` unchanged and passing
+
+### t10 — `routes_sources.py`: newspaper sources sidecar API
+
+- instruction: New file server/`routes_sources.py`; uses core/sources.py from t2.
+- depends on: t2
+- covers: c33, h24
+- acceptance:
+  - PUT /api/library/{id}/sources (write scope) validates manifest \[{`article_title`, `source_urls`\[\], excerpt}\] and stores it; GET (read scope) returns it under the item's visibility; 404 for invisible items
+  - a read-only key gets 403 on PUT; a non-owner public key cannot see a private item's sidecar
+
+### t11 — `routes_eval.py`: store and read eval sets and runs
+
+- instruction: New file server/`routes_eval.py` over core/`eval_store.py`.
+- depends on: t2
+- covers: c34, h25
+- acceptance:
+  - POST /api/eval/sets and /api/eval/runs (write scope); GET /api/eval/sets?`item_id`= and /api/eval/runs?`set_id`= (read scope) filtered by the item's visibility; sample text never returned for invisible items
+  - POST /api/eval/runs refuses aggregates unless status == complete
+
+### t12 — eval/generate.py: book + newspaper eval-set generation
+
+- instruction: New file `culture_library`/eval/generate.py + tests/eval/`test_generate.py`. Talk to the server only through eval/client.py (from t4); use the conftest fixtures; don't edit conftest or client.py — if they're insufficient, raise a deviation.
+- depends on: t4
+- covers: c13, h12, c14, h13
+- acceptance:
+  - book: fetch item chunks (GET /api/rag/items/{id}/chunks), skip header, sample N (default 20, --samples) deterministically by seed, adapter.`generate_samples` -> every `reference_chunk_sha` is one of that item's chunk shas and `reference_contexts` are verbatim chunk text
+  - newspaper: requires the sources sidecar (clear CliError + hint if absent); samples map article excerpt -> matching chunk(s) and carry that article's `source_urls`; every sample has >= 1 source URL
+  - `guard_text_egress` runs before any chunk text is fetched; set records `item_sha256` + chunker config from /api/status
+
+### t13 — eval/runner.py: run a set against /api/rag/retrieve and score
+
+- instruction: New file `culture_library`/eval/runner.py + tests/eval/`test_runner.py`. Use eval/client.py and the t4 conftest only. ID-based metrics computed in-house (precision = relevant retrieved / retrieved, recall = reference shas retrieved / reference shas) so they work without ragas; the RAGAS adapter cross-checks them.
+- depends on: t4
+- covers: c38, h29, c39, h30, c41, h32, c19, h15, c47, h38
+- acceptance:
+  - pre-check: refuse (or record status stale) when item sha256 != set.`item_sha256`, item archived, or index not done
+  - per sample: POST retrieve with run config (mode, k, rerank, candidates); ID-based context precision/recall over `chunk_sha` always; LLM metrics only via adapter when judge configured
+  - non-local judge: no non-public passage text is sent (fake judge records payloads; test asserts)
+  - failure on sample i -> stored status partial/failed with completed count and no aggregates
+  - run config records server-reported embed model/prompts/chunker (from /api/status) + adapter name/version
+
+### t14 — eval/`ragas_adapter.py`: RAGAS 0.4.3 adapter
+
+- instruction: New file `culture_library`/eval/`ragas_adapter.py`, the only module importing ragas. Pin to 0.4.3 APIs; isolate version-specific calls in one place.
+- depends on: t4, t5
+- covers: c7, h6, c15, h14
+- acceptance:
+  - RagasAdapter implements EvalAdapter: ID-based context precision/recall and LLM context precision/recall (with reference) via ragas, LLM + embeddings through OpenAI-compatible `base_url` from JudgeConfig
+  - imported lazily; marked 'ragas' tests run a 2-sample set against a fake OpenAI-compatible server and match runner's in-house ID metrics
+
+### t15 — MCP: `rag_retrieve` tool
+
+- instruction: Edit mcp/tools.py and mcp/client.py only.
+- depends on: t9
+- covers: c35, h26, c26, h17
+- acceptance:
+  - mcp/tools.py `tool_specs`() lists `rag_retrieve`(query, k, mode, kind, `item_ids`, rerank); handler calls Client.`rag_retrieve` -> POST /api/rag/retrieve and returns payload unchanged; caller's bearer key used
+
+### t16 — CLI: eval noun (overview, generate, run, show) + explain + learn
+
+- instruction: New cli/`_commands`/eval.py + one register line in cli/`__init__.py` + entries in explain/catalog.py + learn.py. Lazy import the eval package inside handlers, copying server.py:51-61.
+- depends on: t12, t13, t14, t5
+- covers: c11, h10
+- acceptance:
+  - cli/`_commands`/eval.py registers eval {overview,generate,run,show}; --json everywhere; without the extra exits 2 with 'install culture-library\[eval\]'
+  - explain catalog entries for every eval path; learn mentions eval; uv run teken cli doctor . --strict passes
+  - eval run --mode/--rerank/--k flags let two configs run over one set (for #7 / c31)
+
+### t17 — docs: CLAUDE.md / README / harness files describe RAG + eval
+
+- instruction: Docs only; keep the other harness files short.
+- depends on: t16, t15
+- covers: c27, h18
+- acceptance:
+  - CLAUDE.md documents /api/rag, /api/eval, sources sidecar, eval CLI, \[eval\] extra (`test_zero_deps` doc check style) and cites the before-state evidence (search.py Hit, t7 evidence, #7); QWEN.md/AGENTS.colleague.md kept in step; markdownlint clean
+
+### t18 — LIVE: enable gemma2-embed + reranker on library.culture.dev and re-embed
+
+- instruction: Operator-gated: requires the merged release on PyPI/image and explicit user go-ahead before touching live.env or restarting. Follow docs/operations/deploy.md exactly.
+- depends on: t6, t3, t8, t9
+- covers: c46, h37
+- acceptance:
+  - after release + deploy restart: live /api/status shows `embed_model` gemma2-embed with Retrieval prompts and reranker set; `index_queue` all done; embeddings rows > 0, all one model; /api/rag/retrieve returns passages
+  - pre-change backup snapshot taken and path recorded; rollback path verified in the runbook
+
+### t19 — LIVE: baseline — eval sets for >=3 books and >=3 newspapers, runs under two configs
+
+- instruction: Operator-gated live work. Generation uses the local judge (cortex) by default. Record results as evidence under docs/evidence/.
+- depends on: t18, t16, t10, t11, t7
+- covers: c30, h21, c31, h22, c1, h1, c29, h20, c28, h19
+- acceptance:
+  - operator has uploaded >= 2 more books (>= 3 live books); >= 3 newspaper issues have sidecars
+  - eval generate + eval run produce >= 6 sets each with >= 1 complete run carrying ID-based and LLM context precision/recall; GET /api/eval/runs shows them
+  - one set run twice (rerank on vs off, or semantic vs hybrid) -> 2 comparable runs; numbers posted to issue #7 as input
+
+## Risks
+
+- [unknown_nonblocking] Existing 15 live newspaper issues have no sources sidecar; the newspaper half of the baseline (c30) depends on culture-rules shipping the push + a backfill (task t19)
+- [follow_up] RAGAS API churn (0.1->0.4): adapter pinned to 0.4.3; an upgrade is a deliberate follow-up, not drift (task t14)
+- [unknown_nonblocking] Gateway contention: eval runs share the lobes gateway (orin-proxied embed/rerank, cortex judge) with the live indexer, Gwen and colleague; run the baseline off-peak and record timings (task t19)
+- [unknown_nonblocking] deploy restart may need to pass the new `LOBES_RERANK_MODEL` / prompt vars through to the container (cli/`_commands`/deploy.py) — discovered during t6 or t18 -> /deviate (task t6)
