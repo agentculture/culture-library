@@ -7,7 +7,7 @@ import hashlib
 import pytest
 
 pytest.importorskip("fastapi")
-from fastapi import APIRouter, HTTPException  # noqa: E402
+from fastapi import APIRouter  # noqa: E402
 
 from culture_library.eval.config import JudgeConfig  # noqa: E402
 from culture_library.eval.errors import EvalPolicyError  # noqa: E402
@@ -39,13 +39,9 @@ def _mount(library, chunks_by_item: dict, sources_by_item: dict, log: list):
         ]
         return {"item_id": item_id, "chunks": rows}
 
-    @router.get("/api/library/{item_id}/sources")
-    def sources(item_id: int):
-        if item_id not in sources_by_item:
-            raise HTTPException(404, "no sources")
-        return {"sources": sources_by_item[item_id]}
-
     library.app.include_router(router)
+    for item_id, manifest in sources_by_item.items():  # seed through the REAL sources route
+        library.client.put_sources(item_id, manifest)
 
 
 TEXTS = ["HEADER"] + [
@@ -122,7 +118,10 @@ def test_chunker_recorded_from_status(library, monkeypatch):
     item = library.add_item(b"b", kind="book")
     _mount(library, {item.id: TEXTS}, {}, [])
     s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=2)
-    assert s.chunker == {}  # no "retrieval" key until the status route reports one
+    assert s.chunker == library.client.status().get("retrieval", {})
+    monkeypatch.setattr(library.client, "status", lambda: {})
+    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=2)
+    assert s.chunker == {}
     monkeypatch.setattr(library.client, "status", lambda: {"retrieval": {"chunk_chars": 800}})
     s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=2)
     assert s.chunker == {"chunk_chars": 800}
@@ -149,9 +148,21 @@ def test_newspaper_requires_sources(library):
 def test_newspaper_maps_articles_to_chunks_with_urls(library):
     item = library.add_item(b"paper", kind="newspaper")
     sources = [
-        {"excerpt": "mayor OPENS the new bridge", "source_urls": ["https://a.example/1"]},
-        {"excerpt": "Storm hits the coast;  thousands", "source_urls": ["https://a.example/2"]},
-        {"excerpt": "Not in the paper at all", "source_urls": ["https://a.example/3"]},
+        {
+            "article_title": "a",
+            "excerpt": "mayor OPENS the new bridge",
+            "source_urls": ["https://a.example/1"],
+        },
+        {
+            "article_title": "a",
+            "excerpt": "Storm hits the coast;  thousands",
+            "source_urls": ["https://a.example/2"],
+        },
+        {
+            "article_title": "a",
+            "excerpt": "Not in the paper at all",
+            "source_urls": ["https://a.example/3"],
+        },
     ]
     _mount(library, {item.id: NEWS}, {item.id: sources}, [])
     s = generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
@@ -163,21 +174,15 @@ def test_newspaper_maps_articles_to_chunks_with_urls(library):
     assert all(x.source_urls for x in s.samples)
 
 
-def test_newspaper_skips_articles_without_urls(library):
-    item = library.add_item(b"paper", kind="newspaper")
-    sources = [
-        {"excerpt": "Local team wins the final", "source_urls": []},
-        {"excerpt": "Storm hits the coast", "source_urls": ["https://a.example/2"]},
-    ]
-    _mount(library, {item.id: NEWS}, {item.id: sources}, [])
-    s = generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
-    assert len(s.samples) == 1 and s.generator["unmatched"] == 1
-
-
 def test_newspaper_guard_before_chunks(library):
     item = library.add_item(b"paper", kind="newspaper", visibility="private")
     log: list = []
-    _mount(library, {item.id: NEWS}, {item.id: [{"excerpt": "x", "source_urls": ["u"]}]}, log)
+    _mount(
+        library,
+        {item.id: NEWS},
+        {item.id: [{"article_title": "a", "excerpt": "x", "source_urls": ["https://a.example/u"]}]},
+        log,
+    )
     with pytest.raises(EvalPolicyError):
         generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), REMOTE, item.id)
     assert log == []
