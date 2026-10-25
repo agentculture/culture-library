@@ -128,6 +128,34 @@ If the extra is missing, `serve` exits 2 with a hint to install
 `culture-library[server]`.
 """
 
+_EVAL = """\
+# culture-library eval
+
+Generate, run and inspect RAG retrieval evals against a running library. Generation and
+scoring need the optional `[eval]` extra (`pip install 'culture-library[eval]'`, ragas 0.4.3);
+without it `generate` and `run` exit 2 with a hint to install `culture-library[eval]`.
+
+## Configuration
+
+- `CULTURE_LIBRARY_URL` — library base URL (default `http://127.0.0.1:8796`).
+- `CULTURE_LIBRARY_API_KEY` — API key (required; mint one with `culture-library keys mint`).
+- `CULTURE_LIBRARY_EVAL_LLM_URL` / `CULTURE_LIBRARY_EVAL_LLM_MODEL` / `GATEWAY_API_KEY` —
+  the judge. Non-public text is never sent to a non-local judge.
+
+## Verbs
+
+- `culture-library eval generate ITEM_ID [--samples N] [--seed S] [--kind book|newspaper]` —
+  build a set from the item's chunks (newspapers: from the sources sidecar) and store it.
+- `culture-library eval run SET_ID [--mode semantic|hybrid] [--k N] [--rerank|--no-rerank]
+  [--candidates N] [--no-llm]` — retrieve every question, score it, store the run. Run the
+  same set twice with different flags to compare two configurations.
+- `culture-library eval show [--set ID | --run ID | --item ID]` — list or show.
+- `culture-library eval overview` — describe this noun.
+
+Every verb accepts `--json`. Library/API failures exit 2; bad input, stale sets and policy
+refusals exit 1.
+"""
+
 _KEYS = """\
 # culture-library keys
 
@@ -250,6 +278,11 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("migrate",): _MIGRATE,
     ("migrate", "from-xteink"): _MIGRATE,
     ("migrate", "overview"): _MIGRATE,
+    ("eval",): _EVAL,
+    ("eval", "generate"): _EVAL,
+    ("eval", "run"): _EVAL,
+    ("eval", "show"): _EVAL,
+    ("eval", "overview"): _EVAL,
     ("keys",): _KEYS,
     ("keys", "mint"): _KEYS,
     ("keys", "list"): _KEYS,
