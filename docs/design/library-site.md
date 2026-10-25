@@ -171,7 +171,10 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
   - The reader (`links.js`) turns each link's text in the paragraph into an
     `<a>` built with DOM properties. It checks the href again, opens in a new
     tab with `rel="noopener noreferrer"`, and never uses `innerHTML`. Search
-    highlighting applies to the text around a link, not inside it.
+    highlighting applies inside link text too (a term crossing a link's edge
+    is not marked). A link the markup never closes ends at the paragraph it
+    opened in; one that spans paragraphs counts only when its `</a>` arrives
+    before the next heading or the end of the chapter.
 - **Private items** are labeled *Only me*. There is no *Arriving* label in
   the built site (deviation d3); it existed only in the prototype.
 - **Per-browser state** (theme, last read item, pane state, reading position)

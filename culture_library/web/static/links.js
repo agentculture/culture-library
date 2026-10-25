@@ -37,9 +37,9 @@ export function linkSegments(text, links) {
   return out;
 }
 
-/** A paragraph as nodes: plain segments through `hl` (search highlighting), links as
- * <a target="_blank" rel="noopener noreferrer"> built with DOM APIs. Link text is not
- * highlighted. */
+/** A paragraph as nodes: every segment goes through `hl` (search highlighting); links are
+ * <a target="_blank" rel="noopener noreferrer"> built with DOM APIs, their highlighted text
+ * appended as nodes, never parsed as HTML. A term crossing a link's edge is not marked. */
 export function linkedNodes(text, links, hl, doc = globalThis.document) {
   return linkSegments(text, links).flatMap(seg => {
     if (!seg.href || !SAFE_HREF.test(seg.href)) return hl(seg.text);
@@ -47,7 +47,7 @@ export function linkedNodes(text, links, hl, doc = globalThis.document) {
     a.href = seg.href;
     a.rel = 'noopener noreferrer';
     a.target = '_blank';
-    a.textContent = seg.text;
+    a.append(...hl(seg.text));
     return [a];
   });
 }

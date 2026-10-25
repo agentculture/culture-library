@@ -3,7 +3,7 @@
 Obligation o1 on claim c32 (plan task t16). All 30 views compare with ``docs/design/reference/``;
 the 28 in ``views.DEVIATED`` were re-approved by the operator: 18 for deviations d3 and d5 on
 2026-10-24, and 10 more (the newspaper reader and the views over it, #18 source links) on
-2026-10-26. ``CULTURE_LIBRARY_VISUAL_CANDIDATES=1`` writes renders to
+2026-10-25. ``CULTURE_LIBRARY_VISUAL_CANDIDATES=1`` writes renders to
 ``docs/design/reference-candidates/`` for a future re-approval; it never touches the references.
 Each run prints a per-view diff table; a failing view leaves its actual and diff images in
 the output directory (``CULTURE_LIBRARY_VISUAL_OUT`` or a temp dir) and names the paths.

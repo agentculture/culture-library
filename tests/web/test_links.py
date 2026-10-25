@@ -362,12 +362,13 @@ def test_linked_nodes_build_anchors_with_dom_properties() -> None:
     expr = """(() => {
       const made = [];
       const doc = { createElement(tag) {
-        const el = { tag, set innerHTML(v) { throw new Error('innerHTML used'); } };
+        const el = { tag, kids: [], append(...k) { this.kids.push(...k); },
+          set innerHTML(v) { throw new Error('innerHTML used'); } };
         made.push(el); return el; } };
       const hl = s => ['hl:' + s];
       const nodes = m.linkedNodes('see X now', [{text: 'X', href: 'https://x.example/a'}], hl, doc);
       return nodes.map(n => typeof n === 'string' ? n : {tag: n.tag, href: n.href, rel: n.rel,
-        target: n.target, text: n.textContent});
+        target: n.target, text: n.kids});
     })()"""
     assert _node(expr) == [
         "hl:see ",
@@ -376,10 +377,26 @@ def test_linked_nodes_build_anchors_with_dom_properties() -> None:
             "href": "https://x.example/a",
             "rel": "noopener noreferrer",
             "target": "_blank",
-            "text": "X",
+            "text": ["hl:X"],
         },
         "hl: now",
     ]
+
+
+@needs_node
+def test_search_terms_inside_link_text_are_highlighted() -> None:
+    """A newspaper source title is a whole link; a search hit on it is still marked."""
+    expr = """(() => {
+      const doc = { createElement(tag) { return { tag, kids: [],
+        append(...k) { this.kids.push(...k); },
+        set innerHTML(v) { throw new Error('innerHTML used'); } }; } };
+      const hl = s => s.split(/(Jetson)/).filter(Boolean)
+        .map(p => p === 'Jetson' ? {mark: p} : p);
+      const link = [{text: 'Jetson Lab', href: 'https://x.io'}];
+      const [a] = m.linkedNodes('Jetson Lab', link, hl, doc);
+      return a.kids;
+    })()"""
+    assert _node(expr) == [{"mark": "Jetson"}, " Lab"]
 
 
 @needs_node
@@ -398,6 +415,40 @@ def test_reader_renders_section_paragraphs_through_linked_nodes() -> None:
     assert "linkedNodes(p, s.links?.[n], hl)" in js
     links = LINKS_JS.read_text(encoding="utf-8")
     assert "innerHTML" not in links
-    assert "a.textContent = " in links
+    assert "a.append(...hl(seg.text))" in links
     assert "rel = 'noopener noreferrer'" in links
     assert "target = '_blank'" in links
+
+
+# PR #24 review: a link never leaks past an unclosed <a> ------------------------------------
+
+
+def test_unclosed_anchor_does_not_link_later_paragraphs_or_sections() -> None:
+    sections = _sections_of(
+        '<p><a href="https://x.io">Src</p><p>Next para</p><h2>Head</h2><p>after</p>'
+    )
+    first, second = sections
+    assert first["paragraphs"] == ["Src", "Next para"]
+    assert first["links"] == [[{"text": "Src", "href": "https://x.io", "start": 0}], []]
+    assert second["paragraphs"] == ["after"]
+    assert second["links"] == [[]]
+
+
+def test_unclosed_anchor_at_end_of_chapter_keeps_only_its_own_paragraph() -> None:
+    s = _one('<p>see <a href="https://x.io">Src</p><p>tail</p>')
+    assert s["links"] == [[{"text": "Src", "href": "https://x.io", "start": 4}], []]
+
+
+def test_link_opened_in_a_heading_does_not_leak_into_the_body() -> None:
+    (s,) = _sections_of('<h2><a href="https://x.io">Title</h2><p>Body text</p>')
+    assert s["heading"] == "Title"
+    assert s["links"] == [[]]
+
+
+def test_closed_block_link_still_spans_its_paragraphs() -> None:
+    s = _one('<a href="https://a.example/"><p>Part one</p><p>Part two</p></a><p>after</p>')
+    assert s["links"] == [
+        [{"text": "Part one", "href": "https://a.example/", "start": 0}],
+        [{"text": "Part two", "href": "https://a.example/", "start": 0}],
+        [],
+    ]

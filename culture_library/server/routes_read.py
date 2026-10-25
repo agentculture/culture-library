@@ -82,8 +82,6 @@ def _safe_href(href: str | None) -> str | None:
         return None
     if any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F or c == "\\" for c in href):
         return None
-    if not href.lower().startswith(("http://", "https://")):
-        return None
     try:
         parts = urlsplit(href)
     except ValueError:
@@ -137,8 +135,11 @@ class _SectionParser(HTMLParser):
         self._buf: list[str] = []
         self._buf_len = 0
         self._a_depth = 0
-        self._link: tuple[str, int] | None = None  # (href, start offset in the buffer)
-        self._spans: list[tuple[int, int, str]] = []  # closed links in the current buffer
+        # (href, start offset in the buffer, tentative): tentative once the link has crossed a
+        # block break, because only a matching </a> proves it really spans that far.
+        self._link: tuple[str, int, bool] | None = None
+        self._spans: list[tuple[int, int, str, bool]] = []  # link spans in the current buffer
+        self._tentative_links: list[tuple[list, dict]] = []  # tentative link entries, kept on </a>
         self._start("")
 
     def _start(self, heading: str) -> None:
@@ -152,28 +153,30 @@ class _SectionParser(HTMLParser):
         Offsets are counted incrementally: each span's text is cut at its first non-space
         character, and collapsing whitespace commutes with splitting at a non-space
         character, so the collapsed length of the prefix is a running sum (linear)."""
-        out: list[dict[str, Any]] = []
-        pos = norm = 0  # raw position (a non-space char, or 0) and its collapsed offset
+        out: list[tuple[dict[str, Any], bool]] = []
+        pos = norm = 0  # raw position of the last counted non-space char, its collapsed offset
+        started = False  # whether any text before ``pos`` has been counted
         at = 0  # end of the previous link in ``text``
-        for start, end, href in spans:
-            piece = _WS.sub(" ", raw[start:end]).strip()
+        for start, end, href, tentative in spans:
+            seg = raw[start:end]
+            piece = _WS.sub(" ", seg).strip()
             if not piece:
                 continue
-            first = start + (len(raw[start:end]) - len(raw[start:end].lstrip()))
+            first = start + len(seg) - len(seg.lstrip())
             chunk = _WS.sub(" ", raw[pos:first])
-            norm += len(chunk.lstrip()) if pos == 0 else len(chunk)
-            pos = first
+            norm += len(chunk) if started else len(chunk.lstrip())
+            pos, started = first, True
             if norm < at or text[norm : norm + len(piece)] != piece:
                 continue
-            out.append({"text": piece, "href": href, "start": norm})
+            out.append(({"text": piece, "href": href, "start": norm}, tentative))
             at = norm + len(piece)
         return out
 
     def _flush(self) -> None:
-        if self._link is not None:  # a link spanning a block break: keep the part so far
-            href, start = self._link
-            self._spans.append((start, self._buf_len, href))
-            self._link = (href, 0)
+        if self._link is not None:  # a link crossing a block break: keep the part so far,
+            href, start, tentative = self._link  # and treat what follows as tentative
+            self._spans.append((start, self._buf_len, href, tentative))
+            self._link = (href, 0, True)
         raw = "".join(self._buf)
         text = _WS.sub(" ", raw).strip()
         spans, self._spans = self._spans, []
@@ -190,22 +193,38 @@ class _SectionParser(HTMLParser):
         else:
             cur = self.sections[-1]
             cur["paragraphs"].append(text)
-            cur["links"].append(self._paragraph_links(spans, raw, text))
+            links: list[dict[str, Any]] = []
+            for entry, tentative in self._paragraph_links(spans, raw, text):
+                links.append(entry)
+                if tentative:
+                    self._tentative_links.append((links, entry))
+            cur["links"].append(links)
+
+    def _abandon_link(self) -> None:
+        """An <a> never closed before a heading or the chapter's end: drop the parts it was
+        only presumed to cover, and stop linking (the part where it opened is kept)."""
+        for links, entry in self._tentative_links:
+            links.remove(entry)
+        self._tentative_links = []
+        self._link = None
+        self._a_depth = 0
 
     def _open_link(self, attrs) -> None:
         self._a_depth += 1
         if self._a_depth == 1:
             href = _safe_href(dict(attrs).get("href"))
-            self._link = (href, self._buf_len) if href else None
+            self._link = (href, self._buf_len, False) if href else None
 
     def _close_link(self) -> None:
         if not self._a_depth:
             return
         self._a_depth -= 1
-        if not self._a_depth and self._link is not None:
-            href, start = self._link
-            self._spans.append((start, self._buf_len, href))
+        if not self._a_depth:
+            if self._link is not None:
+                href, start, tentative = self._link
+                self._spans.append((start, self._buf_len, href, tentative))
             self._link = None
+            self._tentative_links = []  # the </a> confirms every block it was presumed to span
 
     def handle_starttag(self, tag, attrs):
         if tag in self._SKIP:
@@ -217,6 +236,7 @@ class _SectionParser(HTMLParser):
         elif tag in self._HEAD or tag in self._BLOCK:
             self._flush()
             if tag in self._HEAD:
+                self._abandon_link()  # a heading ends any link still open
                 self._in_head = True
 
     def handle_startendtag(self, tag, attrs):
@@ -243,6 +263,7 @@ class _SectionParser(HTMLParser):
     def close(self) -> None:
         super().close()
         self._flush()
+        self._abandon_link()
 
 
 def _epub_members(data: bytes, limits: ingest.IngestLimits, *, skip_nav: bool):
@@ -280,7 +301,8 @@ def _sections_of(markup: str) -> list[dict]:
 
 
 def epub_sections(data: bytes, limits: ingest.IngestLimits = ingest.DEFAULT_LIMITS) -> list[dict]:
-    """``[{heading, paragraphs}]`` for an EPUB, one or more per chapter file, nav/toc skipped."""
+    """``[{heading, paragraphs, links}]`` for an EPUB, one or more per chapter file, nav/toc
+    skipped; ``links[i]`` lists paragraph ``i``'s ``{text, href, start}`` (see the parser)."""
     out: list[dict] = []
     for _name, markup in _epub_members(data, limits, skip_nav=True):
         out.extend(_sections_of(markup))

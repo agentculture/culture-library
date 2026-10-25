@@ -13,7 +13,7 @@ with ``docs/design/reference/``):
   to the viewport so the page never scrolls sideways;
 - the newspaper reader, and the send menu and "sent" toast drawn over it (desktop and phone):
   #18, the newspaper's source titles render as links (accent colour, underlined), re-approved
-  by the operator on 2026-10-26.
+  by the operator on 2026-10-25.
 """
 
 from __future__ import annotations
