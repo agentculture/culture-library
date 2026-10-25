@@ -157,7 +157,8 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
   never markup or script taken from an item.
   - The one exception is an EPUB's source links (#18). `GET
     /api/library/{id}/text` gives each section a `links` list parallel to
-    `paragraphs` (`links[i]` is `[{text, href}]` for paragraph `i`). Only
+    `paragraphs` (`links[i]` is `[{text, href, start}]` for paragraph `i`,
+    with the link text at `paragraphs[i][start:start + len(text)]`). Only
     absolute `http://` or `https://` hrefs are kept.
   - The reader (`links.js`) turns each link's text in the paragraph into an
     `<a>` built with DOM properties. It checks the href again, opens in a new

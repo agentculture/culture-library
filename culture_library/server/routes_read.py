@@ -7,12 +7,14 @@ omitted) for a caller without ``Principal.private`` (an item's own uploader exce
 - ``GET /api/library/{id}/text`` -> ``{item_id, kind, format, title, text, sections, reason}``.
   ``text`` is :func:`culture_library.core.ingest.extract_text` output: plain text, never
   markup (the body already indexed for search when present, else extracted on request).
-  For EPUB, ``sections`` is ``[{heading, paragraphs: [str], links: [[{text, href}]]}]``,
-  split at ``h1``-``h3`` by a stdlib parser that keeps character data only
+  For EPUB, ``sections`` is
+  ``[{heading, paragraphs: [str], links: [[{text, href, start}]]}]``, split at
+  ``h1``-``h3`` by a stdlib parser that keeps character data only
   (``script``/``style``/``head``/``title`` bodies are dropped); otherwise ``null``. The one
   attribute it reads is an ``<a>``'s ``href``, kept only when it is an absolute ``http(s)``
-  URL: ``links[i]`` lists paragraph ``i``'s links (``[]`` when none), each ``text`` a
-  substring of that paragraph (#18). ``paragraphs`` and ``text`` are unchanged by links.
+  URL: ``links[i]`` lists paragraph ``i``'s links (``[]`` when none), each at
+  ``paragraphs[i][start:start + len(text)]`` (#18). Links leave ``paragraphs`` and
+  ``text`` unchanged.
   ``reason`` explains an empty text (e.g. ``pdftotext_missing``).
 - ``GET /api/repodocs/{id}/rendered?commit=`` -> ``{doc_id, repo, path, kind, format, title,
   html | text}``. A ``.json`` document that parses is rendered by
@@ -98,9 +100,10 @@ class _SectionParser(HTMLParser):
     dropped, so nothing an item carries can become markup or code: paragraphs are plain
     strings. The one attribute read is an ``<a>``'s ``href``, and only an absolute
     ``http(s)`` URL is kept (:func:`_safe_href`): each section carries ``links``, parallel
-    to ``paragraphs``, where ``links[i]`` lists ``{text, href}`` for paragraph ``i``. A
-    link's ``text`` is a substring of its paragraph, found from the end of the previous
-    link, so a reader can locate it in the plain text. Links in headings are not kept.
+    to ``paragraphs``, where ``links[i]`` lists ``{text, href, start}`` for paragraph
+    ``i``, where ``paragraphs[i][start:start + len(text)] == text`` (ascending,
+    non-overlapping), so a reader can place it in the plain text. Links in headings are not
+    kept.
     """
 
     _SKIP = {"script", "style", "head", "title", "svg", "math", "noscript", "template"}
@@ -142,16 +145,28 @@ class _SectionParser(HTMLParser):
         self.sections.append({"heading": heading, "paragraphs": [], "links": []})
 
     @staticmethod
-    def _paragraph_links(spans, raw: str, text: str) -> list[dict[str, str]]:
-        out: list[dict[str, str]] = []
-        at = 0
+    def _paragraph_links(spans, raw: str, text: str) -> list[dict[str, Any]]:
+        """``{text, href, start}`` per link span, ``start`` being where the link's text sits
+        in the collapsed, stripped paragraph (``text[start:start + len] == link text``).
+
+        Offsets are counted incrementally: each span's text is cut at its first non-space
+        character, and collapsing whitespace commutes with splitting at a non-space
+        character, so the collapsed length of the prefix is a running sum (linear)."""
+        out: list[dict[str, Any]] = []
+        pos = norm = 0  # raw position (a non-space char, or 0) and its collapsed offset
+        at = 0  # end of the previous link in ``text``
         for start, end, href in spans:
             piece = _WS.sub(" ", raw[start:end]).strip()
-            found = text.find(piece, at) if piece else -1
-            if found < 0:
+            if not piece:
                 continue
-            out.append({"text": piece, "href": href})
-            at = found + len(piece)
+            first = start + (len(raw[start:end]) - len(raw[start:end].lstrip()))
+            chunk = _WS.sub(" ", raw[pos:first])
+            norm += len(chunk.lstrip()) if pos == 0 else len(chunk)
+            pos = first
+            if norm < at or text[norm : norm + len(piece)] != piece:
+                continue
+            out.append({"text": piece, "href": href, "start": norm})
+            at = norm + len(piece)
         return out
 
     def _flush(self) -> None:

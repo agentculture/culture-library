@@ -44,7 +44,7 @@ def _one(markup: str) -> dict:
 def test_absolute_http_links_are_kept(href: str) -> None:
     s = _one(f'<p>summary text <a href="{href}">Source</a></p>')
     assert s["paragraphs"] == ["summary text Source"]
-    assert s["links"] == [[{"text": "Source", "href": href.strip()}]]
+    assert s["links"] == [[{"text": "Source", "href": href.strip(), "start": 13}]]
 
 
 @pytest.mark.parametrize(
@@ -82,12 +82,12 @@ def test_anchor_without_href_is_plain_text() -> None:
 
 def test_entities_in_href_are_decoded() -> None:
     s = _one('<p>See <a href="https://x.example/a?b=1&amp;c=2">it</a>.</p>')
-    assert s["links"] == [[{"text": "it", "href": "https://x.example/a?b=1&c=2"}]]
+    assert s["links"] == [[{"text": "it", "href": "https://x.example/a?b=1&c=2", "start": 4}]]
     # an entity-encoded scheme is still refused once decoded
     s = _one('<p><a href="&#106;avascript:alert(1)">x</a></p>')
     assert s["links"] == [[]]
     s = _one('<p><a href="&#104;ttps://x.example/">x</a></p>')
-    assert s["links"] == [[{"text": "x", "href": "https://x.example/"}]]
+    assert s["links"] == [[{"text": "x", "href": "https://x.example/", "start": 0}]]
 
 
 def test_markup_inside_a_and_a_inside_strong() -> None:
@@ -98,8 +98,8 @@ def test_markup_inside_a_and_a_inside_strong() -> None:
     assert s["paragraphs"] == ["One Bold link and see Two end"]
     assert s["links"] == [
         [
-            {"text": "Bold link", "href": "https://x.example/1"},
-            {"text": "Two", "href": "https://x.example/2"},
+            {"text": "Bold link", "href": "https://x.example/1", "start": 4},
+            {"text": "Two", "href": "https://x.example/2", "start": 22},
         ]
     ]
 
@@ -114,26 +114,52 @@ def test_links_are_per_paragraph_and_parallel() -> None:
     )
     assert s["paragraphs"] == ["first A", "no link here", "third C and D"]
     assert s["links"] == [
-        [{"text": "A", "href": "https://a.example/"}],
+        [{"text": "A", "href": "https://a.example/", "start": 6}],
         [],
         [
-            {"text": "C", "href": "https://c.example/"},
-            {"text": "D", "href": "https://d.example/"},
+            {"text": "C", "href": "https://c.example/", "start": 6},
+            {"text": "D", "href": "https://d.example/", "start": 12},
         ],
     ]
     assert len(s["links"]) == len(s["paragraphs"])
 
 
-def test_link_text_is_whitespace_collapsed_and_located_in_order() -> None:
-    s = _one('<p>Source x <a href="https://a.example/">\n  Source \n</a></p>')
-    assert s["paragraphs"] == ["Source x Source"]
-    assert s["links"] == [[{"text": "Source", "href": "https://a.example/"}]]
-    for i, para in enumerate(s["paragraphs"]):
-        at = 0
-        for link in s["links"][i]:
-            found = para.find(link["text"], at)
-            assert found >= 0
-            at = found + len(link["text"])
+def test_link_start_marks_the_real_occurrence_not_the_first() -> None:
+    s = _one(
+        '<li>Source  code\n of the <b>Source</b> story <a href="https://a.example/">\n'
+        "  Source \n</a></li>"
+    )
+    assert s["paragraphs"] == ["Source code of the Source story Source"]
+    assert s["links"] == [[{"text": "Source", "href": "https://a.example/", "start": 32}]]
+
+
+_START_CASES = [
+    "<p>Source x <a href='https://a.example/'>\n  Source \n</a></p>",
+    "\n  <p>  lead\t\tspace <a href='https://a.example/'> A  b </a>  mid "
+    "<em><a href='https://b.example/'>A</a></em>A <a href='http://c.example/'>A</a></p>",
+    "<a href='https://a.example/'><p> Part\none</p><p>Part   two </p></a>",
+    "<li>one <a href='https://a.example/'><strong>Bold</strong>\n link</a> and "
+    "<strong> see <a href='https://b.example/'> Two</a></strong> end</li>",
+    "<p>\u00a0nbsp <a href='https://a.example/'>\u00a0x\u2003y\u00a0</a> z</p>",
+    "<p>a<a href='https://a.example/'>b</a><a href='https://b.example/'>b</a>b</p>",
+]
+
+
+@pytest.mark.parametrize("markup", _START_CASES)
+def test_every_link_start_locates_its_text(markup: str) -> None:
+    sections = _sections_of(f"<html><body>{markup}</body></html>")
+    seen = 0
+    for sec in sections:
+        assert len(sec["links"]) == len(sec["paragraphs"])
+        for para, links in zip(sec["paragraphs"], sec["links"]):
+            end = 0
+            for link in links:
+                start = link["start"]
+                assert para[start : start + len(link["text"])] == link["text"], (para, link)
+                assert start >= end  # ascending, non-overlapping
+                end = start + len(link["text"])
+                seen += 1
+    assert seen
 
 
 def test_link_spanning_blocks_links_each_part_and_empty_links_are_dropped() -> None:
@@ -143,8 +169,8 @@ def test_link_spanning_blocks_links_each_part_and_empty_links_are_dropped() -> N
     )
     assert s["paragraphs"] == ["Part one", "Part two", "x"]
     assert s["links"] == [
-        [{"text": "Part one", "href": "https://a.example/"}],
-        [{"text": "Part two", "href": "https://a.example/"}],
+        [{"text": "Part one", "href": "https://a.example/", "start": 0}],
+        [{"text": "Part two", "href": "https://a.example/", "start": 0}],
         [],
     ]
 
@@ -154,7 +180,7 @@ def test_nested_anchor_keeps_the_outer_link() -> None:
         '<p><a href="https://a.example/">out <a href="https://b.example/">in</a></a> after</p>'
     )
     assert s["paragraphs"] == ["out in after"]
-    assert s["links"] == [[{"text": "out in", "href": "https://a.example/"}]]
+    assert s["links"] == [[{"text": "out in", "href": "https://a.example/", "start": 0}]]
 
 
 def test_links_in_headings_and_skipped_bodies_are_not_recorded() -> None:
@@ -168,7 +194,7 @@ def test_links_in_headings_and_skipped_bodies_are_not_recorded() -> None:
 def test_parser_output_never_carries_markup() -> None:
     s = _one('<p><a href="https://x.example/&lt;b&gt;">&lt;i&gt;x</a></p>')
     assert s["paragraphs"] == ["<i>x"]  # character data, as before: text, not markup
-    assert s["links"] == [[{"text": "<i>x", "href": "https://x.example/<b>"}]]
+    assert s["links"] == [[{"text": "<i>x", "href": "https://x.example/<b>", "start": 0}]]
 
 
 # ------------------------------------------------------------------ API
@@ -200,7 +226,7 @@ def test_text_route_returns_links_and_unchanged_paragraphs(site: Site) -> None:
     body = site.c.get(f"/api/library/{item['id']}/text").json()
     (section,) = body["sections"]
     assert section["paragraphs"] == ["summary text X", "bad J D R P"]
-    assert section["links"] == [[{"text": "X", "href": "https://x.example/a"}], []]
+    assert section["links"] == [[{"text": "X", "href": "https://x.example/a", "start": 13}], []]
     plain = site.upload(
         make_epub({"OEBPS/s01.xhtml": _plain(_LINKED)}), "p.epub", visibility="public"
     )
@@ -253,7 +279,7 @@ def test_link_segments_split_at_link_text_in_order() -> None:
     text = "Source one: Source"
     links = [{"text": "Source", "href": "https://b.example/"}]
     got = _node(f"m.linkSegments({json.dumps(text)}, {json.dumps(links)})")
-    # text only: the first occurrence after the previous link is the one linked
+    # no start: the first occurrence after the previous link is the one linked
     assert got == [{"text": "Source", "href": "https://b.example/"}, {"text": " one: Source"}]
     got = _node(
         "m.linkSegments('a X b Y c', [{text: 'X', href: 'https://x.example/'},"
@@ -265,6 +291,57 @@ def test_link_segments_split_at_link_text_in_order() -> None:
         {"text": " b "},
         {"text": "Y", "href": "http://y.example/"},
         {"text": " c"},
+    ]
+
+
+@needs_node
+def test_link_segments_use_start_for_the_real_occurrence() -> None:
+    text = "Source code of the Source story Source"
+    links = [{"text": "Source", "href": "https://a.example/", "start": 32}]
+    assert _node(f"m.linkSegments({json.dumps(text)}, {json.dumps(links)})") == [
+        {"text": "Source code of the Source story "},
+        {"text": "Source", "href": "https://a.example/"},
+    ]
+    links = [
+        {"text": "b", "href": "https://a.example/", "start": 2},
+        {"text": "b", "href": "https://b.example/", "start": 3},
+    ]
+    assert _node(f"m.linkSegments('a b b b', {json.dumps(links)})") == [
+        {"text": "a "},
+        {"text": "b", "href": "https://a.example/"},
+        {"text": " "},
+        {"text": "b", "href": "https://b.example/"},
+        {"text": " b"},
+    ]
+
+
+@needs_node
+@pytest.mark.parametrize(
+    "start",
+    [None, -1, 1.5, "32", 99, 1, 33],
+    ids=["absent", "negative", "float", "string", "past-end", "wrong-text", "off-by-one"],
+)
+def test_link_segments_fall_back_when_start_is_invalid(start) -> None:
+    text = "Source code of the Source story Source"
+    link = {"text": "Source", "href": "https://a.example/"}
+    if start is not None:
+        link["start"] = start
+    assert _node(f"m.linkSegments({json.dumps(text)}, [{json.dumps(link)}])") == [
+        {"text": "Source", "href": "https://a.example/"},
+        {"text": " code of the Source story Source"},
+    ]
+
+
+@needs_node
+def test_link_segments_fall_back_when_start_overlaps_the_previous_link() -> None:
+    links = [
+        {"text": "ab", "href": "https://a.example/", "start": 0},
+        {"text": "b", "href": "https://b.example/", "start": 1},  # inside the previous link
+    ]
+    assert _node(f"m.linkSegments('ab b', {json.dumps(links)})") == [
+        {"text": "ab", "href": "https://a.example/"},
+        {"text": " "},
+        {"text": "b", "href": "https://b.example/"},
     ]
 
 

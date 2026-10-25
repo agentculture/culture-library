@@ -1,7 +1,8 @@
 /**
  * Source links in EPUB sections (#18). GET /api/library/{id}/text gives each section a
- * `links` list parallel to its plain-text `paragraphs`: `links[i]` is `[{text, href}]` for
- * paragraph i, each `text` found in the paragraph after the previous link. The server keeps
+ * `links` list parallel to its plain-text `paragraphs`: `links[i]` is
+ * `[{text, href, start}]` for paragraph i, where
+ * `paragraphs[i].slice(start, start + text.length) === text`. The server keeps
  * only absolute http(s) hrefs; this module checks again before it builds an <a>, sets
  * `href` as a property and the text with `textContent`, never markup.
  * No imports, and the document is a parameter, so it runs under Node in the tests.
@@ -13,9 +14,10 @@ export function safeHref(href) {
   return typeof href === 'string' && SAFE_HREF.test(href) ? href : null;
 }
 
-/** `text` split into `{text}` and `{text, href}` segments. Each link's text is looked up
- * from the end of the previous link (its first occurrence there); a link that is unsafe,
- * empty or not found is skipped, so its words stay plain text. */
+/** `text` split into `{text}` and `{text, href}` segments. A link is placed at its
+ * `start` offset when that is valid (an integer at or after the previous link's end where
+ * `text` really sits); otherwise at the first occurrence of its text after the previous
+ * link. A link that is unsafe, empty or not found is skipped, so its words stay plain. */
 export function linkSegments(text, links) {
   const s = String(text ?? '');
   const out = [];
@@ -23,7 +25,9 @@ export function linkSegments(text, links) {
   for (const l of Array.isArray(links) ? links : []) {
     const t = l && typeof l.text === 'string' ? l.text : '';
     const href = safeHref(l?.href);
-    const i = t && href ? s.indexOf(t, at) : -1;
+    if (!t || !href) continue;
+    const st = l.start;
+    const i = Number.isInteger(st) && st >= at && s.startsWith(t, st) ? st : s.indexOf(t, at);
     if (i < 0) continue;
     if (i > at) out.push({ text: s.slice(at, i) });
     out.push({ text: t, href });
