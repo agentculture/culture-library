@@ -24,9 +24,11 @@ server = [
 ]
 # Opt-in RAG evaluation (culture_library.eval, `culture-library eval ...`): pinned ragas plus
 # the OpenAI-compatible client. Never part of base dependencies or the dev group.
+# langchain-community 0.4.2 removed chat_models.vertexai, which ragas 0.4.3 imports at load.
 eval = [
     "ragas==0.4.3",
     "openai>=1",
+    "langchain-community<0.4.2",
 ]
 
 [project.urls]

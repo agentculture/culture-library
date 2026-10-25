@@ -80,7 +80,11 @@ def test_cli_imports_in_fresh_venv_without_extra(tmp_path: Path) -> None:
 def test_eval_extra_pinned_and_not_in_dev() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text())
     assert data["project"]["dependencies"] == []
-    assert data["project"]["optional-dependencies"]["eval"] == ["ragas==0.4.3", "openai>=1"]
+    assert data["project"]["optional-dependencies"]["eval"] == [
+        "ragas==0.4.3",
+        "openai>=1",
+        "langchain-community<0.4.2",
+    ]
     dev = " ".join(data["dependency-groups"]["dev"])
     assert "ragas" not in dev
     assert "ragas" in " ".join(data["tool"]["pytest"]["ini_options"]["markers"])

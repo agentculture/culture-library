@@ -215,5 +215,9 @@ jobs:
 
       - run: uv sync --extra eval
 
+      # importorskip would silently skip on a broken install; fail loudly instead.
+      - name: ragas imports
+        run: uv run python -c "import ragas; assert ragas.__version__ == '0.4.3', ragas.__version__"
+
       - name: real-ragas tests
         run: uv run pytest -m ragas -v
