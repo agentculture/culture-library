@@ -370,7 +370,11 @@ for any such release.
 over the migrated database: stop the stack, restore the snapshot from step 1 with the
 restore steps in [backup.md](backup.md), then start the image tagged in step 1.
 
-Running an older image on a database that holds `todo` items is unsupported. The old
+The release that adds the `discord-message` kind (#19) does the same: the same one-time
+rebuild and the same steps. Counts are checked for `items` and for every child table
+(`embeddings`, `index_queue`, `item_sources`, `eval_sets`).
+
+Running an older image on a database that holds `todo` or `discord-message` items is unsupported. The old
 `feed.append` rejects unknown kinds, so events for those items fail. If todo items have
 been created since the upgrade, a snapshot restore discards them; export what you need
 first.
