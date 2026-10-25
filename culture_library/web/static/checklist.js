@@ -12,7 +12,7 @@ export function parseChecklist(text) {
   const out = [];
   const visible = String(text).replace(/<!--[\s\S]*?-->/g, '');
   for (const raw of visible.split('\n')) {
-    const line = raw.trim().replace(/\t/g, ' ');
+    const line = raw.trim().replaceAll('\t', ' ');
     if (!line) continue;
     const check = CHECK.exec(line);
     const heading = check ? null : HEADING.exec(line);
