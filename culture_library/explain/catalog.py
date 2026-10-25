@@ -227,15 +227,18 @@ _DEPLOY = """\
 Recreate the live stack's `library` and `mcp` containers on spark, the CLI form of the
 runbook's "Restart the live stack" (`docs/operations/deploy.md`).
 
-- `deploy restart [--env-file F] [--compose C] [--tunnel-secret S] [--build] [--dry-run]
-  [--timeout N]` — read the host env file `F` (default `$CULTURE_LIBRARY_LIVE_ENV`, else
-  `$HOME/.config/culture-library/live.env`) and refuse it, before anything runs, when
-  `COMPOSE_PROJECT_NAME`, `CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN`, `CULTURE_LIBRARY_ACCESS_AUD`
-  or `CULTURE_LIBRARY_SEND_TARGETS` is missing, empty or a placeholder, or the targets do not
+- `deploy restart [--env-file F] [--compose C] [--tunnel-secret S] [--gateway-secret G |
+  --no-gateway-key] [--build] [--dry-run] [--timeout N]` — read the host env file `F`
+  (default `$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`) and
+  refuse it, before anything runs, when `COMPOSE_PROJECT_NAME`,
+  `CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN`, `CULTURE_LIBRARY_ACCESS_AUD` or
+  `CULTURE_LIBRARY_SEND_TARGETS` is missing, empty or a placeholder, or the targets do not
   parse (a `${...}` value, which compose would interpolate, is refused too). Settings the file
   sets are dropped from the commands' environment, so a stale shell export cannot override
-  the checked file. Then run `grant run --inject TUNNEL_TOKEN=S -- docker compose -f C --env-file F
-  --profile remote up -d --no-deps library mcp` (no shell; the token stays in grant), wait for
+  the checked file. Then run `grant run --inject TUNNEL_TOKEN=S --inject GATEWAY_API_KEY=G --
+  docker compose -f C --env-file F --profile remote up -d --no-deps library mcp` (no shell;
+  both secrets stay in grant; `G` defaults to `LOBES_GATEWAY_API_KEY`, and an env file that sets
+  `GATEWAY_API_KEY` is refused), wait for
   `/api/health`, and list the send targets the new container loads. `--build` rebuilds the
   image first; `--dry-run` prints the commands and runs nothing. A schema change still needs
   the upgrade runbook (tag, back up, then restart).

@@ -245,15 +245,18 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
    LOBES_GATEWAY_URL=http://host.docker.internal:8001
    LOBES_EMBED_MODEL=gemma2-embed
    LOBES_RERANK_MODEL=reranker
-   GATEWAY_API_KEY=<gateway key>
    ```
 
-   `GATEWAY_API_KEY` is what switches embeddings on: without it the embedder is not
-   built. Compose reads it from this file, so this is the one secret the file holds;
-   keep it `chmod 600` and out of git. `LOBES_EMBED_PROMPTS=off` disables the
-   Retrieval-document and Retrieval-query prompt names (on by default).
-2. Recreate the containers: `uv run culture-library deploy restart`. The new
-   environment and `extra_hosts` entry only apply on recreate.
+   The gateway key is **not** written here: the env file stays secret-free, and
+   `deploy restart` refuses one that sets `GATEWAY_API_KEY`. The key lives in grant as
+   `LOBES_GATEWAY_API_KEY` (check with `grant show LOBES_GATEWAY_API_KEY`, which never
+   prints the value). `GATEWAY_API_KEY` is what switches embeddings on: without it the
+   embedder is not built. `LOBES_EMBED_PROMPTS=off` disables the Retrieval-document and
+   Retrieval-query prompt names (on by default).
+2. Recreate the containers: `uv run culture-library deploy restart`. It runs
+   `grant run --inject TUNNEL_TOKEN=... --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY`
+   around `docker compose up` (`--gateway-secret NAME` picks another grant secret). The
+   new environment and `extra_hosts` entry only apply on recreate.
 3. Check the container reaches the gateway. `/capabilities` needs no key and lists the
    `gemma2-embed` and `reranker` roles:
 
@@ -291,8 +294,8 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
 6. Verify: `GET /api/status` is healthy and a `GET /api/search?q=...` answers with
    `mode` `hybrid` (the response says which mode ran).
 
-Rollback: remove `GATEWAY_API_KEY` (and the other `LOBES_*` lines) from `live.env` and run
-`deploy restart` again. Existing embeddings stay in the database but are unused, and
+Rollback: run `deploy restart --no-gateway-key` (and drop the `LOBES_*` lines from
+`live.env` if you like). Existing embeddings stay in the database but are unused, and
 full-text search keeps working; a gateway outage alone also degrades to full-text.
 
 ## Upgrading across a schema change

@@ -5,12 +5,14 @@
 setting present, no placeholder, send targets that parse), then runs, with a fixed argv
 and no shell::
 
-    grant run --inject TUNNEL_TOKEN=<secret> -- docker compose -f deploy/compose.yaml \\
-      --env-file <env file> --profile remote up -d --no-deps library mcp
+    grant run --inject TUNNEL_TOKEN=<secret> --inject GATEWAY_API_KEY=<secret> -- \\
+      docker compose -f deploy/compose.yaml --env-file <env file> --profile remote \\
+      up -d --no-deps library mcp
 
 and checks ``/api/health`` and the send targets inside the new container. ``--build``
 rebuilds the image first; ``--dry-run`` prints the commands and runs nothing. The tunnel
-token stays in ``grant`` and never passes through this process.
+token and the gateway key stay in ``grant`` and never pass through this process; an env
+file that contains ``GATEWAY_API_KEY`` is refused.
 """
 
 from __future__ import annotations
@@ -34,6 +36,9 @@ from culture_library.core import send
 LIVE_ENV_VAR = "CULTURE_LIBRARY_LIVE_ENV"
 # The grant secret's *name*; the token itself never enters this process.
 DEFAULT_TUNNEL_SECRET = "CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN"  # nosec B105
+# The grant secret holding the lobes gateway key (embeddings + reranker); never in live.env.
+DEFAULT_GATEWAY_SECRET = "LOBES_GATEWAY_API_KEY"  # nosec B105
+SECRET_SETTINGS = ("GATEWAY_API_KEY",)
 REQUIRED_SETTINGS = (
     "COMPOSE_PROJECT_NAME",
     "CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN",
@@ -121,7 +126,15 @@ def _placeholder(source: str, what: str, value: str) -> CliError:
 
 
 def check_settings(values: dict[str, str], source: str) -> None:
-    """Refuse a missing, empty or placeholder setting, or send targets that do not parse."""
+    """Refuse a missing, empty or placeholder setting, send targets that do not parse, or a
+    secret written into the (secret-free) env file."""
+    for key in SECRET_SETTINGS:
+        if values.get(key, "").strip():
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"{source}: {key} is a secret and must not be in the env file",
+                f"remove it; deploy restart injects it from grant ({DEFAULT_GATEWAY_SECRET})",
+            )
     for key in REQUIRED_SETTINGS:
         value = values.get(key, "")
         if not value.strip():
@@ -159,12 +172,22 @@ def _compose_base(compose: Path, env_file: Path) -> list[str]:
     return ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
 
 
-def plan(compose: Path, env_file: Path, secret: str, *, build: bool) -> list[list[str]]:
-    """The commands ``restart`` runs, in order."""
+def plan(
+    compose: Path,
+    env_file: Path,
+    secret: str,
+    *,
+    build: bool,
+    gateway_secret: str | None = DEFAULT_GATEWAY_SECRET,
+) -> list[list[str]]:
+    """The commands ``restart`` runs, in order. Secrets are injected by name from grant."""
     base = _compose_base(compose, env_file)
     steps = [base + ["build", "library"]] if build else []
     up = base + ["--profile", "remote", "up", "-d", "--no-deps", *SERVICES]
-    steps.append(["grant", "run", "--inject", f"TUNNEL_TOKEN={secret}", "--", *up])
+    inject = ["--inject", f"TUNNEL_TOKEN={secret}"]
+    if gateway_secret:
+        inject += ["--inject", f"GATEWAY_API_KEY={gateway_secret}"]
+    steps.append(["grant", "run", *inject, "--", *up])
     return steps
 
 
@@ -246,7 +269,8 @@ def cmd_restart(args: argparse.Namespace) -> int:
         )
     values = read_env_file(env_file)
     check_settings(values, str(env_file))
-    steps = plan(compose, env_file, args.tunnel_secret, build=args.build)
+    gateway = None if args.no_gateway_key else args.gateway_secret
+    steps = plan(compose, env_file, args.tunnel_secret, build=args.build, gateway_secret=gateway)
     if args.dry_run:
         emit_result(
             (
@@ -303,6 +327,8 @@ def cmd_overview(args: argparse.Namespace) -> int:
                     "$HOME/.config/culture-library/live.env)",
                     "--compose (default deploy/compose.yaml in this checkout)",
                     f"--tunnel-secret (grant secret name, default {DEFAULT_TUNNEL_SECRET})",
+                    f"--gateway-secret (grant secret injected as GATEWAY_API_KEY, default "
+                    f"{DEFAULT_GATEWAY_SECRET}); --no-gateway-key skips it",
                     "needs grant and docker on PATH",
                 ],
             },
@@ -323,6 +349,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     rs.add_argument(
         "--tunnel-secret", default=DEFAULT_TUNNEL_SECRET, help="grant secret holding the token."
     )
+    rs.add_argument(
+        "--gateway-secret",
+        default=DEFAULT_GATEWAY_SECRET,
+        help="grant secret injected as GATEWAY_API_KEY (embeddings + reranker).",
+    )
+    rs.add_argument("--no-gateway-key", action="store_true", help="Do not inject GATEWAY_API_KEY.")
     rs.add_argument("--build", action="store_true", help="Rebuild the image first.")
     rs.add_argument("--dry-run", action="store_true", help="Print the commands; run nothing.")
     rs.add_argument(
