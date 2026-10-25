@@ -200,6 +200,15 @@ def _vis(principal: Principal) -> dict:
     return {"include_private": principal.private, "owner": principal.key_id}
 
 
+def _can_see(principal: Principal, store: Store, item_id: int) -> bool:
+    """Whether this caller may learn *item_id* exists (the GET rule; private sees archived)."""
+    try:
+        library.get(store, item_id, include_archived=principal.private, **_vis(principal))
+    except NotFoundError:
+        return False
+    return True
+
+
 @router.get("")
 def list_items(
     q: str | None = Query(None, description="search title/author"),
@@ -385,4 +394,49 @@ def restore_item(
         item = library.restore(store, item_id, **_vis(principal))
     except NotFoundError:
         return _flat(404, f"archived item {item_id} not found", "not_found")
+    return _item(item)
+
+
+@router.put("/{item_id}/file")
+@max_body(_upload_cap)
+async def replace_item(
+    item_id: int,
+    file: UploadFile = File(...),
+    principal: Principal = Depends(current_principal),
+    store: Store = Depends(get_store),
+):
+    """Swap the item's bytes under the same id; answer the updated item.
+
+    Guarded like archive/restore (write scope and the item's kind) before the upload is read
+    or validated; FastAPI has already spooled the multipart body, which ``max_body`` caps. A
+    private, archived or absent item is 404. Refusals map like the upload. Bytes already held
+    by another item are 409 ``duplicate_content``; ``other_id`` names that item only when the
+    caller could GET it (private scope sees archived items too).
+    """
+    try:
+        await run_in_threadpool(_writable, principal, store, item_id)
+    except NotFoundError:
+        return _not_found(item_id)
+    # Read at most one byte past the cap so an oversize file is refused as too_large.
+    data = await file.read(UPLOAD_LIMITS.max_bytes + 1)
+    try:
+        item = await run_in_threadpool(
+            library.replace,
+            store,
+            item_id,
+            data,
+            file.filename or "",
+            **_vis(principal),
+            limits=UPLOAD_LIMITS,
+        )
+    except NotFoundError:
+        return _not_found(item_id)
+    except library.DuplicateContentError as exc:
+        body = {"detail": "these bytes already belong to another item", "code": exc.code}
+        if await run_in_threadpool(_can_see, principal, store, exc.other_id):
+            body["other_id"] = exc.other_id
+        return JSONResponse(body, status_code=409)
+    except ValidationError as exc:
+        return _refused(exc)
+    _notify_indexer(store)
     return _item(item)

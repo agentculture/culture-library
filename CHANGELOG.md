@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-25
+
+### Added
+
+- `PUT /api/library/{id}/file` replaces an item's file in place: same id, new sha256, size and format; title, author, kind and visibility are unchanged. It applies the upload caps and format checks, appends an `updated` feed event (replaced, old_sha256, size, format), and unlinks the old blob when nothing references it. Errors: 403 forbidden_kind, 409 duplicate_content, 404 for archived or unknown items. Sending the same bytes again returns 200 with no event.
+- New `todo` kind for Markdown checklists, one per recording.
+- Docs: "Upgrading across a schema change" and "Restart the live stack" runbooks in `docs/operations/deploy.md` (restart reads a host env file, so settings such as the send targets are never retyped); the library spec lists every kind and allows a same-id file replace.
+
+### Changed
+
+- On first open after upgrading, the store rebuilds the `items` table once to widen its kind CHECK, preserving ids and the id sequence. It verifies row counts, refuses to open (rolling back) on a mismatch, and writes one diagnostic line to stderr on success. Rollback means restoring the pre-upgrade snapshot; running an older image on a database holding todo items is unsupported. A database whose CHECK names kinds this release does not know is refused at open, never narrowed. The migration's foreign-key check covers only the tables the rebuild touches.
+
+### Fixed
+
+- Replace and the background indexer no longer race: a job in flight for the old bytes stops without writing their body, vectors or `done` status, and the job stays queued for the new bytes. Replace drops the item's old embeddings.
+- Sending an item's current bytes again restores its file if the stored copy is missing.
+- The 409 `duplicate_content` response names `other_id` only when the caller could GET that item, so archived items stay hidden from non-private keys. The route's kind guard no longer blocks the event loop.
+
 ## [0.11.0] - 2026-10-24
 
 ### Added

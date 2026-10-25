@@ -43,6 +43,7 @@ Stdlib only, no network.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 import threading
@@ -50,7 +51,14 @@ from datetime import UTC, datetime, timedelta
 
 from . import feed, indexer, search, uploaders  # noqa: F401 - they register their schema
 from .errors import CoreError, NotFoundError, ValidationError
-from .ingest import DEFAULT_LIMITS, IngestLimits, ingest
+from .ingest import (
+    DEFAULT_LIMITS,
+    IngestLimits,
+    _record_refusal,
+    _validate,
+    extract_text_ex,
+    ingest,
+)
 from .models import KINDS, VISIBILITIES, Item
 from .store import Store, register_schema
 
@@ -144,6 +152,19 @@ class ForbiddenKindError(CoreError):
     """The caller may not write the existing item's kind (the API answers 403)."""
 
     code = "forbidden_kind"
+
+
+class DuplicateContentError(CoreError):
+    """The replacement bytes already belong to ANOTHER item (the API answers 409).
+
+    Carries that item's id and visibility so the route can decide how much to reveal."""
+
+    code = "duplicate_content"
+
+    def __init__(self, other_id: int, other_visibility: str) -> None:
+        super().__init__(f"these bytes already belong to item {other_id}")
+        self.other_id = other_id
+        self.other_visibility = other_visibility
 
 
 def _announce(
@@ -278,6 +299,77 @@ def add(
             limits=limits,
         )
     return current, False
+
+
+def replace(
+    store: Store,
+    item_id: int,
+    data: bytes,
+    filename: str,
+    *,
+    include_private: bool = False,
+    owner: str | None = None,
+    limits: IngestLimits = DEFAULT_LIMITS,
+) -> Item:
+    """Swap a live, visible item's bytes under the same id; return the updated item.
+
+    Validation (the upload's :func:`~culture_library.core.ingest._validate` +
+    ``extract_text_ex``) runs first, outside the write lock, so every refusal raises the
+    upload's :class:`ValidationError` code and changes nothing. Then, in one transaction:
+    equal bytes return the item untouched (no event; a missing blob is re-written); bytes
+    owned by *another* item raise :class:`DuplicateContentError` before any UPDATE;
+    otherwise the new blob is written if missing (inside the transaction, so A -> B -> A
+    leaves A's blob), the row's sha256/size/format change, the old embeddings are dropped,
+    the body is re-indexed and the queue row re-opened for the embedder, an ``updated``
+    event ``{replaced, old_sha256, size, format}`` is appended, and the old blob is unlinked
+    unless another table still names it. Title, author, kind, visibility, created_at and
+    the uploader are untouched. An absent, invisible or archived item raises
+    :class:`NotFoundError`.
+    """
+    try:
+        fmt = _validate(data, filename, limits)
+        text = extract_text_ex(data, fmt, limits).text
+    except ValidationError as err:
+        _record_refusal(store, err, filename, len(data))
+        raise
+    sha = hashlib.sha256(data).hexdigest()
+    with store.connect() as conn:
+        item = _row(conn, item_id)
+        if not _visible(conn, item, include_private, False, owner):
+            raise NotFoundError(f"item {item_id} not found")
+        if item.sha256 == sha:
+            if not store.blob_path(sha).exists():  # same bytes repair a lost file, as add() does
+                store.write_blob(data)
+            return item
+        other = conn.execute(
+            "SELECT id, visibility FROM items WHERE sha256 = ? AND id != ?", (sha, item_id)
+        ).fetchone()
+        if other is not None:
+            raise DuplicateContentError(other["id"], other["visibility"])
+        if not store.blob_path(sha).exists():
+            store.write_blob(data)
+        conn.execute(
+            "UPDATE items SET sha256 = ?, size = ?, format = ? WHERE id = ?",
+            (sha, len(data), fmt, item_id),
+        )
+        conn.execute("DELETE FROM embeddings WHERE item_id = ?", (item_id,))
+        updated = _row(conn, item_id)
+        search.set_body(conn, updated, text)  # type: ignore[arg-type]
+        indexer.enqueue(conn, item_id)
+        conn.execute(
+            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0, body_done=1 "
+            "WHERE item_id = ?",
+            (item_id,),
+        )
+        _event(
+            conn,
+            "updated",
+            updated,  # type: ignore[arg-type]
+            {"replaced": True, "old_sha256": item.sha256, "size": len(data), "format": fmt},
+        )
+        if not _blob_referenced(conn, item.sha256):
+            store.blob_path(item.sha256).unlink(missing_ok=True)
+    return updated  # type: ignore[return-value]
 
 
 # ------------------------------------------------------------------ reads
@@ -492,6 +584,7 @@ __all__ = [
     "CONFLICT_DETAIL",
     "ConflictError",
     "DEFAULT_LIMIT",
+    "DuplicateContentError",
     "ForbiddenKindError",
     "IngestLimits",
     "MAX_LIMIT",
@@ -509,6 +602,7 @@ __all__ = [
     "list_items",
     "purge_expired",
     "purge_interval_from_env",
+    "replace",
     "restore",
     "uploaded_by",
     "uploader_of",

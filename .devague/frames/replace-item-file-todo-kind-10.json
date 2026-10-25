@@ -1,0 +1,1108 @@
+{
+  "slug": "replace-item-file-todo-kind-10",
+  "title": "replace item file + todo kind (#10)",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-24T21:38:00Z",
+  "updated": "2026-10-24T22:19:09Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-library items can have their file replaced under the same id (PUT /api/library/{id}/file), and a new 'todo' kind works on existing deployed databases \u2014 so culture-rules can keep one living to-do checklist per recording and Gwen re-reads it when its sha256 changes",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Both halves ship together in one release: the replace route and the todo kind with its migration.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Release notes in CHANGELOG list both; the issue #10 reply names the final method and path.",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A new write route PUT /api/library/{id}/file (multipart 'file') replaces an item's bytes and keeps its id: it runs the same caps and format/content checks as upload (ingest._validate + _check_content), writes the new blob before commit, and UPDATEs sha256, size and format. No such route exists today (routes_library.py has GET/POST/GET id/GET file/DELETE/restore at 203-376) and no store method updates bytes.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Replace refuses exactly what upload refuses (too_large 413, unsupported_format 415, empty/bad_magic/invalid_encoding/invalid_json 400) and leaves the item untouched on refusal.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "What happens to the old blob? purge_expired (library.py:427-450) unlinks only the blob of an item it purges, so nothing would ever collect a blob a replace orphaned. Unlink it inside the replace transaction when _blob_referenced is false (purge's pattern, which keeps the add() race-healing intact)? Or keep it as a history/undo copy? Its FTS and embeddings rows are keyed by item_id and are overwritten, never orphaned.",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Unlink if unreferenced (c23)"
+        },
+        {
+          "id": "q4",
+          "text": "Edge semantics: (a) replacing with the item's own current bytes, is it an idempotent 200 with no feed event? (b) Can an archived item be replaced? _writable already uses include_archived=True. (c) May the format change (md\u2192pdf) while the kind stays, or must the new file match the item's format? (d) Is the response body the updated item, as GET /{id} returns?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Accept recommendations (c25)"
+        },
+        {
+          "id": "q6",
+          "text": "Should the MCP surface get a replace tool for parity (mcp/client.py:173-196 has only upload/archive; diary_edit at tools.py:218-239 fakes edit as upload-new + archive-old, which changes the id)? Or is this HTTP-only for now, since Gwen only reads and culture-rules uses HTTP?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "HTTP only (c27)"
+        }
+      ],
+      "links": [],
+      "instruction": "Implement core library.replace() reusing ingest._validate and _check_content; test each refusal code against the PUT route and assert sha256 is unchanged afterwards.",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Replace re-indexes the item the way index_on_add does. search.set_body rewrites the FTS row (keyed rowid = item.id) inside the transaction. The index_queue row resets to pending, mirroring requeue_* (indexer.py:106-134), because enqueue is INSERT OR IGNORE and would do nothing. _notify_indexer wakes the embedder. Stale embeddings are keyed by item_id and the indexer replaces them.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "After a replace, search finds the new body text and not the old, and the item's index_queue row is pending with attempts reset.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/core: replace, then search.query for an old-only word (0 hits) and a new-only word (1 hit); assert the index_queue state.",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Replace appends an 'updated' feed event carrying the NEW sha256, built from the updated item. The data field is {replaced: true, old_sha256, size, format}, so Gwen's reconcile on (id, sha256) sees the change. 'updated' is already in EVENT_TYPES (feed.py:20), and restore already uses _event(conn, 'updated', item, {restored: true}) (library.py:205, 398).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The feed event's sha256 equals the item's new sha256, and the event is appended inside the same transaction as the UPDATE (no event without the change, no change without the event).",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests: read_since(cursor) after the replace returns one 'updated' event whose sha256 is the new one and whose data carries old_sha256.",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Replace is authorized exactly like restore: _writable() (routes_library.py:354-358) runs check(write), then library.get(include_archived=True), then check(write, item.kind). A key that cannot write the item's kind gets 403 {code: forbidden_kind} from auth.check (auth.py:182-192), and the item is left unchanged.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A forbidden_kind refusal happens before any bytes are read or written, so neither the blob store nor the DB changes.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Test with a key minted --kind book against a transcript item: 403 forbidden_kind, and the sha256 and file bytes are unchanged.",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "New bytes whose sha256 already belongs to ANOTHER item are refused with 409 and a dedicated machine code (not the opaque 'conflict'), checked before the UPDATE so the UNIQUE constraint (store.py:36) never raises IntegrityError. When the other item is private and the caller cannot see it, the response stays opaque and gives no id, as the existing ConflictError/CONFLICT_DETAIL does (library.py:136-141).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "A cross-item collision never surfaces as a 500/IntegrityError, and never reveals a private item's id to a caller who cannot see it.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "What is the machine code for 'these bytes belong to another item' (e.g. duplicate_content or bytes_in_use)? Should the body name the other item's id when the caller can see it? culture-rules reads code from the JSON body, so the name becomes a cross-repo contract.",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "409 duplicate_content (c24)"
+        }
+      ],
+      "links": [],
+      "instruction": "Tests: replace A with B's bytes (B visible) gives 409 plus the code and B's id; B private and unseen gives 409 with no id.",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "'todo' is added to KINDS (models.py:12-22). Everything that derives from KINDS picks it up with no other edit: library.check_kind, feed.append, keys.mint validation (keys.py:168; the CLI --kind has no choices=), the MCP kind enum (mcp/tools.py:23), the search Literal (routes_search.py:111), OPDS and WebDAV folders. 'culture-library keys mint --kind todo' then works, and md is already a supported format (ingest.py:56).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "No hard-coded kind list outside models.py blocks todo on the API, the CLI or MCP (the site's display fallback is handled by q5).",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "On the site, should todo become a first-class display kind? That means a KINDS entry in app.js:23-30, a --k-todo colour in light and dark in styles.css, an upload <option> in index.html:118, and re-validating the kind palette in docs/design/library-site.md:49-60. Or should it use the existing fallback, where kindKey maps unknown kinds to 'document' with no crash? Markdown renders as preformatted text either way (library-site.md:107-108).",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Fallback + follow-up issue (c26)"
+        },
+        {
+          "id": "q7",
+          "text": "The spec's kinds line (docs/specs/2026-10-23-library-culture-dev.md:26) already omits book and article, and line 42 calls items 'sha256-immutable'. Should this work amend the shipped spec, or record the change only in CHANGELOG/CLAUDE.md and the issue reply?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Amend spec (c28)"
+        }
+      ],
+      "links": [],
+      "instruction": "grep for literal kind lists; test keys mint --kind todo and POST kind=todo.",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "On open, an idempotent schema migration rebuilds the items table so its kind CHECK matches the current KINDS on an existing database. It detects drift from sqlite_master.sql, keeps every id, the sqlite_sequence/AUTOINCREMENT high-water mark, the column order (test_items_columns asserts it) and the child rows (embeddings, index_queue). It runs on an old backup restored later too, because backup.restore copies the DB verbatim and never opens a Store (backup.py:296-312).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The migration is idempotent (a second open is a no-op), atomic (a failure leaves the old table intact), and preserves ids, sqlite_sequence, column order, and the embeddings/index_queue child rows.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Migrate automatically in ensure_schema on every open (zero-touch, but it rebuilds the production table on first boot), or as an explicit 'culture-library migrate schema' step? Or drop the kind CHECK entirely and rely on Python-side validation (add_item already checks KINDS at store.py:150), so the next new kind never needs a rebuild?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Auto on open, idempotent rebuild (c22)"
+        }
+      ],
+      "links": [],
+      "instruction": "tests/core/test_store.py: build a DB with the old 9-kind CREATE, add items plus embeddings/queue rows, open Store, then assert counts, ids, seq and child rows are equal and that a todo insert succeeds; open again and assert no rebuild.",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "assumption",
+      "text": "The live library on spark (compose project culture-library, volume culture-library_culture-library-data, 51 migrated xteink items, behind Access since 2026-10-24) must migrate in place without losing an item. A 'culture-library backup' snapshot is taken before the upgraded image starts, as docs/operations/deploy.md:166-167 already prescribes for rolling back a migration.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "assumption",
+      "text": "A replace changes only the bytes and the fields derived from them (sha256, size, format). title, author, kind, visibility, created_at and the uploader record stay as they are. Title is never extracted from content (ingest.py:420-421 uses the filename stem or the supplied title), so keeping it is consistent.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "tests/contract/culture_rules_wire.py stays a byte-for-byte cited copy of culture-rules' library.push (test_cited_copy_matches_upstream). The replace route's culture-rules contract goes in a separate new test, and the existing upload behaviour (201, then 200 on dedupe, plus the error codes) does not change.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "test_cited_copy_matches_upstream still passes, and the existing push tests pass unchanged.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uv run pytest tests/contract -v",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "WebDAV stays read-only. routes_webdav.py answers 405 to PUT and every other write method (lines 6-7, 41-43, 138), so the HTTP replace route is the only new write path.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "No read route needs editing for replaced bytes to be served.",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h17",
+          "text": "PUT, DELETE and MKCOL on /dav/ still return 405 after this change.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "A test GETs /{id}/file after a replace and receives the new bytes.",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "Read paths need no change. No ETag/Last-Modified is set and Cache-Control is private, no-cache (app.py:52-70). URLs are by item id, and sha256 is used only to locate the blob via store.blob_path (routes_read.py:263-415, routes_opds.py:164, routes_library.py:337), so GET /{id} and /{id}/file serve the new bytes as soon as sha256 is updated.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "No read route needs editing for replaced bytes to be served: GET /{id}/file returns the new bytes after a replace.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "non_goal",
+      "text": "No edits to sibling repos. culture-rules sets replace_path/replace_method from configuration and embodiment (Gwen) reads; this repo only answers issue #10 with the route's final method and path.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The diff touches no file outside this repo; the only cross-repo action is the reply on issue #10.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "non_goal",
+      "text": "migrate/xteink.py and render/devague.py are out of scope. map_kind (xteink.py:64-70) returns only newspaper/book/document, and the renderer handles devague JSON, not Markdown checklists.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "audience",
+      "text": "culture-rules (the only writer: pushes one Markdown to-do checklist per recording with a todo-scoped API key and replaces it as lines are checked off), Gwen/embodiment (reads to-dos from the library and re-reads an item when its id is unchanged and its sha256 changes), and the operator who runs the live library on spark.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "culture-rules writes and Gwen only reads, so nothing in this change gives Gwen write access.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check the issue #10 reply and CHANGELOG entry name culture-rules as the writer and Gwen as the reader.",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "before_state",
+      "text": "Library items are effectively immutable. sha256 is UNIQUE and there is no route that changes an item's bytes (routes_library.py:203-376), so an edited checklist could only be uploaded as a new item with a new id. KINDS has no 'todo', and the deployed DB's items CHECK (store.py:37) would refuse one even if KINDS gained it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The before-state describes main at b67ddb9 accurately.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Compare against routes_library.py and store.py on main at b67ddb9.",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "why_it_matters",
+      "text": "Gwen is moving to read everything she knows (transcripts, newspapers, to-dos) from culture-library. The live to-do flow (culture-rules marks a line done \u2192 Gwen sees it) needs a stable item per checklist; culture-rules' side is already built against a configurable replace route and waits on this.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "Issue #10 is the authoritative statement of need, written by culture-rules for the operator.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Cite issue #10's Why sections.",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "after_state",
+      "text": "culture-rules PUTs new Markdown bytes to /api/library/{id}/file and gets the same id back with a new sha256. GET /api/library/{id} and /file serve the new bytes, and /api/feed shows an 'updated' event for that id. A todo item uploads on the migrated live database, and 'culture-library keys mint --kind todo' mints a key that can write it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The after-state is observable over HTTP alone, with no DB inspection needed.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Exercise via tests/server (api fixture) and once against the live stack after deploy.",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "success_signal",
+      "text": "All 3 acceptance criteria from issue #10 pass as automated tests: (1) a replace returns the same id with a new sha256, GET /{id} and /file serve the new bytes, and the feed has exactly 1 new 'updated' event; (2) a key without the item's kind gets 403 forbidden_kind with the item's sha256 unchanged; (3) POST kind=todo with a .md file returns 201 on a database created with the old 9-kind schema.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "The three tests map 1:1 to issue #10's acceptance criteria.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uv run pytest -n auto tests/server tests/core -k 'replace or todo or migrat' is green.",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "The live library on spark migrates in place with 51 of 51 items, 0 lost, every id unchanged, and the full suite and CI stay green (coverage >= 60%).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The live migration is verified on the real volume, not only on fixtures.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Before/after: SELECT count(*), max(id) FROM items; plus sqlite_sequence; on the live volume, after a culture-library backup snapshot.",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "q1 migration: automatic and idempotent on Store open. ensure_schema detects a stale items kind CHECK from sqlite_master.sql and rebuilds the table on a dedicated connection with foreign_keys OFF, in one transaction, preserving ids, sqlite_sequence, column order and child rows. This also heals old backups restored later. Take a backup snapshot before deploying.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "q2 old blob: inside the replace transaction, unlink the old blob when _blob_referenced(conn, old_sha) is false, following purge_expired's pattern. No history copy is kept; the feed's old_sha256 is informational only.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "q3 duplicate bytes: 409 with code 'duplicate_content'. The body includes the other item's id only when the caller can see that item, and otherwise stays opaque (no id).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "q4 edge semantics: replacing with the item's own current bytes is an idempotent 200 with no feed event; an archived item is refused with 404 not_found (restore it first); the format may change (derived from the new filename) while the kind stays; the response body is the updated item, as GET /{id} returns.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "decision",
+      "text": "q5 site: no new display kind now. todo falls back to 'Document' through app.js kindKey, and a follow-up issue is filed for a first-class todo display kind (colour, palette re-validation, design contract).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "decision",
+      "text": "q6 MCP: HTTP only. No MCP replace tool or client.replace in this change; switching diary_edit to replace is later work.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "decision",
+      "text": "q7 spec: amend docs/specs/2026-10-23-library-culture-dev.md: fix the kinds line (add book, article, todo) and qualify the 'sha256-immutable' wording to allow a same-id file replace.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "The migration runs on a dedicated connection with PRAGMA foreign_keys=OFF set BEFORE its BEGIN IMMEDIATE, never inside Store.connect(). SQLite ignores that pragma inside a transaction, and connect() always begins one (store.py:89-106), so a rebuild there would cascade-delete every embeddings and index_queue row. After taking the write lock it re-reads sqlite_master and rebuilds only if the CHECK is still stale, because a second process (e.g. 'docker compose exec library culture-library keys mint', keys.py:27 builds its own Store) can race the server's first open. It runs PRAGMA foreign_key_check before COMMIT.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "An old-schema DB with child rows keeps every embeddings and index_queue row through the migration, and two concurrent first opens produce one rebuild and no error.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Test: an old-schema DB with embeddings and index_queue rows; open Store; child counts unchanged. Test: two Store() opens racing in threads; exactly one rebuild, no error.",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "The migration carries sqlite_sequence's items value across the rebuild explicitly. The textbook create/copy/drop/rename resets it to max(id), so after a purge the next upload REUSES a purged id, and purged ids are already published as 'purged' feed events that consumers reconcile by id.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "After a migration no id is ever reissued: the next insert's id is greater than the pre-migration sqlite_sequence value.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Test: old-schema DB, delete the highest-id row (seq > max id), migrate, insert; the new id is seq+1, never a previously used id.",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "The migration verifies itself before COMMIT: the items row count, max(id) and the embeddings/index_queue child counts must equal their pre-rebuild values, or it rolls back and raises (the store does not open). On success it writes one diagnostic line to stderr naming the old and new kind sets and the row count.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "A rebuild whose counts don't match never commits: the old table and its CHECK survive and the store refuses to open with a clear error.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Test: monkeypatch the copy to drop a row; Store() raises and the old table plus its CHECK are intact. Test: the success path emits the stderr line.",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "boundary",
+      "text": "Rollback is restoring the pre-upgrade snapshot (deploy.md:166-167). Running an older image against a migrated DB that holds todo items is unsupported: the old feed.append validates kinds against its KINDS (feed.py:52), so archiving or purging a todo item would raise there, and one bad row fails the whole purge transaction (library.py:436-450).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "deploy.md states that rollback means restoring a snapshot and that running an older image on a DB holding todo items is unsupported.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Document in docs/operations/deploy.md next to the existing rollback paragraph.",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "docs/operations/deploy.md gains an upgrade procedure for schema-changing releases: run 'culture-library backup' and verify it, deploy the new image, check the one-line migration diagnostic in the container logs, and compare SELECT count(*), max(id) FROM items with the pre-upgrade values.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "The runbook's steps are followed for the live spark upgrade, and the before/after counts are filed as evidence.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "markdownlint the runbook; follow it for the live spark upgrade and file the before/after counts as delivery evidence (feeds c21).",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Replace makes sure the new blob exists INSIDE its write transaction (write it if missing), as on_insert and _reuse_existing already do (library.py:197-198, 237-238). Unlinking unreferenced old blobs makes a toggle-back race real: unchecking a line restores an earlier checklist's exact bytes, so a concurrent replace can unlink a blob another replace wrote before it took the lock.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "After any interleaving of replaces (including toggling back to earlier bytes), every live item's blob exists on disk and hashes to its sha256.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Test: item at A; replace to B (unlinks A); replace back to A; GET /file returns A's bytes. A threaded variant interleaves the two replaces and finds no missing blob.",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "assumption",
+      "text": "The rebuild procedure behaves the same on the deployed image's SQLite 3.40.1 (python:3.12-slim-bookworm) as on the host's 3.45.1 that runs the tests. RENAME and foreign_key_check semantics have been stable since 3.26, but nothing in CI runs the migration on 3.40.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Run the migration test once inside the built image: docker run --rm culture-library:local python -m pytest ... or an equivalent one-off script; file it as evidence.",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "A reader that resolved the old blob path just before a replace unlinked it fails mid-response: download_item checks is_file() and then FileResponse opens the file later (routes_library.py:337-344). purge has the same window today, so this is accepted residual risk unless it is seen in practice.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "A backup running concurrently with a replace may record the old sha256 and then find its blob already unlinked (backup verify would flag 'blob missing'). purge has the same window. The backup copy order (backup.py) was not traced line by line in this pass.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "How sibling consumers react to 'updated' events with a new sha256 (and possibly a new format) is unexamined: xteink's puller and embodiment/Gwen's reconcile live in other repos (non-goal c14). The spec (lines 36, 50, 52) says they reconcile by (id, sha256).",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_library/server/routes_library.py + core/ingest.py + core/store.py",
+      "finding": "No replace route or update-bytes method exists. Routes: GET '' 203, POST '' 249, GET {id} 306, GET {id}/file 326, DELETE {id} 361, POST {id}/restore 376. ingest() (ingest.py:391-428) always calls store.add_item, but _validate (335-348, codes too_large/empty/unsupported_format) and _check_content (351, bad_magic/invalid_encoding/invalid_json) can be reused. Format comes from the filename extension (_EXT_FORMAT), so the route needs the upload's filename.",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "culture_library/core/indexer.py + core/search.py",
+      "finding": "Index rows are keyed by item_id, not sha256. search_fts uses rowid = id (search.py:119-139), embeddings has PK (item_id, chunk_no) with ON DELETE CASCADE (search.py:32-39), and index_queue has PK item_id (indexer.py:28-34). Title and body are indexed synchronously in the transaction, and embeddings asynchronously on the Indexer thread.",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_library/core/feed.py + docs/specs/2026-10-23-library-culture-dev.md:52",
+      "finding": "EVENT_TYPES already includes 'updated' and events store sha256 per row. The spec's change feed promises created/updated/deleted events with id + sha256, and pullers reconcile by (id, sha256) (spec lines 36, 50, 52). No new event type is needed.",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture_library/server/auth.py + routes_library.py:_writable",
+      "finding": "The issue's 403 forbidden_kind already exists. auth.check raises it when kind is not in principal.kinds, and _writable is the shared archive/restore guard. The write scope covers replace, so no new scope is needed. Access (human SSO) principals have all scopes and kinds=None (auth.py:162), and a non-safe method from the site needs the CSRF header.",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_library/core/store.py:36 + core/library.py:136-147 + core/errors.py",
+      "finding": "items.sha256 is UNIQUE, so replacing with another item's bytes would raise IntegrityError. Today a duplicate upload is not an error (POST returns 200 created:false). ConflictError (409 'conflict', no id) means only 'a private item you can't see has these bytes'. errors.py has just CoreError/NotFoundError/ValidationError, so a new code and exception class are needed.",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_library/core/models.py + core/keys.py + cli/_commands/keys.py",
+      "finding": "KINDS is a 9-tuple: book, article, newspaper, document, transcript, diary, spec, plan, devague-record. Key mint validates through _ordered(kinds, KINDS) with no hard-coded list. The keys table stores kinds as a comma-list TEXT with no CHECK (keys.py:57). test_all_kinds_accepted (test_store.py:77) is parametrized over KINDS, so it covers todo automatically.",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_library/core/store.py:30-46,72-87 + core/backup.py",
+      "finding": "The kind CHECK is baked in at CREATE time from _KIND_SQL (store.py:30,37). ensure_schema re-runs only CREATE ... IF NOT EXISTS, so a deployed DB keeps its old CHECK and a todo insert fails. There is no user_version, ALTER or migration mechanism anywhere in culture_library; register_schema only adds idempotent DDL. SQLite cannot ALTER a CHECK, so the fix is a table rebuild. _open sets foreign_keys=ON (store.py:78) and connect() runs BEGIN IMMEDIATE, so a DROP of items would cascade-delete embeddings and index_queue unless FKs are off on a dedicated connection. Local sqlite is 3.45.1.",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "memory library-build-state-2026-10-24 + docs/operations/deploy.md:166-167",
+      "finding": "The stack is live with a real DB holding 51 items, so the todo migration runs against production data, not only in tests. deploy.md says to restore the last snapshot if a migrated DB must be undone, but describes no upgrade procedure.",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_library/core/ingest.py:420-421 + core/uploaders.py",
+      "finding": "Title defaults to the filename stem or a supplied title and is never read from the bytes. item_uploaders is keyed by item_id only, with no FK, so a replace needs no uploader change.",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "tests/contract/culture_rules_wire.py + test_culture_rules_push.py",
+      "finding": "The wire file is upstream's verbatim encoder. The push test replays it against POST /api/library and asserts 201/200 dedupe, bad_magic/too_large/unauthorized/forbidden and the 50 MiB limit. Adding replace_path/replace_method there would break the 'unmodified' check.",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "culture_library/server/routes_webdav.py",
+      "finding": "WebDAV is read-only with 405 on writes, so it is not a second write path. It derives kind folders from KINDS (111-208) and gains a todo folder automatically.",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "culture_library/server/routes_read.py, routes_opds.py, app.py",
+      "finding": "No caching keyed on content. Serving resolves blob_path(item.sha256) per request, so updating the sha256 is enough.",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "issue agentculture/culture-library#10",
+      "finding": "The issue says culture-rules builds against a configurable route and asks for a reply with the final method and path. Gwen is a reader only, and culture-rules stays the only writer.",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "culture_library/migrate/xteink.py + render/devague.py",
+      "finding": "Neither enumerates the item kinds nor handles md checklists, so neither is touched.",
+      "seeds": [
+        "c15"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "culture_library/core/library.py:405-450 (purge_expired, _blob_referenced)",
+      "finding": "Blobs are content-addressed at `files/<sha[:2]>/<sha>` (store.py:117) and shared, not refcounted. _blob_referenced scans every non-feed table with a sha256 column, including repodoc_versions. Purge is the only unlink path and only touches purged items, so a replace-orphaned blob is never collected today. Backups are content-addressed and unaffected (backup.py:5,13).",
+      "seeds": [
+        "q2"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "issue #10 + core/errors.py codes",
+      "finding": "The existing codes are validation_error, invalid_kind, invalid_visibility, unsupported_format, too_large, empty, bad_magic, invalid_encoding, invalid_json, zip_bomb, corrupt_archive, conversion_timeout, conversion_failed, conflict, forbidden_kind, forbidden, not_found, unauthorized, not_allowed and access_misconfigured. None of them means 'another item owns these bytes'.",
+      "seeds": [
+        "q3"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "culture_library/server/routes_library.py:249-388",
+      "finding": "Upload returns 201/200 with the item. Restore returns _item(item). _writable fetches archived items too, so archived-item replace is allowed by default unless the route forbids it. Format is derived per upload from the filename extension.",
+      "seeds": [
+        "q4"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "culture_library/web/static/{app,home,reader,state,upload}.js + index.html + docs/design/library-site.md",
+      "finding": "The site hard-codes six display kinds. app.js maps spec/plan/devague-record to 'repo' and unknown kinds to 'document'. Filter chips, the status mix chart and the upload errors all derive from the app.js KINDS map. The design contract fixes the palette order and requires the dataviz validator, and 30 approved reference screenshots back the site, so a new display kind is a design-contract change.",
+      "seeds": [
+        "q5"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "culture_library/mcp/tools.py + mcp/client.py",
+      "finding": "The MCP kind enum derives from KINDS, so todo arrives automatically. The write tools are push_file plus the diary_write/edit/delete tools. diary_edit gives the edited diary a new id, the exact behaviour #10 avoids, so it is a natural later consumer of replace but not required by the issue.",
+      "seeds": [
+        "q6"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "docs/specs/2026-10-23-library-culture-dev.md:26,42",
+      "finding": "The spec lists newspaper, document, transcript, diary, spec, plan and devague-record, which already lags KINDS. It contrasts mutable, versioned repo documents with 'sha256-immutable books', so a same-id replace is a new contract for items.",
+      "seeds": [
+        "q7"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / migration+concurrency lens: probe of SQLite table rebuild (scratchpad probe, sqlite 3.45.1)",
+      "finding": "Probe: with BEGIN IMMEDIATE then PRAGMA foreign_keys=OFF, the pragma still read 1, and DROP items cascade-deleted the child rows (1 -> 0). With the pragma set before BEGIN, foreign_key_check was empty and children were kept (4 -> 4). Store.connect() always begins a transaction, so the obvious place to put the rebuild is the destructive one.",
+      "seeds": [
+        "c29"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / data-flow lens: probe of sqlite_sequence across rebuild + core/feed.py purged events",
+      "finding": "Probe: seq 5 with max(id) 4 (id 5 purged) became seq 4 after the rebuild, and the next insert got id 5 again. purge_expired appends a 'purged' event per id (library.py:443), so a reused id would mean a different item for Gwen/xteink.",
+      "seeds": [
+        "c30"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / observability+containment lens: core/store.py ensure_schema, cli/_output.py",
+      "finding": "A silent schema rewrite on a production DB has no signal today: ensure_schema has no logging, and a bad rebuild would show up only as missing data later. Counting the rows and rolling back on any mismatch keeps a failure contained to 'the server won't start'.",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / reversibility lens: core/feed.py:52, core/library.py:427-450, docs/operations/deploy.md:166-167",
+      "finding": "There is no downgrade path. An old binary keeps the widened CHECK harmlessly, but chokes on todo rows wherever it emits feed events. The only clean rollback is the snapshot.",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / operations lens: docs/operations/deploy.md",
+      "finding": "deploy.md:166-167 covers undoing a migration but not performing one. The live volume holds 51 items, so the first schema-changing deploy needs a written procedure, not tribal knowledge.",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / concurrency lens: core/library.py add()/on_insert/_reuse_existing",
+      "finding": "add() already heals a racing purge by re-writing a missing blob inside the transaction. Replace introduces a second unlink path (decision c23), and a checklist that flips back and forth reproduces earlier sha256s by design.",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / adjacent-systems lens: deploy/Dockerfile (python:3.12-slim-bookworm)",
+      "finding": "docker run culture-library:local reports sqlite 3.40.1, the host reports 3.45.1, and CI uses the runner's Python. The migration's riskiest step is only ever tested on a different SQLite from production's.",
+      "seeds": [
+        "c35"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / unexamined: xteink puller + embodiment (Gwen) reconcile",
+      "finding": "Not read; they are sibling repos and outside this repo by non-goal c14. Residual risk is parked as open vagueness and is answered by culture-rules/Gwen consuming the issue #10 reply.",
+      "seeds": []
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / security lens: server/auth.py check + routes_library._writable + _vis",
+      "finding": "Clean. Replace reuses the restore guard: the write scope, the item's kind, and visibility via _vis (a private item stays invisible to a non-private key, giving 404, never 403). Access principals need the CSRF header for PUT (auth.py:159-160), WebDAV stays 405, and no new scope is introduced. Residual: none beyond what restore already carries.",
+      "seeds": []
+    },
+    {
+      "id": "s30",
+      "surface": "challenge pass / adjacent-systems lens: deploy/compose.yaml",
+      "finding": "Clean. Only the library container opens /data/library.db. The mcp service talks HTTP (CULTURE_LIBRARY_URL=http://library:8796), so it does not race the migration; ad-hoc 'compose exec' CLI runs do, which is covered by the re-check-under-lock requirement.",
+      "seeds": []
+    }
+  ],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "Parked the backup-vs-replace race using purge as an analogy, without reading backup.py's DB-snapshot and blob-copy order",
+      "skipped_check": "trace backup.create's order: online-backup the DB, then copy the blobs it references",
+      "refs": [
+        "challenge pass / concurrency lens: core/backup.py"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c20",
+      "seam": "issue #10 acceptance criteria over HTTP",
+      "behavior": "a replace keeps the id with a new sha256 and GET/file serve the new bytes with one updated event; a wrong-kind key gets 403 forbidden_kind and nothing changes; a todo .md upload succeeds on an old-schema store",
+      "source_text": "All 3 acceptance criteria from issue #10 pass as automated tests: (1) a replace returns the same id with a new sha256, GET /{id} and /file serve the new bytes, and the feed has exactly 1 new 'updated' event; (2) a key without the item's kind gets 403 forbidden_kind with the item's sha256 unchanged; (3) POST kind=todo with a .md file returns 201 on a database created with the old 9-kind schema.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c2",
+      "seam": "PUT route refusals",
+      "behavior": "replace refuses what upload refuses with the same codes and changes nothing",
+      "source_text": "A new write route PUT /api/library/{id}/file (multipart 'file') replaces an item's bytes and keeps its id: it runs the same caps and format/content checks as upload (ingest._validate + _check_content), writes the new blob before commit, and UPDATEs sha256, size and format. No such route exists today (routes_library.py has GET/POST/GET id/GET file/DELETE/restore at 203-376) and no store method updates bytes.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c3",
+      "seam": "re-index on replace",
+      "behavior": "search finds the new body and not the old; index_queue row is pending, attempts 0",
+      "source_text": "Replace re-indexes the item the way index_on_add does. search.set_body rewrites the FTS row (keyed rowid = item.id) inside the transaction. The index_queue row resets to pending, mirroring requeue_* (indexer.py:106-134), because enqueue is INSERT OR IGNORE and would do nothing. _notify_indexer wakes the embedder. Stale embeddings are keyed by item_id and the indexer replaces them.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c4",
+      "seam": "updated feed event",
+      "behavior": "one updated event with the new sha256 and replace data, in the same transaction; same bytes is a no-op",
+      "source_text": "Replace appends an 'updated' feed event carrying the NEW sha256, built from the updated item. The data field is {replaced: true, old_sha256, size, format}, so Gwen's reconcile on (id, sha256) sees the change. 'updated' is already in EVENT_TYPES (feed.py:20), and restore already uses _event(conn, 'updated', item, {restored: true}) (library.py:205, 398).",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c5",
+      "seam": "kind authorization",
+      "behavior": "a key that cannot write the item's kind gets 403 forbidden_kind before any bytes change",
+      "source_text": "Replace is authorized exactly like restore: _writable() (routes_library.py:354-358) runs check(write), then library.get(include_archived=True), then check(write, item.kind). A key that cannot write the item's kind gets 403 {code: forbidden_kind} from auth.check (auth.py:182-192), and the item is left unchanged.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c6",
+      "seam": "duplicate content",
+      "behavior": "bytes owned by another item give 409 duplicate_content, never IntegrityError, never leaking a hidden id",
+      "source_text": "New bytes whose sha256 already belongs to ANOTHER item are refused with 409 and a dedicated machine code (not the opaque 'conflict'), checked before the UPDATE so the UNIQUE constraint (store.py:36) never raises IntegrityError. When the other item is private and the caller cannot see it, the response stays opaque and gives no id, as the existing ConflictError/CONFLICT_DETAIL does (library.py:136-141).",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c7",
+      "seam": "todo kind",
+      "behavior": "todo is a kind and keys mint --kind todo works",
+      "source_text": "'todo' is added to KINDS (models.py:12-22). Everything that derives from KINDS picks it up with no other edit: library.check_kind, feed.append, keys.mint validation (keys.py:168; the CLI --kind has no choices=), the MCP kind enum (mcp/tools.py:23), the search Literal (routes_search.py:111), OPDS and WebDAV folders. 'culture-library keys mint --kind todo' then works, and md is already a supported format (ingest.py:56).",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c8",
+      "seam": "kind-CHECK migration",
+      "behavior": "an old DB migrates once, keeping ids, column order and child rows; racing opens rebuild once",
+      "source_text": "On open, an idempotent schema migration rebuilds the items table so its kind CHECK matches the current KINDS on an existing database. It detects drift from sqlite_master.sql, keeps every id, the sqlite_sequence/AUTOINCREMENT high-water mark, the column order (test_items_columns asserts it) and the child rows (embeddings, index_queue). It runs on an old backup restored later too, because backup.restore copies the DB verbatim and never opens a Store (backup.py:296-312).",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c29",
+      "seam": "FKs off before BEGIN",
+      "behavior": "migration never cascade-deletes child rows",
+      "source_text": "The migration runs on a dedicated connection with PRAGMA foreign_keys=OFF set BEFORE its BEGIN IMMEDIATE, never inside Store.connect(). SQLite ignores that pragma inside a transaction, and connect() always begins one (store.py:89-106), so a rebuild there would cascade-delete every embeddings and index_queue row. After taking the write lock it re-reads sqlite_master and rebuilds only if the CHECK is still stale, because a second process (e.g. 'docker compose exec library culture-library keys mint', keys.py:27 builds its own Store) can race the server's first open. It runs PRAGMA foreign_key_check before COMMIT.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c30",
+      "seam": "id sequence preserved",
+      "behavior": "no purged id is reissued after migration",
+      "source_text": "The migration carries sqlite_sequence's items value across the rebuild explicitly. The textbook create/copy/drop/rename resets it to max(id), so after a purge the next upload REUSES a purged id, and purged ids are already published as 'purged' feed events that consumers reconcile by id.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c31",
+      "seam": "containment + diagnostic",
+      "behavior": "a lossy rebuild rolls back and refuses to open; success logs one line",
+      "source_text": "The migration verifies itself before COMMIT: the items row count, max(id) and the embeddings/index_queue child counts must equal their pre-rebuild values, or it rolls back and raises (the store does not open). On success it writes one diagnostic line to stderr naming the old and new kind sets and the row count.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c34",
+      "seam": "blob inside the transaction",
+      "behavior": "after any interleaving of replaces, every live item's blob exists and hashes correctly",
+      "source_text": "Replace makes sure the new blob exists INSIDE its write transaction (write it if missing), as on_insert and _reuse_existing already do (library.py:197-198, 237-238). Unlinking unreferenced old blobs makes a toggle-back race real: unchecking a line restores an earlier checklist's exact bytes, so a concurrent replace can unlink a blob another replace wrote before it took the lock.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c11",
+      "seam": "culture-rules wire contract",
+      "behavior": "the cited upload copy and existing push tests pass unchanged; a new replace contract test exists",
+      "source_text": "tests/contract/culture_rules_wire.py stays a byte-for-byte cited copy of culture-rules' library.push (test_cited_copy_matches_upstream). The replace route's culture-rules contract goes in a separate new test, and the existing upload behaviour (201, then 200 on dedupe, plus the error codes) does not change.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c12",
+      "seam": "WebDAV read-only",
+      "behavior": "PUT/DELETE/MKCOL on /dav/ return 405",
+      "source_text": "WebDAV stays read-only. routes_webdav.py answers 405 to PUT and every other write method (lines 6-7, 41-43, 138), so the HTTP replace route is the only new write path.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c10",
+      "seam": "metadata unchanged",
+      "behavior": "replace changes only sha256/size/format",
+      "source_text": "A replace changes only the bytes and the fields derived from them (sha256, size, format). title, author, kind, visibility, created_at and the uploader record stay as they are. Title is never extracted from content (ingest.py:420-421 uses the filename stem or the supplied title), so keeping it is consistent.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c19",
+      "seam": "after-state over HTTP",
+      "behavior": "a todo item can be created, replaced under the same id, and its key minted",
+      "source_text": "culture-rules PUTs new Markdown bytes to /api/library/{id}/file and gets the same id back with a new sha256. GET /api/library/{id} and /file serve the new bytes, and /api/feed shows an 'updated' event for that id. A todo item uploads on the migrated live database, and 'culture-library keys mint --kind todo' mints a key that can write it.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c21",
+      "seam": "live spark migration",
+      "behavior": "the live library migrates in place 51/51 with ids unchanged",
+      "source_text": "The live library on spark migrates in place with 51 of 51 items, 0 lost, every id unchanged, and the full suite and CI stay green (coverage >= 60%).",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c33",
+      "seam": "upgrade runbook",
+      "behavior": "the runbook's steps are followed for the live upgrade and counts filed",
+      "source_text": "docs/operations/deploy.md gains an upgrade procedure for schema-changing releases: run 'culture-library backup' and verify it, deploy the new image, check the one-line migration diagnostic in the container logs, and compare SELECT count(*), max(id) FROM items with the pre-upgrade values.",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c35",
+      "seam": "production SQLite 3.40.1",
+      "behavior": "the rebuild behaves on the image's SQLite as on the host's",
+      "source_text": "The rebuild procedure behaves the same on the deployed image's SQLite 3.40.1 (python:3.12-slim-bookworm) as on the host's 3.45.1 that runs the tests. RENAME and foreign_key_check semantics have been stable since 3.26, but nothing in CI runs the migration on 3.40.",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
+}

@@ -156,6 +156,124 @@ Schedule backups before relying on the stack: see
 `culture-library backup schedule --print`. Run them inside the container (or against a
 bind-mounted data directory), writing to a location outside `/data`.
 
+## Restart the live stack
+
+On spark the live stack has no `deploy/.env`. Its settings live in a host env file
+outside git, `$HOME/.config/culture-library/live.env`, and the tunnel token comes from
+`grant`. Keep every value the stack needs in that file, never typed on the command
+line: a hand-typed placeholder such as `'[...]'` for the send targets starts the
+library with a broken send menu (`SendConfigError: CULTURE_LIBRARY_SEND_TARGETS is not
+valid JSON`).
+
+The file holds no secrets. Values are single-quoted so the JSON stays literal:
+
+```bash
+COMPOSE_PROJECT_NAME=culture-library
+CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+CULTURE_LIBRARY_ACCESS_AUD=<application AUD tag>
+CULTURE_LIBRARY_SEND_TARGETS='[{"label":"<label>","type":"<description>","enabled":true}]'
+```
+
+If the file is missing, rebuild it from the running container before you recreate
+anything (this prints settings only; the library container carries no token):
+
+```bash
+docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep -E '^CULTURE_LIBRARY_(ACCESS_TEAM_DOMAIN|ACCESS_AUD|SEND_TARGETS)='
+```
+
+Recreate `library` and `mcp` with the current image (cloudflared keeps its tunnel):
+
+```bash
+grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+  docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
+  --profile remote up -d --no-deps library mcp
+```
+
+Then check it came back with its settings:
+
+```bash
+curl -s http://127.0.0.1:8796/api/health
+docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+  "from culture_library.core import send; print(send.load_targets('/data'))"
+```
+
+The second command must list the send targets. A `SendConfigError` means the env file
+is wrong: fix it and recreate again. A restart never touches the data volume. Drop
+`--profile remote` only to stop managing cloudflared from this command.
+
+## Upgrading across a schema change
+
+Some releases change the database schema. Release 0.12.0 widens the `items.kind`
+CHECK constraint so the `todo` kind is accepted. On first open after the upgrade the
+store rebuilds the `items` table once, preserving ids and the id sequence. It verifies
+the row counts and refuses to open (rolling back) if they differ. Follow these steps
+for any such release.
+
+1. Keep the running image for rollback, then take a backup with it and verify it.
+   The rebuild in step 3 overwrites the `culture-library:local` tag, and the container
+   mounts only the data volume, so back up to a host directory using the *old* image
+   (no migration can run during the backup). The image runs as uid 10001, so the
+   empty host directory must be writable for it during the run:
+
+   ```bash
+   docker tag culture-library:local culture-library:<old-version>
+   B=~/backups/culture-library-pre-<new-version>; mkdir -p "$B"; chmod o+w "$B"
+   docker run --rm -v culture-library_culture-library-data:/data -v "$B":/backup \
+     --entrypoint culture-library culture-library:<old-version> \
+     backup run --data-dir /data --to /backup
+   chmod o-w "$B"
+   docker run --rm -v "$B":/backup:ro --entrypoint culture-library \
+     culture-library:<old-version> backup verify /backup/snapshots/<UTC stamp>
+   ```
+
+2. Record the row count, highest id and id sequence before the upgrade:
+
+   ```bash
+   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+     "import sqlite3; c = sqlite3.connect('file:/data/library.db?mode=ro', uri=True); \
+   print(c.execute('SELECT count(*), max(id) FROM items').fetchone(), \
+   c.execute(\"SELECT seq FROM sqlite_sequence WHERE name = 'items'\").fetchone())"
+   ```
+
+3. Build the new image and recreate only `library` and `mcp` (cloudflared keeps its
+   tunnel). Use the env file from [Restart the live stack](#restart-the-live-stack), so
+   every setting carries over; the tunnel token comes from `grant` and is never
+   printed:
+
+   ```bash
+   git checkout <new-tag-or-commit>
+   docker compose -p culture-library -f deploy/compose.yaml build library
+   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+     docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
+     --profile remote up -d --no-deps library mcp
+   ```
+
+   Then run the send-targets check from that section.
+
+4. Check the container logs for the one-line migration diagnostic, which the store
+   writes to stderr once, on success:
+
+   ```bash
+   docker compose -p culture-library -f deploy/compose.yaml logs library | grep -i migrat
+   ```
+
+   If the container fails to start with a row-count mismatch, the store rolled back
+   and left the database as it was. Do not retry; restore the snapshot (below) and
+   report the failure.
+
+5. Run the count query from step 2 again. The count and `max(id)` must equal the
+   before values (plus any items uploaded since).
+
+**Rollback is restoring the pre-upgrade snapshot**, not redeploying an older image
+over the migrated database: stop the stack, restore the snapshot from step 1 with the
+restore steps in [backup.md](backup.md), then start the image tagged in step 1.
+
+Running an older image on a database that holds `todo` items is unsupported. The old
+`feed.append` rejects unknown kinds, so events for those items fail. If todo items have
+been created since the upgrade, a snapshot restore discards them; export what you need
+first.
+
 ## Rollback
 
 ```bash

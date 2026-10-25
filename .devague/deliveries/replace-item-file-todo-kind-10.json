@@ -1,0 +1,773 @@
+{
+  "plan_slug": "replace-item-file-todo-kind-10",
+  "schema_version": 2,
+  "created": "2026-10-24T22:13:09Z",
+  "updated": "2026-10-25T05:37:28Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Post-merge fix to t1's migration: an old-schema DB with an empty items table (no sqlite_sequence row) failed the integrity check, because seq None before became seq 0 after, and Store() raised MigrationError. The fix treats a missing seq row and 0 as equal, plus a regression test; it touches only core/store.py and tests/core/test_store_migration.py",
+      "task_ref": "t1",
+      "reason": "Found by the t3 task agent while building its old-schema fixture and reproduced by the main agent. The live DB (51 items, seq 54) is unaffected, but a never-used older instance would refuse to start. The operator approved the fix in-run.",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t5 split: the follow-up issue for the site's todo display kind is filed in this run; the reply on issue #10 with the final route moves to after the PR merges",
+      "task_ref": "t5",
+      "reason": "The operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved. The decider (assess, general) leaned post_after_merge 0.49 over post_now 0.42.",
+      "affects": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t6 dry run corrected the new runbook (t4): no deploy/.env exists (the live stack starts via grant run with env vars and --profile remote); a backup inside the container has no durable target outside /data; the image tag must be saved before a rebuild. The runbook now tags the previous image, backs up with the OLD image into a host directory, and recreates only library and mcp",
+      "task_ref": "t6",
+      "reason": "Found while following docs/operations/deploy.md for the live upgrade; the backup step failed on permissions until the host directory was made writable for uid 10001.",
+      "affects": [
+        "t4",
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t6 live recreate blocked: the Claude Code permission classifier denied 'docker compose up -d --no-deps library mcp' against the live stack, so the operator runs that one step by hand. Backup, before-counts and the image build were done by the agent",
+      "task_ref": "t6",
+      "reason": "Tool permission boundary; not worked around.",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t6 rehearsal: because the production recreate is blocked (d4), the 0.12.0 upgrade was rehearsed end to end on the verified pre-upgrade snapshot restored into a scratch dir and served by the 0.12.0 image in a throwaway container: migration 51/51, ids and seq kept, FK check clean, todo upload 201, PUT replace 200 with one updated event, same-bytes 200, book key 403 forbidden_kind",
+      "task_ref": "t6",
+      "reason": "Gives c21/c33 execution-strength evidence on the real data without touching production; the production recreate stays with the operator",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 35
+    },
+    {
+      "id": "d6",
+      "what": "t5 completed before merge, superseding d2's ordering: the route contract reply was posted on #10 (issuecomment-6390418762), marked as in open PR #12 and not yet deployed",
+      "task_ref": "t5",
+      "reason": "The operator's standing goal ('follow all waves and tasks') is the operator approval t5's criterion allows ('merged or approved by the operator'); the same authorization already covered filing #11. Decider: reply_timing split 0.52/0.48, route_stable P=0.88; the reply states the not-merged/not-deployed status plainly",
+      "affects": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 36
+    },
+    {
+      "id": "d7",
+      "what": "t6 live recreate ran with CULTURE_LIBRARY_SEND_TARGETS='[...]' (the abbreviated placeholder in the agent's message, pasted literally), so send-to-device raises SendConfigError on production. Per the operator, restart is now documented: deploy.md gains 'Restart the live stack' using a host env file $HOME/.config/culture-library/live.env (no secrets), and upgrade step 3 uses it. The operator re-runs the restart with that file",
+      "task_ref": "t6",
+      "reason": "the agent abbreviated a required value in a command meant to be pasted; the runbook had the same hand-typed placeholder",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": null,
+      "seq": 39
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/server/test_replace_api.py::test_put_replaces_bytes_under_same_id",
+      "behavior_text": "PUT returns 200 with the same id and a new sha256; GET /{id} and /{id}/file serve the new bytes",
+      "contract_text": "criterion 1",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o1",
+      "test_ref": "tests/server/test_replace_api.py::test_put_appends_exactly_one_updated_event",
+      "behavior_text": "the feed grows by exactly one 'updated' event for the id",
+      "contract_text": "criterion 1 (feed)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o1",
+      "test_ref": "tests/server/test_replace_api.py::test_wrong_kind_key_is_403_and_item_unchanged",
+      "behavior_text": "403 code forbidden_kind; sha256 and file bytes unchanged",
+      "contract_text": "criterion 2",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o1",
+      "test_ref": "tests/server/test_replace_api.py::test_todo_upload_on_store_created_with_old_schema",
+      "behavior_text": "POST kind=todo with a .md returns 201 on a DB created with the 9-kind CREATE",
+      "contract_text": "criterion 3",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o2",
+      "test_ref": "tests/core/test_replace.py::test_replace_refusals_match_upload_and_change_nothing",
+      "behavior_text": "for empty/unsupported_format/bad_magic/invalid_json/too_large the replace code equals the upload code; row, blob and feed unchanged",
+      "contract_text": "h2",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o2",
+      "test_ref": "tests/server/test_replace_api.py::test_too_large_is_413_by_core_and_by_body_cap",
+      "behavior_text": "413 too_large from both the core limit and the body cap",
+      "contract_text": "h2 (HTTP status mapping)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o3",
+      "test_ref": "tests/core/test_replace.py::test_replace_reindexes_body_and_requeues",
+      "behavior_text": "an old-only word has 0 hits, a new-only word 1; queue row pending with attempts 0",
+      "contract_text": "h3",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o4",
+      "test_ref": "tests/core/test_replace.py::test_replace_appends_one_updated_event_and_is_idempotent",
+      "behavior_text": "exactly one updated event, sha256 = new, data {replaced, old_sha256, size, format}; repeat adds nothing",
+      "contract_text": "h4",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o5",
+      "test_ref": "tests/server/test_replace_api.py::test_wrong_kind_key_is_403_and_item_unchanged",
+      "behavior_text": "403 forbidden_kind, file unchanged",
+      "contract_text": "h5",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o6",
+      "test_ref": "tests/core/test_replace.py::test_duplicate_of_another_item_raises_before_update",
+      "behavior_text": "DuplicateContentError with other id/visibility; not IntegrityError; row and blob unchanged",
+      "contract_text": "h6 (core)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o6",
+      "test_ref": "tests/server/test_replace_api.py::test_duplicate_of_invisible_item_hides_id",
+      "behavior_text": "409 duplicate_content with no other_id when the caller cannot see the other item",
+      "contract_text": "h6 (no leak)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o6",
+      "test_ref": "tests/server/test_replace_api.py::test_duplicate_of_visible_item_names_it",
+      "behavior_text": "409 duplicate_content with other_id when visible",
+      "contract_text": "c6",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o7",
+      "test_ref": "tests/core/test_store_migration.py::test_cli_mint_with_todo_kind",
+      "behavior_text": "culture-library keys mint --kind todo exits 0 with kinds [todo]",
+      "contract_text": "h7",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o8",
+      "test_ref": "tests/core/test_store_migration.py::test_old_db_migrates_and_keeps_rows",
+      "behavior_text": "items, columns, embeddings and index_queue identical before and after; todo insert succeeds",
+      "contract_text": "h8",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o8",
+      "test_ref": "tests/core/test_store_migration.py::test_racing_first_opens_rebuild_once",
+      "behavior_text": "two threads at a barrier: exactly one copy and one diagnostic, no errors",
+      "contract_text": "h20 (race)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o8",
+      "test_ref": "tests/core/test_store_migration.py::test_second_open_does_not_rebuild",
+      "behavior_text": "sqlite_master unchanged, no stderr on the second open",
+      "contract_text": "h8 (idempotent)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o9",
+      "test_ref": "tests/core/test_store_migration.py::test_foreign_keys_still_cascade_after_migration",
+      "behavior_text": "child rows kept through the rebuild; cascades work afterwards; foreign_key_check empty",
+      "contract_text": "h20",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o10",
+      "test_ref": "tests/core/test_store_migration.py::test_sqlite_sequence_preserved",
+      "behavior_text": "seq 5 with max(id) 4 stays 5; next insert id 6",
+      "contract_text": "h21",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o11",
+      "test_ref": "tests/core/test_store_migration.py::test_lost_row_rolls_back",
+      "behavior_text": "Store() raises, old SQL/CHECK and data intact, no items_new left",
+      "contract_text": "h22",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o11",
+      "test_ref": "tests/core/test_store_migration.py::test_success_diagnostic_line",
+      "behavior_text": "one stderr line naming old/new kinds and the row count",
+      "contract_text": "c31",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o12",
+      "test_ref": "tests/core/test_replace.py::test_toggle_a_b_a_keeps_blob_and_hash",
+      "behavior_text": "SEQUENTIAL A->B->A leaves A's blob present and hashing correctly (no threaded interleaving test exists)",
+      "contract_text": "h25 (partially: sequential only)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o13",
+      "test_ref": "tests/contract/test_culture_rules_push.py::test_cited_copy_matches_upstream",
+      "behavior_text": "cited copy equals culture-rules at 1edfd8c (pinned extract); FAILS against the local 8c4c3fb checkout due to pre-existing upstream drift",
+      "contract_text": "h9",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o13",
+      "test_ref": "tests/contract/test_culture_rules_replace.py::test_put_replaces_todo_with_wire_encoder",
+      "behavior_text": "PUT built with the cited encode_multipart replaces a todo",
+      "contract_text": "c11 (new contract test)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o14",
+      "test_ref": "tests/server/test_replace_api.py::test_dav_writes_still_405",
+      "behavior_text": "405 for PUT, DELETE and MKCOL",
+      "contract_text": "h17",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o15",
+      "test_ref": "tests/core/test_replace.py::test_replace_swaps_bytes_keeping_metadata",
+      "behavior_text": "title, author, kind, visibility, created_at and uploader unchanged",
+      "contract_text": "c10",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o16",
+      "test_ref": "tests/server/test_replace_api.py::test_put_replaces_bytes_under_same_id",
+      "behavior_text": "observable over HTTP alone",
+      "contract_text": "h14",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Named test node (the repo has no behavioral marker or folder) ran green at 1435f08 with CULTURE_RULES_SRC pinned to culture-rules 1edfd8c; 758 passed, 3 skipped in the full suite",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o19",
+      "test_ref": "scratchpad img/probe.py run in culture-library:local (docker run, source mounted read-only)",
+      "behavior_text": "on sqlite 3.40.1 a 9-kind old DB with 4 items, 4 embeddings and seq 5 migrated with 4 rows copied, embeddings 4, seq 5, and a todo upload got id 6",
+      "contract_text": "c35: rebuild behaves the same on 3.40.1",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "one-off probe executed against the merged source at dcbbbfe inside the production image; not part of CI",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "dcbbbfe"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o8",
+      "test_ref": "tests/core/test_store_migration.py::test_empty_old_db_migrates",
+      "behavior_text": "an old-schema DB with no items and no sqlite_sequence row migrates; first todo gets id 1",
+      "contract_text": "d1: empty-table migration",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "regression test written red-first for deviation d1, green at 1435f08",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:18:02",
+        "commit": "1435f08"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o17",
+      "test_ref": "rehearsal: snapshot 20261024T221500Z restored via 'backup restore', culture-library:local (0.12.0, built from branch) served it in throwaway container cl-rehearsal on 127.0.0.1:18796",
+      "behavior_text": "first boot logged 'migrated items kind CHECK ... 51 rows copied'; items (51,54) seq 54 before and after; foreign_key_check []; new todo ids 55/56 continue after 54",
+      "contract_text": "c21 \u2014 rehearsed on a byte-identical restored copy of the live data, NOT the production container (d5)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Executed against the verified pre-upgrade snapshot of production; the production recreate itself remains operator-owned (d4)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:35:10",
+        "commit": "2f780f9"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o18",
+      "test_ref": "deploy.md 'Upgrading across a schema change' steps 1-2 on production (tag 0.11.0, verified backup, before-counts) and steps 4-5 on the restored copy (grep -i migrat matched; counts equal)",
+      "behavior_text": "backup verify OK (51 items); step-2 query printed (51, 54) (54,) verbatim from the runbook; migration line matched the runbook's grep; after-counts equal",
+      "contract_text": "c33 \u2014 every step except step 3 against production (d4/d5)",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "Steps executed as written; step 3 (production recreate) blocked by tool permission",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-24T22:35:10",
+        "commit": "2f780f9"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o17",
+      "test_ref": "production: culture-library-library-1 recreated on culture-library:local (0.12.0) by the operator; /api/health version 0.12.0",
+      "behavior_text": "first boot logged 'migrated items kind CHECK ... to (..., todo); 52 rows copied'; items (52,55) seq 55 (51/54 at backup plus daily newspaper id 55); foreign_key_check []; todo upload got id 56, continuing after 55",
+      "contract_text": "c21 \u2014 the kind CHECK migration runs on the live database, keeps every row, id and the sequence",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "run against the production container and database, read-only checks plus one smoke upload",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T05:13:00",
+        "commit": "dc420b6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o18",
+      "test_ref": "deploy.md 'Upgrading across a schema change' step 3 run by the operator on production, steps 4-5 by the agent",
+      "behavior_text": "grep -i migrat matched the one-line diagnostic; step-2 query after: (52, 55) (55,), equal to before plus the one item uploaded since; smoke: todo upload 201, PUT replace 200 with one updated event, same bytes 200, archive 204, smoke key revoked",
+      "contract_text": "c33 \u2014 the runbook upgrades production as written",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "steps executed as written; step 3 was hand-typed with a placeholder send-targets value, which broke send (recorded as a delta, runbook amended)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T05:13:00",
+        "commit": "dc420b6"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 38
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "PUT /api/library/{id}/file replaces an item's bytes under the same id (200 + item; 403 forbidden_kind; 404; 409 duplicate_content with other_id only when visible; upload refusal codes)",
+      "caused_by": [
+        "c2"
+      ],
+      "evidence_refs": [
+        "e1",
+        "e5",
+        "e10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "added",
+      "behavior_text": "items may have kind 'todo'; keys can be minted for it",
+      "caused_by": [
+        "c7"
+      ],
+      "evidence_refs": [
+        "e13",
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "items are no longer sha256-immutable: a same-id replace changes sha256/size/format and emits an 'updated' event with replace data",
+      "caused_by": [
+        "c4"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "Store open migrates an old items kind CHECK in place, including an empty never-used table",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e28",
+        "e14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

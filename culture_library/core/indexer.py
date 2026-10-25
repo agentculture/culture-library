@@ -160,6 +160,21 @@ def status(store: Store, *, now: float | None = None) -> dict:
     }
 
 
+class _Replaced(Exception):
+    """The item's bytes changed while it was being indexed (see :func:`_still_current`)."""
+
+
+def _still_current(conn: sqlite3.Connection, item: Item) -> None:
+    """Raise :class:`_Replaced` unless *item* still has the bytes it was read with.
+
+    ``library.replace`` swaps an item's sha256 and re-opens its queue row; a job already in
+    flight for the old bytes must not write their body, vectors or ``done`` over that.
+    """
+    row = conn.execute("SELECT sha256 FROM items WHERE id = ?", (item.id,)).fetchone()
+    if row is None or row[0] != item.sha256:
+        raise _Replaced(f"item {item.id} changed while indexing")
+
+
 class Indexer:
     """Processes the queue. ``run_once`` is synchronous; ``start`` runs it on a thread."""
 
@@ -214,14 +229,18 @@ class Indexer:
                 raise LookupError(f"item {item_id} vanished")
             self._index_body(item)
             self._index_embeddings(item)
+            with self.store.connect() as conn:
+                _still_current(conn, item)
+                conn.execute(
+                    "UPDATE index_queue SET state='done', last_error=NULL WHERE item_id=?",
+                    (item_id,),
+                )
+                _meta_set(conn, "last_success_at", str(self.now()))
+        except _Replaced:  # not a failure: replace() re-opened the job for the new bytes
+            return False
         except Exception as exc:  # recorded and retried; never propagates to the caller
             self._fail(item_id, exc)
             return False
-        with self.store.connect() as conn:
-            conn.execute(
-                "UPDATE index_queue SET state='done', last_error=NULL WHERE item_id=?", (item_id,)
-            )
-            _meta_set(conn, "last_success_at", str(self.now()))
         return True
 
     def _index_body(self, item: Item) -> None:
@@ -233,6 +252,7 @@ class Indexer:
             return
         text = self.text_for(item)
         with self.store.connect() as conn:
+            _still_current(conn, item)
             search.set_body(conn, item, text)
             conn.execute("UPDATE index_queue SET body_done=1 WHERE item_id=?", (item.id,))
 
@@ -247,6 +267,7 @@ class Indexer:
         for i in range(0, len(chunks), self.batch_size):
             vecs.extend(search._embed(self.embed, chunks[i : i + self.batch_size]))
         with self.store.connect() as conn:
+            _still_current(conn, item)
             search.set_embeddings(conn, item.id, chunks, vecs, self.model)
 
     def _fail(self, item_id: int, exc: BaseException) -> None:
