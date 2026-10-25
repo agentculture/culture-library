@@ -105,7 +105,8 @@ def test_restart_runs_then_checks_health_and_send_targets(tmp_path, compose, cal
     assert _restart("--env-file", str(env), "--compose", str(compose)) == 0
     out = json.loads(capsys.readouterr().out)
     assert calls[0][0] == "grant"
-    assert calls[1][:2] == ["docker", "compose"] and "exec" in calls[1]
+    assert calls[1][:2] == ["docker", "compose"]
+    assert "exec" in calls[1]
     assert out["health"]["status"] == "ok"
     assert out["send_targets"] == ["x3"]
 

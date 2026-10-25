@@ -44,6 +44,7 @@ SERVICES = ("library", "mcp")
 DEFAULT_PORT = "8796"
 STEP_TIMEOUT = 900
 _RUNBOOK = "docs/operations/deploy.md, 'Restart the live stack'"
+_JSON_HELP = "Emit structured JSON."
 _PLACEHOLDER = re.compile(r"<[^>]*>|\.\.\.")
 _TARGETS_PROBE = (
     "import json; from culture_library.core import send; "
@@ -223,7 +224,9 @@ def _health_url(values: dict[str, str]) -> str:
     host = "127.0.0.1" if bind in wildcard else bind
     if ":" in host:
         host = f"[{host}]"
-    return f"http://{host}:{values.get('LIBRARY_PUBLISH_PORT') or DEFAULT_PORT}/api/health"
+    port = values.get("LIBRARY_PUBLISH_PORT") or DEFAULT_PORT
+    # The library serves plain HTTP on its published port (TLS ends at the tunnel).
+    return f"http://{host}:{port}/api/health"  # NOSONAR - local health probe, not a remote URL
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
@@ -311,7 +314,7 @@ def cmd_overview(args: argparse.Namespace) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("deploy", help="Live stack (see 'culture-library deploy overview').")
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
     p.set_defaults(func=cmd_overview, json=False)
     nsub = p.add_subparsers(dest="deploy_command", parser_class=type(p))
     rs = nsub.add_parser("restart", help="Recreate library + mcp from the host env file.")
@@ -325,8 +328,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     rs.add_argument(
         "--timeout", type=float, default=90.0, help="Seconds to wait for health (default 90)."
     )
-    rs.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    rs.add_argument("--json", action="store_true", help=_JSON_HELP)
     rs.set_defaults(func=cmd_restart)
     ov = nsub.add_parser("overview", help="Describe the deploy noun.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=_JSON_HELP)
     ov.set_defaults(func=cmd_overview)
