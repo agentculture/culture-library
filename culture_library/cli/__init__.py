@@ -66,6 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from culture_library.cli._commands import cli as _cli_group
     from culture_library.cli._commands import deploy as _deploy_cmd
     from culture_library.cli._commands import doctor as _doctor_cmd
+    from culture_library.cli._commands import eval as _eval_cmd
     from culture_library.cli._commands import explain as _explain_cmd
     from culture_library.cli._commands import keys as _keys_cmd
     from culture_library.cli._commands import learn as _learn_cmd
@@ -98,6 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _keys_cmd.register(sub)
     _backup_cmd.register(sub)
     _deploy_cmd.register(sub)
+    _eval_cmd.register(sub)
     # Register your own noun groups here:
     #   from culture_library.cli._commands import my_noun as _my_noun_group
     #   _my_noun_group.register(sub)

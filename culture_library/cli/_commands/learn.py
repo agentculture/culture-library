@@ -41,6 +41,10 @@ Commands
   culture-library backup overview    Describe the backup noun.
   culture-library deploy restart     Recreate library + mcp from the host env file.
   culture-library deploy overview    Describe the deploy noun.
+  culture-library eval generate ID   Build a RAG eval set (needs culture-library[eval]).
+  culture-library eval run SET_ID    Run a set (--mode/--rerank/--k/--candidates) and store the run.
+  culture-library eval show          List/show sets and runs (--set/--run/--item).
+  culture-library eval overview      Describe the eval noun.
 
 Machine-readable output
 -----------------------
@@ -84,6 +88,10 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["backup", "overview"], "summary": "Describe the backup noun."},
             {"path": ["deploy", "restart"], "summary": "Recreate library + mcp (env file)."},
             {"path": ["deploy", "overview"], "summary": "Describe the deploy noun."},
+            {"path": ["eval", "generate"], "summary": "Build a RAG eval set ([eval] extra)."},
+            {"path": ["eval", "run"], "summary": "Run an eval set; --mode/--rerank/--k."},
+            {"path": ["eval", "show"], "summary": "List or show eval sets and runs."},
+            {"path": ["eval", "overview"], "summary": "Describe the eval noun."},
         ],
         "exit_codes": {
             "0": "success",
