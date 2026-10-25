@@ -7,7 +7,7 @@ fetched, so a non-local judge never triggers a text fetch of a non-public item.
 
 from __future__ import annotations
 
-import random
+import hashlib
 import re
 from typing import Any
 
@@ -39,7 +39,13 @@ def _pick(chunks: list[Chunk], n: int, seed: int) -> list[Chunk]:
         raise GenerateError("samples must be >= 1", "pass --samples with a positive number")
     if len(chunks) <= n:
         return list(chunks)
-    return sorted(random.Random(seed).sample(chunks, n), key=lambda c: c.chunk_no)  # nosec B311
+    chosen = sorted(chunks, key=lambda c: _rank(seed, c.chunk_sha))[:n]
+    return sorted(chosen, key=lambda c: c.chunk_no)
+
+
+def _rank(seed: int, key: object) -> str:
+    """Seeded, deterministic ordering key (a hash, not a PRNG: sampling, not secrecy)."""
+    return hashlib.sha256(f"{seed}:{key}".encode()).hexdigest()
 
 
 def _prepare(client: LibraryClient, judge: JudgeConfig, item_id: int) -> dict:
@@ -169,7 +175,7 @@ def generate_newspaper_set(
             "check the manifest excerpts against the item text and that each has source_urls",
         )
     if len(matched) > samples:
-        keep = sorted(random.Random(seed).sample(range(len(matched)), samples))  # nosec B311
+        keep = sorted(sorted(range(len(matched)), key=lambda i: _rank(seed, i))[:samples])
         matched = [matched[i] for i in keep]
 
     out: list[Sample] = []

@@ -79,9 +79,10 @@ def test_book_deterministic_by_seed_and_default_20(library):
             ).samples
         ]
 
-    assert run(1) == run(1)
-    assert run(1) != run(2)
-    assert len(run(1)) == 20
+    first, again, other = run(1), run(1), run(2)
+    assert first == again
+    assert first != other
+    assert len(first) == 20
 
 
 def test_bad_adapter_refs_are_dropped_and_contexts_made_verbatim(library):

@@ -21,7 +21,6 @@ import asyncio
 import json
 import math
 import os
-import re
 from typing import Any, Protocol, Sequence
 
 from .config import JudgeConfig
@@ -43,7 +42,6 @@ _GEN_SYSTEM = (
     'Reply with strict JSON only, exactly: {"question": "...", "answer": "..."}'
 )
 _GEN_RETRY = 'That was not valid JSON. Reply with only {"question": "...", "answer": "..."}.'
-_FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.S)
 
 
 class _Backend(Protocol):
@@ -166,10 +164,19 @@ def _mean(values: list[float | None]) -> float | None:
     return sum(vals) / len(vals) if vals else None
 
 
+def _unfence(text: str) -> str:
+    """Strip one surrounding ```/```json code fence, if the whole reply is fenced."""
+    body = (text or "").strip()
+    if body.startswith("```") and body.endswith("```") and len(body) >= 6:
+        body = body[3:-3]
+        if body.startswith("json"):
+            body = body[4:]
+    return body.strip()
+
+
 def _parse_generation(text: str) -> tuple[str, str] | None:
-    m = _FENCE.match(text or "")
     try:
-        data = json.loads(m.group(1) if m else text)
+        data = json.loads(_unfence(text))
     except (TypeError, ValueError):
         return None
     if not isinstance(data, dict):
