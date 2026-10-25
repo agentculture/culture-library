@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T09:24:00Z",
-  "updated": "2026-10-25T14:52:06Z",
+  "updated": "2026-10-25T16:06:58Z",
   "claims": [
     {
       "id": "c1",
@@ -817,14 +817,20 @@
     {
       "id": "c42",
       "kind": "decision",
-      "text": "Enabling the embedder on live is part of this delivery: GATEWAY_API_KEY and LOBES_* go into ~/.config/culture-library/live.env, culture-library deploy restart, then a full re-embed of the live corpus before the baseline",
+      "text": "Enabling the embedder on live is part of this delivery: GATEWAY_API_KEY and LOBES_* go into the host env file ($HOME/.config/culture-library/live.env), culture-library deploy restart, then a full re-embed of the live corpus before the baseline",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Enabling the embedder on live is part of this delivery: GATEWAY_API_KEY and LOBES_* go into ~/.config/culture-library/live.env, culture-library deploy restart, then a full re-embed of the live corpus before the baseline",
+          "kind": "decision",
+          "reason": "portability lint (steward doctor) rejects literal ~/. dotfile paths in committed docs; wording only"
+        }
+      ]
     },
     {
       "id": "c43",

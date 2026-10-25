@@ -218,7 +218,7 @@
 - First cut success is a recorded baseline, not a quality gate: no score threshold blocks delivery
 - First cut is retrieval-only: RAG endpoints return passages; evals score context precision/recall
 - 'Newsletters' means the existing newspaper kind; its source links arrive as a culture-rules sidecar; the judge LLM is a configurable OpenAI-compatible endpoint defaulting to local lobes, with non-local endpoints limited to public items
-- Enabling the embedder on live is part of this delivery: `GATEWAY_API_KEY` and `LOBES_`\* go into ~/.config/culture-library/live.env, culture-library deploy restart, then a full re-embed of the live corpus before the baseline
+- Enabling the embedder on live is part of this delivery: `GATEWAY_API_KEY` and `LOBES_`\* go into the host env file ($HOME/.config/culture-library/live.env), culture-library deploy restart, then a full re-embed of the live corpus before the baseline
 - The operator uploads at least 2 more books to live before the baseline run, so c30's >= 3 books holds as written
 - Every eval run scores ID-based context precision/recall over `chunk_sha`; LLM-judged context precision/recall are added when a judge endpoint is configured, subject to c39
 
