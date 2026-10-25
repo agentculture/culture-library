@@ -33,7 +33,46 @@ it all, published at **library.culture.dev**.
     at `/`. `PUT /api/library/{id}/file` replaces an item's bytes in place
     (same id, title, author, kind and visibility; new sha256, size and
     format) and appends an `updated` feed event.
-  - `mcp/`: the agents' MCP server.
+  - `server/` also serves the RAG and eval surface (spec
+    `docs/specs/2026-10-25-rag-endpoints-ragas-evals.md`):
+    - `POST /api/rag/retrieve` (`routes_rag.py`) takes `{query, k, mode:
+      semantic|hybrid, kind?, item_ids?, rerank?, candidates?}` and returns
+      ranked passages `{item_id, title, kind, chunk_no, chunk_sha, text,
+      score, rerank_score, source}` plus a `reranked` flag. It needs `read`
+      scope, applies the same private/owner visibility as `/api/search`, and
+      returns 503 `rag_unavailable` without an embedder. An unreachable
+      reranker degrades to the unreranked order, never a 5xx.
+      `GET /api/rag/items/{id}/chunks` returns an item's chunks.
+    - `PUT`/`GET /api/library/{id}/sources` (`routes_sources.py`, `write` /
+      `read` scope) store and return the newspaper sources sidecar: a JSON
+      manifest `[{article_title, source_urls[], excerpt}]` that culture-rules
+      pushes with each issue (in the `item_sources` table; cascades on item
+      delete).
+    - `POST`/`GET /api/eval/sets` and `/api/eval/runs`, `GET .../{id}`
+      (`routes_eval.py`; writes need `write` scope, reads follow item
+      visibility) store generated sets and scored runs. Sets pin the item
+      sha256 and anchor references by `chunk_sha`, not `(item_id, chunk_no)`,
+      because re-indexing renumbers chunks. A run records the server-reported
+      retrieval config, and is stored `complete`, `partial` or `failed`;
+      aggregates exist only on `complete`.
+    - `/api/status` carries a `retrieval` block (embed model and prompts,
+      chunker `max_chars`, reranker model, stored chunk count).
+  - `mcp/`: the agents' MCP server; its `rag_retrieve` tool mirrors
+    `POST /api/rag/retrieve`.
+  - `eval/`: the RAG evaluation package, outside `core/` so `core/` stays
+    network-free. It holds a framework-neutral adapter interface and models,
+    a `LibraryClient` over the HTTP API, the OpenAI-compatible judge config
+    (`config.py`; defaults to the lobes gateway, and refuses to send text from
+    a non-public item to a non-local judge), the set generator, the runner,
+    and the one shipped adapter, RAGAS (`ragas_adapter.py`).
+  - `cli/_commands/eval.py`: `culture-library eval {overview,generate,run,
+    show}`. `generate <item_id>` builds a set from a book's own text or a
+    newspaper's sources sidecar; `run <set_id>` scores retrieval (context
+    precision/recall) under a chosen `--mode`, `--k`, rerank setting and
+    `--no-llm` (ID metrics only), so two runs differ only in retriever
+    config. `LOBES_EMBED_PROMPTS` and `LOBES_RERANK_MODEL` configure the
+    gateway prompts and reranker (see `docs/operations/deploy.md`, "Enable
+    embeddings").
   - `web/static/`: the site. A `todo` item opens as a read-only checklist
     (`checklist.js`).
   - `render/`: the devague renderer.
@@ -49,8 +88,20 @@ it all, published at **library.culture.dev**.
 - **Not done yet:**
   - the stack has not been built or provisioned (#6);
   - search does not cover repo documents (#4);
+  - the RAG and eval code is built, but embeddings are not yet enabled on the
+    live library (planned: the "Enable embeddings" runbook step in
+    `docs/operations/deploy.md`) and the baseline eval runs (sets for at least
+    three books and three newspaper issues, each with a stored run) have not
+    been done (planned);
   - the sibling repos must adopt the library (culture-rules#86,
     embodiment#97, xteink#3).
+
+**Before-state evidence for RAG and evals.** Before this work,
+`core/search.py`'s `Hit` was item-level with a 200-char snippet, so it could
+not hand an agent a citable passage. `docs/evidence/t7-embedding-cost.md`
+measured embedding cost and throughput only; it did not evaluate retrieval
+quality. Issue #7 (`gemma2-embed` versus Qwen3) therefore had no way to be
+decided. `/api/search` keeps its shape (`Hit` is unchanged); RAG is additive.
 
 Keep this file honest as features land: describe what is on disk, and mark
 anything ahead of reality as planned.
@@ -143,6 +194,17 @@ hint when they are missing. `create_app` (`server/app.py`, cited from xteink
 `ea2f643`) auto-includes the `router` of every `server/routes_*.py`, so a new
 route module needs no edit to `app.py`. Run it: `culture-library server serve
 --host 127.0.0.1 --port N`.
+
+**The `[eval]` extra (decision).** RAG evaluation is a second optional extra:
+`eval = ["ragas==0.4.3", "openai>=1", "langchain-community<0.4.2"]` (the
+`langchain-community` cap is deviation d1: 0.4.2 removed a module ragas 0.4.3
+imports). Base `dependencies` stays empty, the production image still installs
+only `.[server]`, and no CI job installs `[eval]` by default. ragas and openai
+are imported lazily inside the `eval` CLI handler, which raises a `CliError`
+with an "install culture-library[eval]" hint when they are missing;
+`tests/test_zero_deps.py` blocks the eval modules from the zero-dependency
+import. Eval tests run on fakes (`tests/eval/conftest.py`); real ragas runs are
+opt-in. Install: `uv sync --extra eval`.
 
 `doctor` keeps two backend→prompt tables on purpose: `_PROMPT_FILE` (every file
 *recognized* under a backend name) and `_RESIDENT_PROMPT` (the one file the
@@ -251,7 +313,9 @@ open:
 - deploy and provision library.culture.dev (#6);
 - search over repo documents (#4);
 - map recording EPUBs to `transcript` on migration (#5);
-- an embedding model comparison (#7);
+- an embedding model comparison (#7); the eval harness can run it from config
+  alone, but it needs embeddings enabled on live and the baseline run first
+  (planned);
 - the ebooks.culture.dev teardown, gated by
   `docs/operations/teardown-ebooks.md`.
 
