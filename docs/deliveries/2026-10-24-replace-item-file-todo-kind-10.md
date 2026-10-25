@@ -56,13 +56,13 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d2` — t5 split: the follow-up issue for the site's todo display kind is filed in
   this run; the reply on issue #10 with the final route moves to after the PR merges.
   The decider (`assess`, general) leaned `post_after_merge` 0.49 over `post_now`
-  0.42. (pending approval)
+  0.42. (approved 2026-10-25)
 - `d3` — the t6 dry run corrected the new runbook (t4): there is no `deploy/.env`;
   a backup inside the container has no durable target outside `/data`; the image tag
-  must be saved before a rebuild. (pending approval)
+  must be saved before a rebuild. (approved 2026-10-25)
 - `d4` — the t6 live recreate was blocked: the Claude Code permission classifier
   denied `docker compose up -d --no-deps library mcp` against the live stack. The
-  operator runs that one step by hand. (pending approval)
+  operator runs that one step by hand. (approved 2026-10-25)
 - Wave-1 baseline: the local `~/git/culture-rules` checkout (`8c4c3fb`,
   culture-rules#91) has drifted from the cited `1edfd8c`, so two contract tests failed
   before any change. Every TDD gate in this run used `CULTURE_RULES_SRC` pointed at a
@@ -71,10 +71,10 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d6` — t5 completed before the merge: the operator's standing goal is the
   approval t5's criterion allows, the same approval that covered filing #11. The reply
   states the not-merged, not-deployed status plainly. Supersedes d2's ordering.
-  (pending approval)
+  (approved 2026-10-25)
 - `d5` — the t6 rehearsal on the restored snapshot, because the production recreate is
   blocked (d4). It gives execution-strength evidence on the real data without touching
-  production. (pending approval)
+  production. (approved 2026-10-25)
 - t5 reply timing, asked again after PR #12 opened with green CI: the decider split
   0.52 `wait_for_merge` against 0.48 `post_now_marked_pending` (route stable P = 0.88).
   The near tie does not override t5's confirmed criterion, so the reply stays after
@@ -88,9 +88,9 @@ Quoted verbatim from the `devague summary` skeleton:
 | Plan item | Reason for divergence | Classification |
 |-----------|-----------------------|----------------|
 | `t1` (`d1`) | Found by the t3 task agent while building its old-schema fixture and reproduced by the main agent. The live DB (51 items, seq 54) is unaffected, but a never-used older instance would refuse to start. The operator approved the fix in-run. | acceptable |
-| `t4` (`d3`) | Found while following `docs/operations/deploy.md` for the live upgrade; the backup step failed on permissions until the host directory was made writable for uid 10001 (record pending approval) | acceptable |
-| `t5` (`d2`, `d6`) | The reply was posted before the merge under the operator's goal (d6). Originally: the operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved (record pending approval) | acceptable |
-| `t6` (`d4`) | Tool permission boundary; not worked around (record pending approval) | needs-follow-up |
+| `t4` (`d3`) | Found while following `docs/operations/deploy.md` for the live upgrade; the backup step failed on permissions until the host directory was made writable for uid 10001 (record approved 2026-10-25) | acceptable |
+| `t5` (`d2`, `d6`) | The reply was posted before the merge under the operator's goal (d6). Originally: the operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved (record approved 2026-10-25) | acceptable |
+| `t6` (`d4`) | Tool permission boundary; not worked around (record approved 2026-10-25) | needs-follow-up |
 | `t2` | The plan's instruction said to mirror the requeue helpers. The task called `indexer.enqueue` and then a direct `UPDATE index_queue`, with the same effect, which is tested (`test_replace_reindexes_body_and_requeues`). | acceptable |
 | `t3` | An archived item reaches the kind guard (`_writable` uses `include_archived=True`) and gets its 404 from `library.replace` after the body is read. The confirmed contract (404) holds; the 403 for a wrong kind still comes first. | acceptable |
 
@@ -154,7 +154,6 @@ Lapse ledger evidence:
   `20261024T221500Z`.
 - `t5`: once 0.12.0 is live, add a short "now live" note on #10, as the reply
   promises.
-- Approve or reject the pending deviations `d2` through `d6`.
 - Re-cite `tests/contract/culture_rules_wire.py` to culture-rules `8c4c3fb` (#91
   removed `KIND` and requires `upload_path`). This is a pre-existing drift that the
   plan risk records.
