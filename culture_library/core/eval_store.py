@@ -151,10 +151,22 @@ def replace_samples(
     ``reference_chunk_shas``, ``reference_contexts`` and ``source_urls`` (lists).
     """
     get_set(conn, set_id)
+    _check_samples(samples)
+    conn.execute("DELETE FROM eval_samples WHERE set_id = ?", (set_id,))
+    _insert_samples(conn, set_id, samples)
+    conn.execute("UPDATE eval_sets SET version = version + 1 WHERE id = ?", (set_id,))
+    return int(conn.execute("SELECT version FROM eval_sets WHERE id = ?", (set_id,)).fetchone()[0])
+
+
+def _check_samples(samples: Sequence[Mapping[str, Any]]) -> None:
     for sample in samples:
         if not sample.get("question") or "reference_answer" not in sample:
             raise ValidationError("a sample needs a question and a reference_answer")
-    conn.execute("DELETE FROM eval_samples WHERE set_id = ?", (set_id,))
+
+
+def _insert_samples(
+    conn: sqlite3.Connection, set_id: int, samples: Sequence[Mapping[str, Any]]
+) -> None:
     for sample in samples:
         conn.execute(
             "INSERT INTO eval_samples (set_id, question, reference_answer, reference_chunk_shas, "
@@ -168,17 +180,15 @@ def replace_samples(
                 _dumps(list(sample.get("source_urls", []))),
             ),
         )
-    conn.execute("UPDATE eval_sets SET version = version + 1 WHERE id = ?", (set_id,))
-    return int(conn.execute("SELECT version FROM eval_sets WHERE id = ?", (set_id,)).fetchone()[0])
 
 
 def add_samples(
     conn: sqlite3.Connection, set_id: int, samples: Sequence[Mapping[str, Any]]
 ) -> None:
     """Append samples to a set without changing its version (initial generation)."""
-    version = get_set(conn, set_id)["version"]
-    replace_samples(conn, set_id, samples)
-    conn.execute("UPDATE eval_sets SET version = ? WHERE id = ?", (version, set_id))
+    get_set(conn, set_id)
+    _check_samples(samples)
+    _insert_samples(conn, set_id, samples)
 
 
 def list_samples(conn: sqlite3.Connection, set_id: int) -> list[dict[str, Any]]:

@@ -21,7 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - The gateway embedder sends gemma2-embed prompt names: `Retrieval-document` when indexing and `Retrieval-query` for queries. `LOBES_EMBED_PROMPTS=off` turns them off. `embeddings.model` records the label, for example `gemma2-embed+Retrieval-document`.
-- Gateway clients refuse HTTP redirects, so the key never leaves the configured origin.
+- Gateway clients and the eval judge client refuse HTTP redirects, so the key never leaves the configured origin. `GATEWAY_API_KEY` goes only to the lobes gateway or a local judge; any other judge uses `CULTURE_LIBRARY_EVAL_LLM_KEY`.
+- At startup, items whose stored embeddings carry a different model/prompt label are re-queued (`requeue_stale_model`), so turning prompts on or switching models re-embeds the corpus instead of mixing vector spaces.
 - `deploy/compose.yaml` adds `host.docker.internal:host-gateway`, because the container could not reach the gateway on 127.0.0.1. It also sets defaults for `LOBES_GATEWAY_URL`, `LOBES_EMBED_MODEL`, `LOBES_RERANK_MODEL` and `LOBES_EMBED_PROMPTS`.
 
 ## [0.15.0] - 2026-10-25

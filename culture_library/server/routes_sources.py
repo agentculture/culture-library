@@ -73,13 +73,11 @@ def _visible_item(store: Store, item_id: int, principal: Principal):
 
 def _read(store: Store, item_id: int):
     with store.reader() as conn:
-        manifest = sources.get(conn, item_id)
-        row = conn.execute(
-            "SELECT updated_at FROM item_sources WHERE item_id = ?", (item_id,)
-        ).fetchone()
-    if manifest is None or row is None:
+        found = sources.get_with_meta(conn, item_id)
+    if found is None:
         return _flat(404, f"item {item_id} has no sources", "no_sources")
-    return {"item_id": item_id, "sources": manifest, "updated_at": row[0]}
+    manifest, updated_at = found
+    return {"item_id": item_id, "sources": manifest, "updated_at": updated_at}
 
 
 @router.put("/{item_id}/sources")

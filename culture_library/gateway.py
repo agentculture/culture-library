@@ -59,6 +59,13 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
+def open_no_redirect(req: urllib.request.Request, timeout: float):
+    """Open ``req`` refusing any redirect (raises :class:`RedirectRefusedError`)."""
+    if not req.full_url.startswith(("http://", "https://")):
+        raise ValueError("URL must be http(s)")
+    return _OPENER.open(req, timeout=timeout)  # nosec B310 - scheme checked, no redirects
+
+
 def _post_json(url: str, key: str, payload: dict, timeout: float) -> object:
     """POST ``payload`` as JSON with the bearer key; return the decoded JSON reply.
 

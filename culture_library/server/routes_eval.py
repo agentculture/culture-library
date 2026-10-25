@@ -127,6 +127,13 @@ def post_set(
     if item is None:
         return _flat(404, f"item {body.item_id} not found", "not_found")
     check(principal, "write", item.kind)
+    if body.item_sha256 != item.sha256:
+        return _flat(
+            409,
+            f"item {item.id} changed since the set was generated (now {item.sha256[:12]}); "
+            "regenerate the set",
+            "item_changed",
+        )
     samples = [s.model_dump(exclude={"id"}) for s in body.samples]
     try:
         with store.connect() as conn:

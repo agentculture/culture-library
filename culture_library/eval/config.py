@@ -10,6 +10,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from culture_library.gateway import open_no_redirect
+
 from .errors import EvalApiError, EvalPolicyError
 
 DEFAULT_JUDGE_MODEL = "cortex"
@@ -36,10 +38,17 @@ class JudgeConfig:
     def from_env(cls, env: dict | None = None) -> JudgeConfig:
         e = os.environ if env is None else env
         url = e.get("CULTURE_LIBRARY_EVAL_LLM_URL") or e.get("LOBES_GATEWAY_URL") or ""
+        url = url or DEFAULT_GATEWAY_URL
+        # The lobes gateway key only goes to the gateway (or a local judge); any other judge
+        # gets CULTURE_LIBRARY_EVAL_LLM_KEY or nothing.
+        to_gateway = is_local(url) or url == e.get("LOBES_GATEWAY_URL")
+        key = e.get("CULTURE_LIBRARY_EVAL_LLM_KEY") or (
+            e.get("GATEWAY_API_KEY", "") if to_gateway else ""
+        )
         return cls(
-            url=url or DEFAULT_GATEWAY_URL,
+            url=url,
             model=e.get("CULTURE_LIBRARY_EVAL_LLM_MODEL") or DEFAULT_JUDGE_MODEL,
-            api_key=e.get("GATEWAY_API_KEY", ""),
+            api_key=key,
         )
 
     @property
@@ -90,7 +99,7 @@ class OpenAIChat:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # nosec B310
+            with open_no_redirect(req, timeout=self.timeout) as resp:
                 payload = json.loads(resp.read())
             return payload["choices"][0]["message"]["content"] or ""
         except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:

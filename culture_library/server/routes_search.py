@@ -40,7 +40,12 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 
 from culture_library.core import KINDS, Store
 from culture_library.core import search as sr
-from culture_library.core.indexer import Indexer, enqueue_missing, requeue_unembedded
+from culture_library.core.indexer import (
+    Indexer,
+    enqueue_missing,
+    requeue_stale_model,
+    requeue_unembedded,
+)
 from culture_library.gateway import GatewayEmbedder, GatewayReranker
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
@@ -99,6 +104,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         enqueue_missing(store)
         if getattr(indexer, "embed", None) is not None:
             requeue_unembedded(store)
+            requeue_stale_model(store, getattr(indexer, "model", ""))
         indexer.notify()
     try:
         yield

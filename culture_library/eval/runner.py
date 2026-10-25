@@ -18,6 +18,7 @@ from .models import EvalRun, EvalSet, Passage, SampleResult
 
 PRECISION = "id_based_context_precision"
 RECALL = "id_based_context_recall"
+_ID_KEYS = (PRECISION, RECALL)
 
 
 class EvalStaleError(EvalError):
@@ -28,12 +29,25 @@ class EvalStaleError(EvalError):
         self.hint = hint
 
 
+class IdOnlyAdapter:
+    """Adapter for ID-metric-only runs (``--no-llm``): needs no eval extra, never scores."""
+
+    name = "id-only"
+    version = "1"
+
+    def generate_samples(self, chunks, n, llm):
+        raise EvalError("the id-only adapter does not generate samples")
+
+    def score(self, samples, retrieved, llm):
+        raise EvalError("the id-only adapter does not score with an LLM")
+
+
 def id_metrics(retrieved: Sequence[str], reference: Sequence[str]) -> dict[str, float | None]:
     """Precision = |retrieved ∩ reference| / |retrieved|; recall = ... / |reference|."""
     got, ref = set(retrieved), set(reference)
     hits = len(got & ref)
     return {
-        PRECISION: hits / len(got) if got else 0.0,
+        PRECISION: hits / len(got) if got else None,
         RECALL: hits / len(ref) if ref else None,
     }
 
@@ -151,7 +165,7 @@ def run_set(
         PRECISION: _mean([r.scores.get(PRECISION) for r in run.samples]),
         RECALL: _mean([r.scores.get(RECALL) for r in run.samples]),
     }
-    aggregates.update(run.aggregates or {})
+    aggregates.update({k: v for k, v in (run.aggregates or {}).items() if k not in _ID_KEYS})
     run.aggregates = aggregates
     return run
 
@@ -172,8 +186,8 @@ def _llm_scores(client, run, item_id, item, samples, retrieved, adapter, llm, ju
         ]
     result = adapter.score(samples, retrieved, llm)
     for res, extra in zip(run.samples, result.per_sample):
-        res.scores.update(extra)
-    run.aggregates = dict(result.aggregate)
+        res.scores.update({k: v for k, v in extra.items() if k not in _ID_KEYS})
+    run.aggregates = {k: v for k, v in result.aggregate.items() if k not in _ID_KEYS}
 
 
 def _fail(run: EvalRun, i: int, exc: Exception, *, keep_samples: bool = False) -> EvalRun:

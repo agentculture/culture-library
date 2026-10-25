@@ -80,13 +80,14 @@ def _unavailable(reason: str) -> HTTPException:
 
 
 def _rerank(reranker, query: str, cands: list[sr.Passage]) -> list[tuple[sr.Passage, float | None]]:
-    """``cands`` reordered by the reranker's score; raises whatever the reranker raises."""
+    """``cands`` reordered by the reranker's score; raises whatever the reranker raises.
+
+    Index validity is the reranker's contract (``GatewayReranker`` raises ``RerankError``).
+    """
     scored = reranker(query, [p.text for p in cands])
     best: dict[int, float] = {}
     for index, score in scored:
         i, s = int(index), float(score)
-        if not 0 <= i < len(cands):
-            raise ValueError(f"reranker index {i} out of range")
         if i not in best or s > best[i]:
             best[i] = s
     order = sorted(best, key=lambda i: (-best[i], i))

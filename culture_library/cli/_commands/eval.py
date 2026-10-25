@@ -56,6 +56,16 @@ def _make_llm(judge):
     return OpenAIChat(judge)
 
 
+def _server_detail(body: Any) -> str | None:
+    """The server's own explanation: flat ``{detail, code}`` or nested ``{detail: {...}}``."""
+    if not isinstance(body, dict):
+        return None
+    detail = body.get("detail", body.get("error"))
+    if isinstance(detail, dict):
+        detail = detail.get("detail")
+    return detail if isinstance(detail, str) and detail else None
+
+
 def _make_adapter(judge):
     """The ragas adapter; without the [eval] extra this raises CliError (exit 2)."""
     try:
@@ -79,7 +89,7 @@ def _map_errors(fn):
     except CliError:
         raise
     except EvalApiError as exc:
-        body = exc.body.get("error") if isinstance(exc.body, dict) else None
+        body = _server_detail(exc.body)
         detail = f": {body}" if body else ""
         raise CliError(
             EXIT_ENV_ERROR,
@@ -175,7 +185,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         from culture_library.eval import runner
 
         judge = None if args.no_llm else _make_judge()
-        adapter = _make_adapter(judge)
+        adapter = runner.IdOnlyAdapter() if judge is None else _make_adapter(judge)
         client = _make_client()
         eval_set = client.get_set(args.set_id)
         run = runner.run_set(
@@ -201,7 +211,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         }
 
     result = _map_errors(go)
-    agg = ", ".join(f"{k}={_fmt(v)}" for k, v in sorted(result["aggregates"].items()))
+    agg = ", ".join(f"{k}={_fmt(v)}" for k, v in sorted((result["aggregates"] or {}).items()))
     _emit(
         args,
         result,

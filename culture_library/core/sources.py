@@ -39,4 +39,12 @@ def get(conn: sqlite3.Connection, item_id: int) -> Any | None:
     return None if row is None else json.loads(row[0])
 
 
-__all__ = ["get", "put"]
+def get_with_meta(conn: sqlite3.Connection, item_id: int) -> tuple[Any, str] | None:
+    """``(manifest, updated_at)`` for the item, or ``None`` when it has none."""
+    row = conn.execute(
+        "SELECT manifest_json, updated_at FROM item_sources WHERE item_id = ?", (item_id,)
+    ).fetchone()
+    return None if row is None else (json.loads(row[0]), row[1])
+
+
+__all__ = ["get", "get_with_meta", "put"]
