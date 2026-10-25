@@ -1,13 +1,15 @@
 /* Reader: the list pane (rows grouped by day, kind filters, search snippets) and the
  * per-kind readers (prototype "pane list" and "reader").
  *
- * Item text comes from GET /api/library/{id}/text (extracted plain text) and is inserted
+ * Item text comes from GET /api/library/{id}/text (extracted plain text; a to-do checklist
+ * reads its Markdown from /file and is parsed by checklist.js) and is inserted
  * as text nodes only. Specs (Markdown) and devague frames (JSON) are parsed here into the
  * prototype's layouts, again as text nodes. Other devague JSON (plans) uses the server's
  * fragment from GET /api/repodocs/{id}/rendered, inserted as HTML because
  * culture_library.render.devague.render escapes every input string.
  */
 import { $, KINDS, S, api, apiText, chip, fill, fmtSize, h, kc, repoShort } from './app.js';
+import { parseChecklist } from './checklist.js';
 import * as search from './search.js';
 import * as send from './send.js';
 
@@ -99,6 +101,26 @@ function paragraphs(text) {
   return String(text).split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p => h('p', { class: 'para', dir: 'auto' }, hl(p)));
 }
 
+/** A to-do checklist: read-only boxes; culture-rules is its only writer (#11). */
+function checklist(text) {
+  const out = [];
+  let list = null;
+  for (const row of parseChecklist(text)) {
+    if (row.type !== 'check') {
+      list = null;
+      out.push(row.type === 'heading'
+        ? h('h3', { class: 'sh', dir: 'auto' }, hl(row.text))
+        : h('p', { class: 'para', dir: 'auto' }, hl(row.text)));
+      continue;
+    }
+    if (!list) { list = h('ul', { class: 'todo' }); out.push(list); }
+    list.append(h('li', { class: row.done ? 'done' : null, dir: 'auto' },
+      h('input', { type: 'checkbox', disabled: true, checked: row.done, 'aria-label': row.done ? 'Done' : 'Not done' }),
+      h('span', {}, hl(row.text))));
+  }
+  return out;
+}
+
 /* ---------- library items ---------- */
 function itemBody(i, t) {
   const kids = [];
@@ -124,7 +146,12 @@ function renderItem(i, art, my) {
   if (i.author) meta.push(h('span', { dir: 'auto' }, `from ${i.author}`));
   const prose = h('div', { class: 'prose', dir: 'auto' }, loading());
   fill(art, head(i, meta), h('h2', { class: 'title', dir: 'auto' }, bareTitle(i.title)), prose);
-  api(`/api/library/${i.id}/text`).then(t => { if (my === token) fill(prose, itemBody(i, t)); }, e => { if (my === token) fill(prose, failed(e)); });
+  // A to-do checklist needs its Markdown markers, which /text strips: read the file itself.
+  // It is still untrusted text, so parseChecklist output only ever becomes text nodes.
+  const body = i.apiKind === 'todo' && i.format === 'md'
+    ? apiText(`/api/library/${i.id}/file`).then(md => [...checklist(md), note(`Item ${i.id}, sha256 ${String(i.sha).slice(0, 12)}…`)])
+    : api(`/api/library/${i.id}/text`).then(t => itemBody(i, t));
+  body.then(kids => { if (my === token) fill(prose, kids); }, e => { if (my === token) fill(prose, failed(e)); });
 }
 
 /* ---------- repo documents ---------- */

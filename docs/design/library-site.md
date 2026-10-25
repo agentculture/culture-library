@@ -48,7 +48,8 @@ The site's visual and interaction design. The operator approved it on
 
 **Kind colors.** These are categorical, in a fixed order. They were checked
 with the dataviz validator against both surfaces: colorblind separation
-ΔE ≥ 8.4, and normal vision ΔE ≥ 19.3.
+ΔE ≥ 8.4, and normal vision ΔE ≥ 19.3. To-do (#11) took the validated palette's seventh
+slot (violet) without lowering either floor.
 
 | Kind | Light | Dark |
 |------|-------|------|
@@ -58,6 +59,7 @@ with the dataviz validator against both surfaces: colorblind separation
 | Transcript | `#eda100` | `#c98500` |
 | Spec or plan | `#e87ba4` | `#d55181` |
 | Diary | `#008300` | `#008300` |
+| To-do | `#6250d6` | `#9085e9` |
 
 **A kind color never appears without its label.** Three light-mode kinds and
 dark-mode diary are below 3:1 contrast against the surface. Status colors
@@ -107,6 +109,10 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     collapsible scope and unknowns.
   - **Uploads**: EPUB sections, or pre-formatted text for Markdown, text and
     JSON.
+  - **To-do**: a Markdown checklist shows `- [ ]` / `- [x]` lines as read-only
+    checkboxes (done items muted and struck through), `#` lines as headings and
+    other lines as notes. `<!-- ... -->` comments, culture-rules' item ids, stay
+    hidden. culture-rules is the only writer, through the replace route.
 - **Site state**: four stat tiles, a status list (icon and label), and an
   `auto-fill` chart grid.
   - Every figure comes from the live library (`/api/status`, the item and

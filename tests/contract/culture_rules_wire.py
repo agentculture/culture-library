@@ -1,10 +1,13 @@
 """The wire format of culture-rules' ``library.push`` upload, cited verbatim.
 
-Cited (cite-don't-import) from agentculture/culture-rules @ 1edfd8c, path
+Cited (cite-don't-import) from agentculture/culture-rules @ e936acf (0.28.1), path
 ``culture_rules/node/actions/library.py``: :func:`encode_multipart`, :func:`_header_text`,
-:func:`_boundary`, :func:`epub_filename`, :func:`_error_code` and the constants they use,
-unmodified. culture-rules wrote that port against xteink feat/issue-1 (ea2f643); the
-contract tests replay these exact bytes against culture-library's ``POST /api/library``.
+:func:`_boundary`, :func:`item_filename`, :func:`epub_filename`, :func:`_error_code` and the
+constants they use, unmodified. Since culture-rules#91 the upload path, kinds and
+visibilities come from the library actor's params, so the port has no ``KIND`` constant
+(the kind is the action's). Since #93 a step may also name a ``format`` and an ``item_id``
+to replace. The contract tests
+replay these exact bytes against culture-library's ``POST /api/library``.
 ``test_cited_copy_matches_upstream`` fails if a local culture-rules checkout has drifted.
 """
 
@@ -17,8 +20,16 @@ from collections.abc import Sequence
 
 MAX_BYTES = 50 * 1024 * 1024
 DEFAULT_AUTHOR = "culture-rules"
-KIND = "article"
 EPUB_TYPE = "application/epub+zip"
+FORMAT_TYPES = {
+    "md": "text/markdown",
+    "txt": "text/plain",
+    "json": "application/json",
+    "epub": EPUB_TYPE,
+    "pdf": "application/pdf",
+}
+"""The formats a library actor may list, and the type each is uploaded as."""
+DEFAULT_FORMAT = "epub"
 _CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _UNSAFE_HEADER_TEXT = re.compile(r'["\r\n]')
@@ -66,11 +77,17 @@ def _boundary(values: Sequence[bytes]) -> str:
             return boundary
 
 
+def item_filename(title: str, fmt: str = DEFAULT_FORMAT) -> str:
+    """A safe filename from ``title`` and ``fmt`` (``Daily newspaper 2026-10-11``, ``md`` ->
+    ``daily-newspaper-2026-10-11.md``)."""
+    slug = _SLUG_RE.sub("-", title.lower()).strip("-")[:100].strip("-")
+    return f"{slug or 'upload'}.{fmt}"
+
+
 def epub_filename(title: str) -> str:
     """A safe ``.epub`` filename from ``title`` (``Daily newspaper 2026-10-11`` ->
     ``daily-newspaper-2026-10-11.epub``)."""
-    slug = _SLUG_RE.sub("-", title.lower()).strip("-")[:100].strip("-")
-    return f"{slug or 'upload'}.epub"
+    return item_filename(title, DEFAULT_FORMAT)
 
 
 def _error_code(raw: bytes) -> str:

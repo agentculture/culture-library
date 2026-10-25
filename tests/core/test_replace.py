@@ -263,3 +263,78 @@ def test_same_bytes_restores_a_missing_blob(store):
     assert out.sha256 == item.sha256
     assert store.blob_path(item.sha256).read_bytes() == data
     assert [e for e in _events(store, item.id) if e["type"] == "updated"] == []
+
+
+def test_concurrent_replaces_never_leave_a_live_item_without_its_blob(store):
+    """c34/h25: writers toggling A -> B -> A on one item, racing each other, while a reader
+    checks that the item's current sha256 always has its blob on disk."""
+    import threading
+
+    a, b = b"# Toggle\n\nversion a\n", b"# Toggle\n\nversion b\n"
+    item = _add(store, a)
+    errors: list[str] = []
+    stop = threading.Event()
+
+    def writer(first, second):
+        try:
+            for _ in range(25):
+                for data in (first, second):
+                    _rep(store, item.id, data, "a.md")
+        except Exception as exc:  # pragma: no cover - reported below
+            errors.append(f"writer: {exc!r}")
+
+    def reader():
+        while not stop.is_set():
+            with store.reader() as conn:
+                sha = conn.execute("SELECT sha256 FROM items WHERE id = ?", (item.id,)).fetchone()[
+                    0
+                ]
+                if not store.blob_path(sha).exists():
+                    # the row is read inside a snapshot; re-check after the snapshot is current
+                    row = conn.execute(
+                        "SELECT sha256 FROM items WHERE id = ?", (item.id,)
+                    ).fetchone()[0]
+                    if row == sha and not store.blob_path(sha).exists():
+                        errors.append(f"blob missing for live sha {sha[:12]}")
+
+    threads = [
+        threading.Thread(target=writer, args=(a, b)),
+        threading.Thread(target=writer, args=(b, a)),
+    ]
+    watch = threading.Thread(target=reader)
+    watch.start()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stop.set()
+    watch.join()
+    assert errors == []
+    final = _row(store, item.id)["sha256"]
+    assert store.blob_path(final).exists()
+    other = _sha(b) if final == _sha(a) else _sha(a)
+    assert not store.blob_path(other).exists()  # the unused version was unlinked
+
+
+def test_cleanup_failure_after_commit_does_not_fail_the_replace(store, monkeypatch, capsys):
+    item = _add(store, b"# Old\n\nalpha\n")
+
+    def broken(store_, shas):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(library, "_unlink_now", broken)
+    out = _rep(store, item.id, b"# New\n\nomega\n", "a.md")
+    assert out.sha256 == _sha(b"# New\n\nomega\n")
+    assert "could not remove" in capsys.readouterr().err
+
+
+def test_still_referenced_old_blob_takes_no_cleanup_transaction(store, monkeypatch):
+    item = _add(store, b"# Old\n\nalpha\n")
+    with store.connect() as conn:  # a repo-doc version also names the old bytes
+        conn.execute("CREATE TABLE IF NOT EXISTS extra_refs (sha256 TEXT NOT NULL)")
+        conn.execute("INSERT INTO extra_refs VALUES (?)", (item.sha256,))
+    calls = []
+    monkeypatch.setattr(library, "_unlink_now", lambda s, shas: calls.append(shas))
+    _rep(store, item.id, b"# New\n\nomega\n", "a.md")
+    assert calls == []
+    assert store.blob_path(item.sha256).exists()

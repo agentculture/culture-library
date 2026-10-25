@@ -15,7 +15,7 @@ from culture_library.server import app as server_app  # noqa: E402
 
 STATIC = Path(__file__).resolve().parents[2] / "culture_library" / "web" / "static"
 PROTOTYPE = Path(__file__).resolve().parents[2] / "docs" / "design" / "prototype.html"
-MODULES = ("app", "home", "reader", "search", "upload", "send", "state")
+MODULES = ("app", "home", "reader", "search", "upload", "send", "state", "checklist")
 CSP_PARTS = (
     "default-src 'self'",
     "script-src 'self'",

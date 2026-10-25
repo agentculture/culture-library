@@ -158,3 +158,64 @@ def test_backup_refuses_when_a_repodoc_blob_is_missing_at_the_source(store, tmp_
     store.blob_path(a.version.sha256).unlink()
     with pytest.raises(backup.BackupError, match="missing"):
         backup.run_backup(store.data_dir, tmp_path / "bk")
+
+
+def test_replace_between_snapshot_and_blob_copy_retries_with_a_fresh_snapshot(
+    tmp_path, monkeypatch
+):
+    """Lapse l1: a replace that commits after the DB snapshot unlinks a blob the snapshot
+    still names. The backup takes a fresh snapshot instead of failing (or skipping it)."""
+    from culture_library.core import backup, library
+    from culture_library.core.store import Store
+
+    store = Store(tmp_path / "data")
+    item, _ = library.add(store, b"# v1\n\nfirst\n", "a.md")
+    real = backup._backup_db
+    fired = []
+
+    def snapshot_then_replace(src, dst):
+        real(src, dst)
+        if not fired:  # the race: the file changes right after the snapshot
+            fired.append(True)
+            library.replace(store, item.id, b"# v2\n\nsecond\n", "a.md", include_private=True)
+
+    monkeypatch.setattr(backup, "_backup_db", snapshot_then_replace)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    assert (
+        snap.manifest["items"][0]["sha256"]
+        == library.get(store, item.id, include_private=True).sha256
+    )
+    assert backup.verify(snap.path).ok
+    assert len(backup.list_snapshots(tmp_path / "bk")) == 1
+
+
+def test_blob_missing_while_still_referenced_still_fails(tmp_path):
+    from culture_library.core import backup, library
+    from culture_library.core.store import Store
+
+    store = Store(tmp_path / "data")
+    item, _ = library.add(store, b"# v1\n\nfirst\n", "a.md")
+    store.blob_path(item.sha256).unlink()
+    with pytest.raises(backup.BackupError, match="missing"):
+        backup.run_backup(store.data_dir, tmp_path / "bk")
+
+
+def test_blob_unlinked_during_copy_also_retries(tmp_path, monkeypatch):
+    """The race can also land between the is_file() check and the copy itself."""
+    from culture_library.core import backup, library
+    from culture_library.core.store import Store
+
+    store = Store(tmp_path / "data")
+    item, _ = library.add(store, b"# v1\n\nfirst\n", "a.md")
+    real_copy = backup.shutil.copyfile
+    fired = []
+
+    def racing_copy(src, dst, *a, **kw):
+        if not fired:
+            fired.append(True)
+            library.replace(store, item.id, b"# v2\n\nsecond\n", "a.md", include_private=True)
+        return real_copy(src, dst, *a, **kw)
+
+    monkeypatch.setattr(backup.shutil, "copyfile", racing_copy)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    assert backup.verify(snap.path).ok

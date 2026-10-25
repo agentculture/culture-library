@@ -31,6 +31,7 @@ from pathlib import Path
 
 BACKUP_DIR_ENV = "CULTURE_LIBRARY_BACKUP_DIR"
 DEFAULT_KEEP = 7
+SNAPSHOT_ATTEMPTS = 3  # fresh snapshots when a blob is replaced mid-backup (see run_backup)
 MANIFEST = "manifest.json"
 DB_FILE = "library.db"
 
@@ -186,6 +187,30 @@ def run_backup(
         raise BackupError("--keep must be at least 1")
     if root.resolve() == src.resolve() or src.resolve() in root.resolve().parents:
         raise BackupError("the backup location must be outside the data directory")
+    for attempt in range(1, SNAPSHOT_ATTEMPTS + 1):
+        try:
+            snap, copied, blobs, manifest = _snapshot_once(src, root)
+            break
+        except _BlobGone:
+            if attempt == SNAPSHOT_ATTEMPTS:
+                raise BackupError(
+                    f"the library kept changing during {SNAPSHOT_ATTEMPTS} snapshot attempts; "
+                    "run the backup again"
+                ) from None
+    pruned = []
+    for old in list_snapshots(root)[:-keep]:
+        shutil.rmtree(old)
+        pruned.append(old.name)
+    return Snapshot(snap, copied, len(blobs), pruned, manifest)
+
+
+def _snapshot_once(src: Path, root: Path) -> tuple[Path, int, dict[str, str], dict]:
+    """One snapshot: copy the database, then every blob it names; discard it on any error.
+
+    The database is copied first, so a replace or purge that commits before a blob is
+    copied can unlink a blob the copy still names; that raises :class:`_BlobGone` and
+    :func:`run_backup` takes a fresh snapshot.
+    """
     snap = _new_snapshot_dir(root)
     try:
         _backup_db(src / DB_FILE, snap / DB_FILE)
@@ -212,11 +237,12 @@ def run_backup(
     except BaseException:
         shutil.rmtree(snap, ignore_errors=True)
         raise
-    pruned = []
-    for old in list_snapshots(root)[:-keep]:
-        shutil.rmtree(old)
-        pruned.append(old.name)
-    return Snapshot(snap, copied, len(blobs), pruned, manifest)
+    return snap, copied, blobs, manifest
+
+
+class _BlobGone(BackupError):
+    """A blob the snapshot names is gone from the live tree and no live row names it: a
+    replace or purge committed after the snapshot was taken."""
 
 
 def _copy_blob(src: Path, root: Path, sha: str) -> int:
@@ -225,11 +251,15 @@ def _copy_blob(src: Path, root: Path, sha: str) -> int:
     if out.is_file():
         return 0
     inp = _blob(src, sha)
-    if not inp.is_file():
-        raise BackupError(f"blob {sha} is missing from the library files tree")
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(f"{sha}.{os.getpid()}.tmp")
-    shutil.copyfile(inp, tmp)
+    try:
+        shutil.copyfile(inp, tmp)  # a missing file, before or during the copy, lands here
+    except FileNotFoundError:
+        tmp.unlink(missing_ok=True)
+        if sha not in _referenced_blobs(src / DB_FILE):  # the live database, read-only
+            raise _BlobGone(f"blob {sha} was replaced or purged after the snapshot") from None
+        raise BackupError(f"blob {sha} is missing from the library files tree") from None
     if _sha256_file(tmp) != sha:
         tmp.unlink()
         raise BackupError(f"blob {sha} changed or is corrupt in the library files tree")

@@ -34,7 +34,8 @@ it all, published at **library.culture.dev**.
     (same id, title, author, kind and visibility; new sha256, size and
     format) and appends an `updated` feed event.
   - `mcp/`: the agents' MCP server.
-  - `web/static/`: the site.
+  - `web/static/`: the site. A `todo` item opens as a read-only checklist
+    (`checklist.js`).
   - `render/`: the devague renderer.
   - `migrate/`: the xteink migration.
   - `cli/_commands/deploy.py`: `culture-library deploy restart` recreates the live

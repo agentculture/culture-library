@@ -102,15 +102,29 @@ def visible_items(
 def kind_summary(
     store: Store, *, private: bool, owner: str | None = None
 ) -> dict[str, tuple[int, str]]:
-    """``{kind: (count, newest created_at)}`` for kinds with visible items."""
+    """``{kind: (count, newest change)}`` for kinds with visible items.
+
+    The newest change is the latest upload or in-place file replace (#10), so a collection's
+    date moves when one of its files is replaced under the same id.
+    """
     vis, params = uploaders.visible_sql(private, owner)
+    # vis is fixed SQL from uploaders.visible_sql; every value is a bound parameter.
+    visible = (
+        f"SELECT id, kind, created_at FROM items WHERE archived_at IS NULL AND {vis}"  # nosec B608
+    )
     sql = (
-        "SELECT kind, count(*) n, max(created_at) latest FROM items "  # nosec B608
-        f"WHERE archived_at IS NULL AND {vis} GROUP BY kind"
+        f"SELECT kind, count(*) n, max(created_at) latest FROM ({visible})"  # nosec B608
+        " GROUP BY kind"
+    )
+    replaced = (
+        f"SELECT v.kind, max(f.at) latest FROM ({visible}) v "  # nosec B608
+        "JOIN feed f ON f.item_id = v.id "
+        "WHERE f.type = 'updated' AND json_extract(f.data, '$.replaced') = 1 GROUP BY v.kind"
     )
     with store.reader() as conn:
         rows = conn.execute(sql, params).fetchall()
-    return {r["kind"]: (r["n"], r["latest"]) for r in rows}
+        later = dict(conn.execute(replaced, params).fetchall())
+    return {r["kind"]: (r["n"], latest_of(r["latest"], later.get(r["kind"]))) for r in rows}
 
 
 def basic_to_bearer(request: Request) -> None:
@@ -209,11 +223,24 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _entry(feed: ET.Element, item: Item) -> None:
+def latest_of(first: str, second: str | None) -> str:
+    """The later of two stored stamps, compared as instants (shapes differ: migrated rows
+    keep xteink's naive ``YYYY-MM-DD HH:MM:SS``)."""
+    if not second:
+        return first
+    return second if parse_when(second) > parse_when(first) else first
+
+
+def modified_at(item: Item, changed: dict[int, str]) -> str:
+    """When the item's file last changed: its upload, or a later in-place replace (#10)."""
+    return latest_of(item.created_at, changed.get(item.id))
+
+
+def _entry(feed: ET.Element, item: Item, changed: dict[int, str]) -> None:
     entry = ET.SubElement(feed, _q("entry"))
     _text(entry, "title", item.title)
     _text(entry, "id", f"urn:culture-library:item:{item.id}")
-    _text(entry, "updated", item.created_at)
+    _text(entry, "updated", modified_at(item, changed))
     if item.author:
         ET.SubElement(ET.SubElement(entry, _q("author")), _q("name")).text = item.author
     content = _text(entry, "content", f"{item.kind}, {item.format}, {item.size} bytes")
@@ -228,14 +255,22 @@ def _entry(feed: ET.Element, item: Item) -> None:
 
 
 def _acquisition_feed(
-    items: list[Item], *, feed_id: str, title: str, self_href: str, links: dict[str, str]
+    store: Store,
+    items: list[Item],
+    *,
+    feed_id: str,
+    title: str,
+    self_href: str,
+    links: dict[str, str],
 ) -> Response:
-    updated = max((i.created_at for i in items), default=_now())
+    changed = library.file_changed_at(store, [i.id for i in items])
+    stamps = [modified_at(i, changed) for i in items]
+    updated = max(stamps, key=parse_when, default=_now())
     feed = _feed(feed_id, title, updated, self_href, ACQ_TYPE, OPDS_ROOT)
     for rel, href in links.items():
         _link(feed, rel, href, ACQ_TYPE)
     for item in items:
-        _entry(feed, item)
+        _entry(feed, item, changed)
     return _render(feed, ACQ_TYPE)
 
 
@@ -249,7 +284,7 @@ def root(
     principal: Principal = Depends(reader_principal), store: Store = Depends(get_store)
 ) -> Response:
     summary = kind_summary(store, private=principal.private, owner=principal.key_id)
-    updated = max((latest for _, latest in summary.values()), default=_now())
+    updated = max((latest for _, latest in summary.values()), key=parse_when, default=_now())
     feed = _feed(
         "urn:culture-library:opds:root", "culture-library", updated, OPDS_ROOT, NAV_TYPE, None
     )
@@ -301,6 +336,7 @@ def search(
         else []
     )
     return _acquisition_feed(
+        store,
         items,
         feed_id="urn:culture-library:opds:search",
         title=f"Search: {q}",
@@ -353,6 +389,7 @@ def kind_feed(
     if len(rows) > PAGE_SIZE:
         links["next"] = f"/opds/{kind}?page={page + 1}"
     return _acquisition_feed(
+        store,
         rows[:PAGE_SIZE],
         feed_id=f"urn:culture-library:kind:{kind}",
         title=kind,

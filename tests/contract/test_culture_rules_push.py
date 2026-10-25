@@ -1,18 +1,22 @@
 """Contract: culture-rules' ``library.push`` upload works unchanged against culture-library.
 
-culture-rules (agentculture/culture-rules @ 1edfd8c, ``culture_rules/node/actions/library.py``)
-was written against xteink feat/issue-1 (ea2f643). Its upload is one call::
+culture-rules (agentculture/culture-rules @ e936acf, ``culture_rules/node/actions/library.py``)
+takes the library from its actor's params (culture-rules#91): ``upload_path``, ``kinds``,
+``visibilities`` and, for xteink only, a device ``queue_path``. Against culture-library its
+upload is one call::
 
     POST <base_url>/api/library
     Authorization: Bearer <key>
     Content-Type: multipart/form-data; boundary=culture-rules-<hex>
-    fields: title, author, kind=article; file=<slug>.epub (application/epub+zip)
+    fields: title, author, kind (the action's), visibility (optional);
+    file=<slug>.epub (application/epub+zip)
 
 with redirects never followed. It parses a 2xx reply as ``{"item": {"id": int}, "created":
 bool}`` and a non-2xx reply's top-level ``code``. These tests send those exact bytes (built by
 the cited :mod:`culture_rules_wire`) with a real minted key over the real auth path, and, when
 a culture-rules checkout is available, drive the real ``LibraryPushPort`` itself. Its second
-call (queueing on an xteink reader device) is out of scope for the library and is stubbed.
+call (queueing on an xteink reader device) only runs with a ``queue_path``, which
+culture-library's actor does not set.
 """
 
 from __future__ import annotations
@@ -40,6 +44,8 @@ from culture_library.server import routes_library  # noqa: E402
 from . import culture_rules_wire as wire  # noqa: E402
 
 TITLE = "Daily newspaper 2026-10-11"
+GRANT_REF = "grant:LIBRARY_PUSH_API_KEY"  # a grant reference, resolved by the stubbed runner
+KIND = "newspaper"  # the kind culture-rules' newspaper rule sends (an actor `kinds` entry)
 
 
 def make_epub(text: str = "Today's news") -> bytes:
@@ -62,7 +68,7 @@ def server(tmp_path):
 def _push(client, raw_key, data, title=TITLE, author=wire.DEFAULT_AUTHOR):
     """Exactly the request ``LibraryPushPort._push`` sends for the upload."""
     content_type, body = wire.encode_multipart(
-        [("title", title), ("author", author), ("kind", wire.KIND)],
+        [("title", title), ("author", author), ("kind", KIND)],
         [("file", wire.epub_filename(title), wire.EPUB_TYPE, data)],
     )
     headers = {"Authorization": "Bearer " + raw_key, "Content-Type": content_type}
@@ -90,7 +96,7 @@ def test_push_creates_then_dedupes(server):
     out = _parse_like_culture_rules(first.status_code, first.content)
     assert out["created"] is True
     item = first.json()["item"]
-    assert item["kind"] == "article"
+    assert item["kind"] == KIND
     assert item["title"] == TITLE
     assert item["author"] == "culture-rules"
     assert item["format"] == "epub"
@@ -170,14 +176,15 @@ def port_module(monkeypatch):
 
 
 def test_cited_copy_matches_upstream(port_module):
-    for name in ("encode_multipart", "_boundary", "_header_text", "epub_filename", "_error_code"):
+    names = ("encode_multipart", "_boundary", "_header_text", "item_filename", "epub_filename")
+    for name in (*names, "_error_code"):
         assert inspect.getsource(getattr(wire, name)) == inspect.getsource(
             getattr(port_module, name)
         ), f"culture-rules {name} drifted from the cited copy"
-    assert (port_module.MAX_BYTES, port_module.KIND, port_module.EPUB_TYPE) == (
-        wire.MAX_BYTES,
-        wire.KIND,
-        wire.EPUB_TYPE,
+    assert (port_module.MAX_BYTES, port_module.EPUB_TYPE) == (wire.MAX_BYTES, wire.EPUB_TYPE)
+    assert (port_module.FORMAT_TYPES, port_module.DEFAULT_FORMAT) == (
+        wire.FORMAT_TYPES,
+        wire.DEFAULT_FORMAT,
     )
 
 
@@ -190,19 +197,22 @@ def test_real_library_push_port_against_our_server(server, port_module):
         prefix = "http://library.test"
         assert url.startswith(prefix)
         path = url[len(prefix) :]
-        if path == "/api/library":
-            r = client.request(
-                method, path, content=body, headers=dict(headers), follow_redirects=False
-            )
-            return r.status_code, r.content
-        # the xteink device queue call: not a library concern, answered by a stub
-        assert path == "/api/devices/3/queue"
-        return 201, json.dumps({"id": 77}).encode()
+        assert path == "/api/library"  # no queue_path: culture-library has no device queue
+        r = client.request(
+            method, path, content=body, headers=dict(headers), follow_redirects=False
+        )
+        return r.status_code, r.content
 
     push = port_module.LibraryPushPort(None, transport=transport, secret_runner=lambda _n: raw)
     data = make_epub("port")
-    params = {"base_url": "http://library.test", "api_key": "grant:LIBRARY_PUSH", "device_id": 3}
-    payload = {"content_base64": base64.b64encode(data).decode(), "title": TITLE}
+    params = {  # culture-rules' live library actor, as configured after #91
+        "base_url": "http://library.test",
+        "upload_path": "/api/library",
+        "kinds": ["newspaper", "transcript"],
+        "visibilities": ["private", "public"],
+        "api_key": GRANT_REF,
+    }
+    payload = {"content_base64": base64.b64encode(data).decode(), "title": TITLE, "kind": KIND}
     deadline = datetime.now(UTC) + timedelta(minutes=1)
 
     first = push._push(payload, params, deadline)
@@ -211,4 +221,55 @@ def test_real_library_push_port_against_our_server(server, port_module):
     assert isinstance(first.output["item_id"], int)
     again = push._push(payload, params, deadline)
     assert again.output == {**first.output, "created": False}
-    assert calls[0] == ("POST", "http://library.test/api/library")
+    assert first.output["queue_id"] is None
+    assert calls == [("POST", "http://library.test/api/library")] * 2
+
+
+def test_real_port_uploads_a_todo_then_replaces_it_by_id(server, port_module):
+    """culture-rules 0.28 (#93): a Markdown to-do checklist, then a replace by item id through
+    the actor's ``replace_path``/``replace_method`` (PUT /api/library/{id}/file, #10)."""
+    store, client, _raw = server
+    _k, raw = keys.mint(store, "culture-rules todo", ["write"], kinds=["todo"], private=True)
+    calls = []
+
+    def transport(method, url, headers, body, timeout):
+        path = url[len("http://library.test") :]
+        calls.append((method, path))
+        r = client.request(
+            method, path, content=body, headers=dict(headers), follow_redirects=False
+        )
+        return r.status_code, r.content
+
+    push = port_module.LibraryPushPort(None, transport=transport, secret_runner=lambda _n: raw)
+    params = {
+        "base_url": "http://library.test",
+        "upload_path": "/api/library",
+        "replace_path": "/api/library/{item_id}/file",
+        "replace_method": "PUT",
+        "kinds": ["todo"],
+        "visibilities": ["private"],
+        "formats": ["md"],
+        "api_key": GRANT_REF,
+    }
+    deadline = datetime.now(UTC) + timedelta(minutes=1)
+
+    def step(text: str, **extra):
+        payload = {
+            "content_base64": base64.b64encode(text.encode()).decode(),
+            "title": "To do 2026-10-25",
+            "kind": "todo",
+            "visibility": "private",
+            "format": "md",
+            **extra,
+        }
+        return push._push(payload, params, deadline)
+
+    first = step("# To do\n\n- [ ] buy milk\n")
+    assert first.outcome == port_module.COMPLETED, first
+    item_id = first.output["item_id"]
+    second = step("# To do\n\n- [x] buy milk\n", item_id=item_id)
+    assert second.outcome == port_module.COMPLETED, second
+    assert second.output["item_id"] == item_id
+    assert calls == [("POST", "/api/library"), ("PUT", f"/api/library/{item_id}/file")]
+    got = client.get(f"/api/library/{item_id}/file", headers={"Authorization": "Bearer " + raw})
+    assert got.content == b"# To do\n\n- [x] buy milk\n"
