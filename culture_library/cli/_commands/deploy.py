@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess  # nosec B404 - fixed argv, no shell
 import time
@@ -69,19 +70,53 @@ def _default_compose() -> Path:
     return checkout if checkout.is_file() else Path.cwd() / "deploy" / "compose.yaml"
 
 
+def _env_value(key: str, raw: str, source: str) -> str:
+    """One value the way compose's env-file reader takes it, or refuse what we cannot check.
+
+    Single quotes are literal; double quotes and unquoted values end at the closing quote or
+    at an unquoted `` #`` comment. A ``$`` outside single quotes would be interpolated by
+    compose, so the checked text would not be the value compose uses: that is refused.
+    """
+    raw = raw.strip()
+    if raw[:1] in ("'", '"'):
+        quote = raw[0]
+        end = raw.find(quote, 1)
+        value = raw[1:end] if end != -1 else raw[1:]
+        literal = quote == "'"
+    else:
+        hit = re.search(r"\s#", raw)
+        value = (raw[: hit.start()] if hit else raw).strip()
+        literal = False
+    if not literal and "$" in value:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"{source}: {key} uses ${{...}} interpolation, which this check cannot follow",
+            "write the literal value, or single-quote it",
+        )
+    return value
+
+
 def read_env_file(path: Path) -> dict[str, str]:
-    """``KEY=VALUE`` lines as compose reads them: ``#`` comments, quotes stripped."""
+    """``KEY=VALUE`` lines read like compose's ``--env-file``: comments, ``export``, quotes."""
     values: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
-        values[key.strip()] = value
+        key, raw = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
+        values[key] = _env_value(key, raw, str(path))
     return values
+
+
+def _placeholder(source: str, what: str, value: str) -> CliError:
+    return CliError(
+        EXIT_USER_ERROR,
+        f"{source}: {what} looks like a placeholder ({value!r})",
+        "put the real value in the env file",
+    )
 
 
 def check_settings(values: dict[str, str], source: str) -> None:
@@ -93,13 +128,9 @@ def check_settings(values: dict[str, str], source: str) -> None:
                 EXIT_USER_ERROR, f"{source}: {key} is missing or empty", f"set it; see {_RUNBOOK}"
             )
         if key != send.TARGETS_ENV and _PLACEHOLDER.search(value):
-            raise CliError(
-                EXIT_USER_ERROR,
-                f"{source}: {key} looks like a placeholder ({value!r})",
-                "put the real value in the env file",
-            )
+            raise _placeholder(source, key, value)
     try:
-        send.parse_targets(values[send.TARGETS_ENV], f"{source}: {send.TARGETS_ENV}")
+        targets = send.parse_targets(values[send.TARGETS_ENV], f"{source}: {send.TARGETS_ENV}")
     except send.SendConfigError as exc:
         raise CliError(
             EXIT_USER_ERROR,
@@ -107,23 +138,50 @@ def check_settings(values: dict[str, str], source: str) -> None:
             "write the targets as a JSON list in single quotes, e.g. "
             '\'[{"label":"x3","type":"reader","enabled":true}]\'',
         ) from None
+    for target in targets:
+        for field in (target.label, target.type):
+            if _PLACEHOLDER.search(field):
+                raise _placeholder(source, f"{send.TARGETS_ENV} target", field)
+
+
+def _child_env(values: dict[str, str]) -> dict[str, str]:
+    """This process's environment minus every key the env file sets.
+
+    Compose prefers a shell variable over ``--env-file``; dropping them makes the checked
+    file the only source of those settings.
+    """
+    drop = set(values) | set(REQUIRED_SETTINGS)
+    return {k: v for k, v in os.environ.items() if k not in drop}
+
+
+def _compose_base(compose: Path, env_file: Path) -> list[str]:
+    return ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
 
 
 def plan(compose: Path, env_file: Path, secret: str, *, build: bool) -> list[list[str]]:
     """The commands ``restart`` runs, in order."""
-    base = ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
+    base = _compose_base(compose, env_file)
     steps = [base + ["build", "library"]] if build else []
     up = base + ["--profile", "remote", "up", "-d", "--no-deps", *SERVICES]
     steps.append(["grant", "run", "--inject", f"TUNNEL_TOKEN={secret}", "--", *up])
     return steps
 
 
-def _step(argv: list[str]) -> subprocess.CompletedProcess:
-    if _which(argv[0]) is None:
-        raise CliError(EXIT_ENV_ERROR, f"{argv[0]} is not on PATH", f"install {argv[0]}")
-    proc = _run(  # nosec B603 - argv is assembled from fixed literals and checked paths
-        argv, capture_output=True, text=True, timeout=STEP_TIMEOUT, check=False
-    )
+def _step(argv: list[str], env: dict[str, str], *, verbose: bool) -> subprocess.CompletedProcess:
+    tools = [argv[0]] + (["docker"] if argv[0] != "docker" and "docker" in argv else [])
+    for tool in tools:
+        if _which(tool) is None:
+            raise CliError(EXIT_ENV_ERROR, f"{tool} is not on PATH", f"install {tool}")
+    try:
+        proc = _run(  # nosec B603 - argv is assembled from fixed literals and checked paths
+            argv, capture_output=True, text=True, timeout=STEP_TIMEOUT, check=False, env=env
+        )
+    except subprocess.TimeoutExpired:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"{argv[0]} {argv[1]} timed out after {STEP_TIMEOUT}s",
+            "check 'docker compose -f deploy/compose.yaml ps' and the library logs",
+        ) from None
     output = ((proc.stdout or "") + (proc.stderr or "")).strip()
     if proc.returncode != 0:
         raise CliError(
@@ -131,7 +189,7 @@ def _step(argv: list[str]) -> subprocess.CompletedProcess:
             f"{argv[0]} {argv[1]} exited {proc.returncode}: {output[-800:]}",
             "read the output above; the previous containers keep running if 'up' failed",
         )
-    if output:
+    if output and verbose:  # --json keeps stderr for the one JSON error
         emit_diagnostic(output)
     return proc
 
@@ -142,11 +200,11 @@ def _health(url: str, timeout: float) -> dict:
     last = "no answer"
     while True:
         try:
-            with urllib.request.urlopen(url, timeout=3) as resp:  # nosec B310 - http loopback
+            with urllib.request.urlopen(url, timeout=3) as resp:  # nosec B310 - fixed http URL
                 body = json.loads(resp.read().decode("utf-8"))
-            if body.get("status") == "ok":
+            if isinstance(body, dict) and body.get("status") == "ok":
                 return body
-            last = str(body)
+            last = str(body)[:200]
         except (OSError, ValueError) as exc:
             last = str(exc)
         if time.monotonic() >= deadline:
@@ -156,6 +214,16 @@ def _health(url: str, timeout: float) -> dict:
                 "check 'docker compose -f deploy/compose.yaml logs library'",
             )
         time.sleep(2)
+
+
+def _health_url(values: dict[str, str]) -> str:
+    """Where compose publishes the library: ``LIBRARY_PUBLISH_BIND``/``_PORT`` or loopback."""
+    bind = values.get("LIBRARY_PUBLISH_BIND", "").strip()
+    wildcard = ("", "0.0.0.0", "::")  # nosec B104 - a wildcard bind is reached via loopback
+    host = "127.0.0.1" if bind in wildcard else bind
+    if ":" in host:
+        host = f"[{host}]"
+    return f"http://{host}:{values.get('LIBRARY_PUBLISH_PORT') or DEFAULT_PORT}/api/health"
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
@@ -181,20 +249,30 @@ def cmd_restart(args: argparse.Namespace) -> int:
             (
                 {"dry_run": True, "steps": steps}
                 if _json(args)
-                else "\n".join(" ".join(s) for s in steps)
+                else "\n".join(shlex.join(s) for s in steps)
             ),
             json_mode=_json(args),
         )
         return 0
+    env = _child_env(values)
+    verbose = not _json(args)
     for argv in steps:
-        _step(argv)
-    port = values.get("LIBRARY_PUBLISH_PORT") or DEFAULT_PORT
-    health = _health(f"http://127.0.0.1:{port}/api/health", args.timeout)
+        _step(argv, env, verbose=verbose)
+    health = _health(_health_url(values), args.timeout)
     probe = _step(
-        ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
-        + ["exec", "-T", "library", "python3", "-c", _TARGETS_PROBE]
+        _compose_base(compose, env_file)
+        + ["exec", "-T", "library", "python3", "-c", _TARGETS_PROBE],
+        env,
+        verbose=False,
     )
-    targets = json.loads(probe.stdout.strip().splitlines()[-1])
+    try:
+        targets = json.loads(probe.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"the send-targets check printed no JSON: {probe.stdout[-300:]!r}",
+            "run the check from docs/operations/deploy.md by hand",
+        ) from None
     result = {"dry_run": False, "steps": steps, "health": health, "send_targets": targets}
     text = (
         f"restarted {', '.join(SERVICES)}: version {health.get('version')}, "
