@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T09:24:00Z",
-  "updated": "2026-10-25T16:06:58Z",
+  "updated": "2026-10-25T16:29:34Z",
   "claims": [
     {
       "id": "c1",
@@ -1402,6 +1402,17 @@
       "skipped_check": "TDD red phase",
       "refs": [
         "t16"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "control-absent",
+      "what": "Main agent's first CI monitor used 'gh pr checks --json' (unsupported in this gh) with errors swallowed, so it stayed silent for 20 min while test + SonarCloud had already failed",
+      "skipped_check": "verify the watch command emits on failure before arming it",
+      "refs": [
+        "PR #17"
       ],
       "origin": "llm",
       "status": "proposed"
