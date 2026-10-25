@@ -1,0 +1,991 @@
+{
+  "slug": "rag-endpoints-ragas-evals",
+  "title": "RAG endpoints + RAGAS evals",
+  "frame_slug": "rag-endpoints-ragas-evals",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-25T13:02:11Z",
+  "updated": "2026-10-25T13:23:00Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-library ships RAG retrieval endpoints and a pluggable eval harness (RAGAS first): books get benchmarks generated from their text, newspapers get evals grounded in their sources and links, and every run proves search fetches what we want",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Retrieval quality is measured against references derived from the content itself, not hand-written expectations that could flatter search",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A chunk-level retrieve function returns (item_id, chunk_no, full chunk text, score) \u2014 core/search.py semantic() today keeps only the best chunk per item and truncates text to 200 chars (search.py:196-226), and Hit (search.py:47-55) has no chunk id, so RAG contexts need a new shape",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "chunk_sha is sha256 of the exact stored chunk text, so a reference context matches a retrieved passage iff the text is identical",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "A new routes_rag.py exposes POST /api/rag/retrieve {query, k, mode: semantic|hybrid, kind?, item_ids?} returning ranked passages [{item_id, title, kind, chunk_no, chunk_sha, text, score, source}], auto-included by server/app.py:34-46, gated by check(principal, 'read') with the same include_private/owner visibility as /api/search (routes_search.py:115-120); 503 rag_unavailable when no embedder is configured",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "/api/rag/retrieve never returns a passage from an item /api/search would hide from the same principal",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "GET /api/search keeps its response shape (item_id, snippet, ...) \u2014 web/static/search.js:46 consumes only item_id and snippet and MCP's search tool returns the raw dict (mcp/client.py:202-206)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "No field of the /api/search hit is renamed or removed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Eval sets (generated QA/benchmark samples) are stored in a new item-child table registered via register_schema with ON DELETE CASCADE and added to _ITEM_CHILDREN (store.py:67), so purging an item purges its evals",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Deleting or purging an item leaves no orphaned eval set, sample or sidecar row",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Eval framework is a pluggable adapter interface (generate testset, score run) with RAGAS as the only shipped adapter; the dataset format and run records are framework-neutral so DeepEval/TruLens/custom recall@k can plug in later",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Nothing outside the RAGAS adapter module imports ragas",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "ragas and its stack live in a new optional [eval] extra, imported lazily inside the eval CLI handler with a CliError 'install culture-library[eval]' hint, mirroring cli/_commands/server.py:51-61; tests/test_zero_deps.py:17 blocks the new modules",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "pyproject dependencies stays [] and the base CLI imports without ragas installed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "The production Docker image keeps installing only .[server] (Dockerfile:125); eval runs host-side or in a separate image/target, never bloating the library container",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The production library image size and dependency set are unchanged by this work",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "core/ stays stdlib-only and network-free (enforced by tests/core/test_store.py::test_core_source_has_no_network_imports); any LLM/judge client lives beside gateway.py or in an eval package",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "No file under culture_library/core/ imports a network or LLM client",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A new 'eval' CLI noun (overview default, verbs e.g. generate / run / show), registered in cli/__init__.py, with explain catalog entries and learn.py mention so teken cli doctor --strict passes (tests.yml:77-78)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Every eval verb honours --json and the stdout/stderr split",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Eval tests run in CI without network or ragas: adapters are tested with injected fake LLM/embedder (same app.state.embedder injection as tests/server/test_status_search.py), and real ragas runs are an opt-in group/marker like 'visual'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Default CI makes zero network calls and does not install ragas",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Book benchmarks are generated from the book's own extracted text (ingest.extract_text EPUB/PDF) into QA samples with reference contexts and reference answers",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Every reference context in a book eval set is a verbatim span of that book's indexed text",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Newspaper (kind=newspaper) evals are grounded in a sources sidecar pushed by culture-rules with each issue (article \u2192 source URL(s)); samples reference those sources and retrieval is scored on returning the passages derived from them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Every newspaper sample traces to at least one source URL in that issue's sidecar",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The RAGAS judge/generator LLM (and embeddings) is a configurable OpenAI-compatible endpoint defaulting to the local lobes gateway (LOBES_GATEWAY_URL + GATEWAY_API_KEY); a non-local endpoint may only receive text from public items",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "With default config, no item text leaves the host",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Eval runs are recorded (dataset version, adapter+version, retriever config incl. embed model and mode, per-metric scores) so results compare across runs and frameworks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Two runs are only reported as comparable when they share the same eval set id and version",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "A culture-rules change is needed to push the newspaper sources sidecar \u2014 filed as a sibling-repo issue via /communicate; the library side only accepts and stores it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The library side works (accepts and stores a sidecar) before culture-rules ships its change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "audience",
+      "text": "Two readers: (1) machine clients that need grounded context \u2014 MCP agents, Gwen, culture-rules \u2014 calling RAG retrieve with scoped keys; (2) the operator measuring whether library search fetches the right passages, per content kind and per embedder",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Both audiences can reach their surface with existing auth: scoped API keys for machines, Access for people",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "before_state",
+      "text": "Search returns item-level hits with a 200-char snippet (core/search.py Hit); nothing measures retrieval quality \u2014 t7 evidence explicitly did not evaluate it, and #7 (gemma2-embed vs Qwen3) has no way to be decided",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The before-state is cited from repo evidence (search.py Hit, t7 evidence, #7), not asserted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "why_it_matters",
+      "text": "Agents answering from the library need the passage, not the title; and without a measured baseline we can't choose an embedder, tune chunking, or notice search regressions",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The harness can drive #7's comparison without code changes, only config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "after_state",
+      "text": "An agent POSTs a query to /api/rag/retrieve (or the MCP rag_retrieve tool) and gets ranked passages it can cite; the operator runs `culture-library eval generate <item>` to build an eval set from a book's text or a newspaper's sources sidecar, then `culture-library eval run <set>` to score retrieval with RAGAS and store context precision/recall in the library, comparable across runs, modes and embedders",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The after-state walkthrough runs end to end in a test with fakes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "success_signal",
+      "text": "Baseline recorded on the live library: eval sets exist for >= 3 books and >= 3 newspaper issues, and each set has >= 1 stored run with RAGAS context precision and context recall",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "The 6 baseline sets are generated from real library items, not fixtures",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "success_signal",
+      "text": "The same eval set run under two retriever configs (e.g. mode semantic vs hybrid, or two embed models) yields 2 stored runs whose metrics are directly comparable, sufficient to inform #7",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "The runs differ only in retriever config",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "success_signal",
+      "text": "CI stays green with ragas absent: 0 new required runtime deps (pyproject dependencies == []), test_zero_deps blocks ragas and passes, and eval tests run on fakes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "No CI job installs the [eval] extra by default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Newspaper sources sidecar: PUT /api/library/{id}/sources (write scope) stores a JSON manifest [{article_title, source_urls[], excerpt}] in an item_sources child table (cascade on item delete); GET returns it under the item's visibility rule",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "A sidecar for a private item is never visible to a principal that can't see the item",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Eval API: POST /api/eval/sets and POST /api/eval/runs (write scope) store generated sets and scored runs; GET /api/eval/sets?item_id= and GET /api/eval/runs?set_id= (read scope) return them, filtered by the underlying item's visibility",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "Eval GET endpoints never expose sample text from items the caller can't see",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "MCP gains a rag_retrieve tool mirroring POST /api/rag/retrieve (one _spec + _handlers entry in mcp/tools.py), so agents get passages through the same key-scoped path",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "rag_retrieve inherits the caller's bearer key, so MCP visibility equals HTTP visibility",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "eval generate refuses to send a non-public item's text to a non-local judge endpoint (host not 127.0.0.1/localhost/::1) and exits with a CliError + hint",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "The locality check runs before any item text is read into a request body",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Every new item-child table (eval sets, eval samples, eval runs if item-keyed, item_sources) is added to _ITEM_CHILDREN so the items kind-rebuild counts and FK-checks it; the rebuild runs with foreign_keys OFF and checks only listed tables (store.py:68, 120-150)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "A future kind addition never silently drops or orphans eval or sidecar rows",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "Each eval set pins the item sha256 (and chunker params) it was generated from; eval run refuses \u2014 or records the run as stale \u2014 when the item's current sha256 differs (PUT /api/library/{id}/file replace keeps the id but drops embeddings, library.py:306-370), when the item is archived, or when its index_queue row is not done",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "No stored run mixes references from one version of an item's text with retrieval over another",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "The local-judge rule (c36) also covers eval run: when the judge endpoint is non-local, scoring sends no text from non-public items \u2014 retrieved passages from private items (which a private-capable key can retrieve for any query) are excluded or the run uses ID-based metrics only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "With a non-local judge, the judge's request log contains only public-item text",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "The server reports its retrieval config \u2014 embed model, chunker max_chars, chunk count \u2014 via /api/status (or each retrieve response), and eval run records those server-reported values, not client-side guesses (routes_status.py exposes no embed model today)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "A run's recorded embed model is the one that produced the vectors searched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "A run that fails midway (judge timeout, gateway down, 503) is stored with status=partial or failed and the completed sample count, or not stored \u2014 never as complete with aggregates over a subset",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "Aggregate scores are only reported for runs where every sample was scored",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c45",
+      "kind": "requirement",
+      "text": "Live enablement is a runbook step: docs/operations/deploy.md gains an 'enable embeddings' section \u2014 set GATEWAY_API_KEY, LOBES_GATEWAY_URL=http://host.docker.internal:8001 (with the compose extra_hosts), LOBES_EMBED_MODEL=gemma2-embed and the reranker role in live.env, deploy restart, requeue_all, wait for index_queue all done and embeddings > 0; rollback = unset the vars and restart (search degrades to full-text, per the routes_search.py hybrid fallback)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "Rolling back the embedder leaves live search working in full-text mode with no data loss",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c46",
+      "kind": "requirement",
+      "text": "The embedder is gemma2-embed (google/embeddinggemma-2, served from orin), reached through the lobes gateway by role name \u2014 the same path embodiment uses (embodiment/vectors.py EMBED_ROLE)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "Vectors in the embeddings table are all from gemma2-embed (embeddings.model) \u2014 no mixed-model corpus",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c47",
+      "kind": "requirement",
+      "text": "RAG retrieval has a reranker stage using the lobes gateway's reranker role (Qwen/Qwen3-Reranker-0.6B on /v1/rerank)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "Reranked and unreranked runs over the same eval set are stored as distinct, comparable configs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Rerank detail: /api/rag/retrieve takes rerank (default true when a reranker is configured) and candidates (default 50); it fetches that many passages, POSTs {model: reranker, query, documents} to /v1/rerank (shape per lobes roles_measure.py:239), reorders by relevance_score, returns top k with both scores and reranked: true|false; an unreachable reranker degrades to the unreranked order with reranked: false, never a 5xx",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "A reranker outage changes ordering quality only, never availability of /api/rag/retrieve",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "The library container reaches the gateway through a host-reachable URL: compose adds extra_hosts host.docker.internal:host-gateway and live.env sets LOBES_GATEWAY_URL=http://host.docker.internal:8001 \u2014 the default 127.0.0.1:8001 is refused inside the container (bridge network culture-library_default)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "The gateway key only travels to the configured gateway origin (no redirects followed), as embodiment's transport enforces",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "Asymmetric prompts for gemma2-embed: chunks are embedded with prompt_name Retrieval-document and queries with Retrieval-query (the lane accepts these and refuses Query, per embodiment/vectors.py:20-23, PROMPT_NAMES); the prompt pair is part of the recorded embed config. Live has 0 embeddings today, so adopting it before the first re-embed costs nothing extra",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "Index-time and query-time prompts are never mixed across embed configs within one run",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "core/search.py: chunk-level passages() with chunk_sha",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/core/test_passages.py: passages(conn, qvec, k, mode, vis, kind=None, item_ids=None) returns Passage(item_id, title, kind, chunk_no, chunk_sha, text, score, source) with FULL chunk text, ranked by cosine for semantic and RRF(k=60) with FTS item rank for hybrid",
+        "chunk_sha == sha256(stored chunk text, utf-8) hex; same text -> same sha across re-index",
+        "visibility parity: an item hidden from /api/search for a principal never yields a passage; archived items never yield",
+        "item_ids and kind filters apply before ranking cutoff; existing search tests pass unchanged",
+        "tests/core/test_store.py::test_core_source_has_no_network_imports still passes"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c10",
+        "h9"
+      ],
+      "instruction": "Add Passage dataclass + passages() + chunk_sha() in culture_library/core/search.py only. Reuse unpack_vec/cosine and the visibility SQL the existing semantic() uses; do NOT change Hit, semantic(), hybrid() or fulltext(). Query embedding is passed in as a vector (core stays network-free); the caller embeds. Header chunk_no 0 is returned like any chunk but flagged is_header=True so generators can skip it."
+    },
+    {
+      "id": "t2",
+      "summary": "core: eval + sources tables (eval_store.py, sources.py) registered as item children",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "new culture_library/core/eval_store.py registers eval_sets(id, item_id FK CASCADE, item_sha256, chunker_json, adapter, adapter_version, generator_json, created_at), eval_samples(id, set_id FK CASCADE, question, reference_answer, reference_chunk_shas JSON, reference_contexts JSON, source_urls JSON), eval_runs(id, set_id FK CASCADE, status complete|partial|failed, config_json, total, completed, aggregates_json NULL unless complete, created_at), eval_run_samples(run_id FK CASCADE, sample_id, retrieved_chunk_shas JSON, scores_json)",
+        "new culture_library/core/sources.py registers item_sources(item_id PK FK CASCADE, manifest_json, updated_at) with put/get",
+        "store.py _ITEM_CHILDREN includes item_sources and eval_sets; test_store_migration seeds rows in every new table, forces a kinds rebuild, asserts counts unchanged and no FK violations",
+        "deleting / purging an item leaves zero rows in all new tables",
+        "two runs are reported comparable only when set_id and set version match (helper comparable(run_a, run_b) tested)"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "h5",
+        "c37",
+        "h28",
+        "c19",
+        "h15"
+      ],
+      "instruction": "Follow the embeddings/index_queue pattern: register_schema DDL at import, ON DELETE CASCADE. Only edit store.py to extend _ITEM_CHILDREN (eval_samples/eval_runs/eval_run_samples cascade via eval_sets; list only tables with an item_id column). Stdlib only, no network. Visibility-filtered list functions take the same include_private/owner args library.py uses."
+    },
+    {
+      "id": "t3",
+      "summary": "gateway.py: prompt_name for gemma2-embed + GatewayReranker; document-prompt indexer wiring",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GatewayEmbedder(prompt_name=...) sends prompt_name only when set; from_env builds a document embedder (Retrieval-document) for the indexer and a query embedder (Retrieval-query) for retrieval; LOBES_EMBED_PROMPTS=off disables both",
+        "GatewayReranker.from_env() (LOBES_RERANK_MODEL default 'reranker') POSTs {model, query, documents} to /v1/rerank and returns [(index, relevance_score)]; None when GATEWAY_API_KEY unset",
+        "both clients refuse HTTP redirects (key never leaves the configured origin) \u2014 tested with a fake server issuing 302",
+        "routes_search lifespan builds the indexer with the document embedder and stores query embedder + reranker on app.state; existing test_status_search tests pass"
+      ],
+      "deps": [],
+      "covers": [
+        "c50",
+        "h36",
+        "c46",
+        "h37",
+        "c49",
+        "h35"
+      ],
+      "instruction": "Edit culture_library/gateway.py and the lifespan in server/routes_search.py only. Copy embodiment/embodiment/vectors.py's redirect-refusing opener idea (stdlib urllib HTTPRedirectHandler override). embeddings.model column records 'gemma2-embed+Retrieval-document' style so mixed configs are detectable."
+    },
+    {
+      "id": "t4",
+      "summary": "culture_library/eval/: adapter protocol, dataset/run models, judge config + locality gate",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "eval/adapter.py defines EvalAdapter Protocol: name, version, generate_samples(chunks, n, llm) -> [Sample], score(samples, retrieved, llm|None) -> per-sample + aggregate metrics; a FakeAdapter in tests plugs in with no other change",
+        "eval/config.py: JudgeConfig from env (CULTURE_LIBRARY_EVAL_LLM_URL default LOBES_GATEWAY_URL, _MODEL default 'cortex', GATEWAY_API_KEY); is_local(url) true only for 127.0.0.1/localhost/::1/host.docker.internal",
+        "guard_text_egress(items, judge) raises before any text is read when judge is non-local and any item is non-public \u2014 test: private item + https://api.example.com -> EvalPolicyError; same item + 127.0.0.1 -> ok",
+        "no module outside eval/ragas_adapter.py imports ragas (grep test)",
+        "eval/client.py and tests/eval/conftest.py exist and are the only shared modules t12/t13 import"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h6",
+        "c15",
+        "h14",
+        "c36",
+        "h27"
+      ],
+      "instruction": "New package culture_library/eval/ (__init__, adapter.py, models.py, config.py, errors.py, client.py). Stdlib only. client.py is the ONE small stdlib HTTP client for the library API (Bearer key, JSON, no redirects) that generate.py and runner.py both use. Also create tests/eval/conftest.py with FakeAdapter, a fake OpenAI-compatible judge that records payloads, and a TestClient-backed library fixture \u2014 wave-1 tasks add test files but never edit this conftest. Models are plain dataclasses that serialize to the JSON shapes eval_store stores."
+    },
+    {
+      "id": "t5",
+      "summary": "packaging: [eval] extra, zero-deps guard, opt-in ragas marker",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject [project.optional-dependencies] eval = ['ragas==0.4.3', 'openai>=1'] (pinned); dependencies stays []",
+        "tests/test_zero_deps.py blocks ragas, langchain*, openai, datasets, instructor and still passes; asserts the [eval] extra contents",
+        "pytest marker 'ragas' registered; real-ragas tests skip unless the eval extra is installed; default CI 'uv sync' does not install ragas"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h7",
+        "c12",
+        "h11",
+        "c32",
+        "h23"
+      ],
+      "instruction": "Touch pyproject.toml, tests/test_zero_deps.py and .github/workflows/tests.yml only. Mirror the 'visual' group pattern if a separate opt-in group is useful; do not add ragas to the dev group."
+    },
+    {
+      "id": "t6",
+      "summary": "deploy: gateway reachability + enable-embeddings runbook",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "deploy/compose.yaml library + mcp services gain extra_hosts host.docker.internal:host-gateway; .env.example documents LOBES_GATEWAY_URL=http://host.docker.internal:8001, LOBES_EMBED_MODEL=gemma2-embed, LOBES_RERANK_MODEL=reranker",
+        "docs/operations/deploy.md 'Enable embeddings' section: live.env vars, deploy restart, requeue_all, wait for index_queue all done + embeddings > 0, verify /api/status; rollback = unset + restart -> full-text search keeps working",
+        "Dockerfile still installs .[server] only (unchanged)",
+        "markdownlint clean; scripts/scan-secrets.py passes"
+      ],
+      "deps": [],
+      "covers": [
+        "c45",
+        "h33",
+        "c49",
+        "h35",
+        "c9",
+        "h8"
+      ],
+      "instruction": "No live changes in this task \u2014 files only. Check whether deploy restart (cli/_commands/deploy.py) needs to pass the new vars through; if so, note it as a deviation rather than editing deploy.py here."
+    },
+    {
+      "id": "t7",
+      "summary": "culture-rules issue: newspaper sources sidecar (incl. backfill of existing issues)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "issue filed on agentculture/culture-rules via /communicate, linking the spec, proposing PUT /api/library/{id}/sources with the c33 manifest shape and a one-off backfill for the 15 live issues; issue URL recorded in the delivery"
+      ],
+      "deps": [],
+      "covers": [
+        "c20",
+        "h16"
+      ],
+      "instruction": "Use the communicate skill (agtag). Body signed by the script. Ask culture-rules to confirm field names; the library side ships first and works without them (h16)."
+    },
+    {
+      "id": "t8",
+      "summary": "routes_status: report retrieval config",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/api/status adds retrieval: {embed_model, embed_prompts, chunker_max_chars, chunk_count, reranker_model|null}; tests assert values equal the configured objects"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c40",
+        "h31"
+      ],
+      "instruction": "Edit server/routes_status.py only; read app.state set by t3."
+    },
+    {
+      "id": "t9",
+      "summary": "routes_rag.py: POST /api/rag/retrieve with rerank + GET item chunks",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "POST /api/rag/retrieve {query, k (1-50), mode semantic|hybrid, kind?, item_ids?, rerank?, candidates (k..200, default 50)} -> {query, mode, reranked, passages:[{item_id,title,kind,chunk_no,chunk_sha,text,score,rerank_score|null,source}]}; read scope",
+        "503 rag_unavailable with no query embedder; reranker failure -> reranked:false, original order, 200",
+        "GET /api/rag/items/{id}/chunks (read scope, visibility) lists {chunk_no, chunk_sha, text, is_header} for generators",
+        "visibility parity test vs /api/search for private/owner/public keys; tests/server/test_status_search.py unchanged and passing"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c3",
+        "h3",
+        "c4",
+        "h4",
+        "c47",
+        "h38",
+        "c48",
+        "h34",
+        "c26",
+        "h17"
+      ],
+      "instruction": "New file server/routes_rag.py (auto-included). Use app.state query embedder + reranker from t3. Fake embedder/reranker injected via app.state in tests, as test_status_search does."
+    },
+    {
+      "id": "t10",
+      "summary": "routes_sources.py: newspaper sources sidecar API",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "PUT /api/library/{id}/sources (write scope) validates manifest [{article_title, source_urls[], excerpt}] and stores it; GET (read scope) returns it under the item's visibility; 404 for invisible items",
+        "a read-only key gets 403 on PUT; a non-owner public key cannot see a private item's sidecar"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c33",
+        "h24"
+      ],
+      "instruction": "New file server/routes_sources.py; uses core/sources.py from t2."
+    },
+    {
+      "id": "t11",
+      "summary": "routes_eval.py: store and read eval sets and runs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "POST /api/eval/sets and /api/eval/runs (write scope); GET /api/eval/sets?item_id= and /api/eval/runs?set_id= (read scope) filtered by the item's visibility; sample text never returned for invisible items",
+        "POST /api/eval/runs refuses aggregates unless status == complete"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c34",
+        "h25"
+      ],
+      "instruction": "New file server/routes_eval.py over core/eval_store.py."
+    },
+    {
+      "id": "t12",
+      "summary": "eval/generate.py: book + newspaper eval-set generation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "book: fetch item chunks (GET /api/rag/items/{id}/chunks), skip header, sample N (default 20, --samples) deterministically by seed, adapter.generate_samples -> every reference_chunk_sha is one of that item's chunk shas and reference_contexts are verbatim chunk text",
+        "newspaper: requires the sources sidecar (clear CliError + hint if absent); samples map article excerpt -> matching chunk(s) and carry that article's source_urls; every sample has >= 1 source URL",
+        "guard_text_egress runs before any chunk text is fetched; set records item_sha256 + chunker config from /api/status"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c13",
+        "h12",
+        "c14",
+        "h13"
+      ],
+      "instruction": "New file culture_library/eval/generate.py + tests/eval/test_generate.py. Talk to the server only through eval/client.py (from t4); use the conftest fixtures; don't edit conftest or client.py \u2014 if they're insufficient, raise a deviation."
+    },
+    {
+      "id": "t13",
+      "summary": "eval/runner.py: run a set against /api/rag/retrieve and score",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pre-check: refuse (or record status stale) when item sha256 != set.item_sha256, item archived, or index not done",
+        "per sample: POST retrieve with run config (mode, k, rerank, candidates); ID-based context precision/recall over chunk_sha always; LLM metrics only via adapter when judge configured",
+        "non-local judge: no non-public passage text is sent (fake judge records payloads; test asserts)",
+        "failure on sample i -> stored status partial/failed with completed count and no aggregates",
+        "run config records server-reported embed model/prompts/chunker (from /api/status) + adapter name/version"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c38",
+        "h29",
+        "c39",
+        "h30",
+        "c41",
+        "h32",
+        "c19",
+        "h15",
+        "c47",
+        "h38"
+      ],
+      "instruction": "New file culture_library/eval/runner.py + tests/eval/test_runner.py. Use eval/client.py and the t4 conftest only. ID-based metrics computed in-house (precision = relevant retrieved / retrieved, recall = reference shas retrieved / reference shas) so they work without ragas; the RAGAS adapter cross-checks them."
+    },
+    {
+      "id": "t14",
+      "summary": "eval/ragas_adapter.py: RAGAS 0.4.3 adapter",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "RagasAdapter implements EvalAdapter: ID-based context precision/recall and LLM context precision/recall (with reference) via ragas, LLM + embeddings through OpenAI-compatible base_url from JudgeConfig",
+        "imported lazily; marked 'ragas' tests run a 2-sample set against a fake OpenAI-compatible server and match runner's in-house ID metrics"
+      ],
+      "deps": [
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c7",
+        "h6",
+        "c15",
+        "h14"
+      ],
+      "instruction": "New file culture_library/eval/ragas_adapter.py, the only module importing ragas. Pin to 0.4.3 APIs; isolate version-specific calls in one place."
+    },
+    {
+      "id": "t15",
+      "summary": "MCP: rag_retrieve tool",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "mcp/tools.py tool_specs() lists rag_retrieve(query, k, mode, kind, item_ids, rerank); handler calls Client.rag_retrieve -> POST /api/rag/retrieve and returns payload unchanged; caller's bearer key used"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c35",
+        "h26",
+        "c26",
+        "h17"
+      ],
+      "instruction": "Edit mcp/tools.py and mcp/client.py only."
+    },
+    {
+      "id": "t16",
+      "summary": "CLI: eval noun (overview, generate, run, show) + explain + learn",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "cli/_commands/eval.py registers eval {overview,generate,run,show}; --json everywhere; without the extra exits 2 with 'install culture-library[eval]'",
+        "explain catalog entries for every eval path; learn mentions eval; uv run teken cli doctor . --strict passes",
+        "eval run --mode/--rerank/--k flags let two configs run over one set (for #7 / c31)"
+      ],
+      "deps": [
+        "t12",
+        "t13",
+        "t14",
+        "t5"
+      ],
+      "covers": [
+        "c11",
+        "h10"
+      ],
+      "instruction": "New cli/_commands/eval.py + one register line in cli/__init__.py + entries in explain/catalog.py + learn.py. Lazy import the eval package inside handlers, copying server.py:51-61."
+    },
+    {
+      "id": "t17",
+      "summary": "docs: CLAUDE.md / README / harness files describe RAG + eval",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md documents /api/rag, /api/eval, sources sidecar, eval CLI, [eval] extra (test_zero_deps doc check style) and cites the before-state evidence (search.py Hit, t7 evidence, #7); QWEN.md/AGENTS.colleague.md kept in step; markdownlint clean"
+      ],
+      "deps": [
+        "t16",
+        "t15"
+      ],
+      "covers": [
+        "c27",
+        "h18"
+      ],
+      "instruction": "Docs only; keep the other harness files short."
+    },
+    {
+      "id": "t18",
+      "summary": "LIVE: enable gemma2-embed + reranker on library.culture.dev and re-embed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "after release + deploy restart: live /api/status shows embed_model gemma2-embed with Retrieval prompts and reranker set; index_queue all done; embeddings rows > 0, all one model; /api/rag/retrieve returns passages",
+        "pre-change backup snapshot taken and path recorded; rollback path verified in the runbook"
+      ],
+      "deps": [
+        "t6",
+        "t3",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c46",
+        "h37"
+      ],
+      "instruction": "Operator-gated: requires the merged release on PyPI/image and explicit user go-ahead before touching live.env or restarting. Follow docs/operations/deploy.md exactly."
+    },
+    {
+      "id": "t19",
+      "summary": "LIVE: baseline \u2014 eval sets for >=3 books and >=3 newspapers, runs under two configs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "operator has uploaded >= 2 more books (>= 3 live books); >= 3 newspaper issues have sidecars",
+        "eval generate + eval run produce >= 6 sets each with >= 1 complete run carrying ID-based and LLM context precision/recall; GET /api/eval/runs shows them",
+        "one set run twice (rerank on vs off, or semantic vs hybrid) -> 2 comparable runs; numbers posted to issue #7 as input"
+      ],
+      "deps": [
+        "t18",
+        "t16",
+        "t10",
+        "t11",
+        "t7"
+      ],
+      "covers": [
+        "c30",
+        "h21",
+        "c31",
+        "h22",
+        "c1",
+        "h1",
+        "c29",
+        "h20",
+        "c28",
+        "h19"
+      ],
+      "instruction": "Operator-gated live work. Generation uses the local judge (cortex) by default. Record results as evidence under docs/evidence/."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Existing 15 live newspaper issues have no sources sidecar; the newspaper half of the baseline (c30) depends on culture-rules shipping the push + a backfill",
+      "kind": "unknown_nonblocking",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "RAGAS API churn (0.1->0.4): adapter pinned to 0.4.3; an upgrade is a deliberate follow-up, not drift",
+      "kind": "follow_up",
+      "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Gateway contention: eval runs share the lobes gateway (orin-proxied embed/rerank, cortex judge) with the live indexer, Gwen and colleague; run the baseline off-peak and record timings",
+      "kind": "unknown_nonblocking",
+      "task_id": "t19",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "deploy restart may need to pass the new LOBES_RERANK_MODEL / prompt vars through to the container (cli/_commands/deploy.py) \u2014 discovered during t6 or t18 -> /deviate",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
