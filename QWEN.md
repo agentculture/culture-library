@@ -19,7 +19,9 @@ serve it all, published at library.culture.dev.
 - `core/`: storage, ingest, keys, feed, search, repo documents, send, backup;
 - `server/`: the HTTP API, OPDS, WebDAV and the site;
 - `mcp/`: the agents' MCP server;
-- `web/static/`: the site's files.
+- `web/static/`: the site's files;
+- `eval/` and the `eval` CLI verbs: RAG evals over `/api/rag/retrieve` (needs
+  the optional `[eval]` extra).
 
 `CLAUDE.md` describes the layout. Deploying and provisioning
 library.culture.dev are still open (see [Roadmap](#roadmap)). Some inherited prose (CLI help/`explain` text, a few

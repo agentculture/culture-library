@@ -37,6 +37,36 @@ library.culture.dev are still to do (see [Roadmap](#roadmap)).
 - **A build + deploy baseline**: pytest, lint, the agent-first rubric gate, a
   per-harness smoke check, and PyPI Trusted Publishing in GitHub Actions.
 
+## RAG and evals
+
+Agents can fetch citable passages, not just titles. `POST /api/rag/retrieve`
+(also the MCP `rag_retrieve` tool) takes a query and returns ranked passages
+with `item_id`, `chunk_no`, `chunk_sha`, full text and scores, optionally
+reranked. Before this, search (`core/search.py` `Hit`) was item-level with a
+200-char snippet, and `docs/evidence/t7-embedding-cost.md` measured embedding
+cost but not retrieval quality (issue #7 compares embedders).
+
+The `eval` verbs measure retrieval with RAGAS context precision and recall,
+stored in the library so runs compare across modes and embedders:
+
+```bash
+uv sync --extra eval                          # ragas lives in the [eval] extra only
+uv run culture-library eval generate ITEM_ID  # a book's own text, or a newspaper's sources sidecar
+uv run culture-library eval run SET_ID --mode hybrid --k 5
+uv run culture-library eval show --set SET_ID
+```
+
+Newspaper sets use the sources sidecar at `PUT /api/library/{id}/sources`.
+Eval sets and runs live behind `/api/eval/sets` and `/api/eval/runs`. The judge
+is an OpenAI-compatible endpoint (default: the local lobes gateway); text from
+non-public items is never sent to a non-local judge. Install
+`culture-library[eval]` to use it; the base package and the server image do
+not include it.
+
+Planned, not done: embeddings are not yet enabled on the live library (see
+"Enable embeddings" in `docs/operations/deploy.md`), and the baseline eval runs
+have not been recorded.
+
 ## Quickstart
 
 ```bash
