@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] - 2026-10-25
+
+### Changed
+
+- Uploads accept files up to 60 MiB (was 50 MiB), on the server and in the site's upload form, so large books fit. culture-rules still sends at most 50 MiB; the contract test now checks that the library accepts at least that much. Items over 50 MiB may exceed xteink's e-reader limit.
+
 ## [0.16.1] - 2026-10-25
 
 ### Changed

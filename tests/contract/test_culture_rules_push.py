@@ -144,9 +144,12 @@ def test_refusals_carry_a_code_culture_rules_can_name(server, monkeypatch):
     assert wire._error_code(forbidden.content) == "forbidden"
 
 
-def test_push_at_the_50mib_limit_is_accepted(server):
-    """culture-rules allows exactly MAX_BYTES; the library's limit must be the same."""
-    assert routes_library.UPLOAD_LIMITS.max_bytes == wire.MAX_BYTES
+def test_push_at_the_culture_rules_limit_is_accepted(server):
+    """culture-rules sends at most MAX_BYTES (50 MiB); the library must accept at least that.
+
+    The library's own cap is higher (60 MiB, for operator uploads of large books); a stricter
+    client is harmless."""
+    assert routes_library.UPLOAD_LIMITS.max_bytes >= wire.MAX_BYTES
 
 
 # ------------------------------------------------------------------ the real port, if present

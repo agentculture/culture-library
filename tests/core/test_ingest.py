@@ -143,7 +143,7 @@ def test_bad_content_refused(store):
 
 def test_size_cap(store):
     limits = IngestLimits(max_bytes=10)
-    assert DEFAULT_LIMITS.max_bytes == 50 * 1024 * 1024
+    assert DEFAULT_LIMITS.max_bytes == 60 * 1024 * 1024
     with pytest.raises(ValidationError) as ei:
         ingest(store, b"x" * 11, "a.txt", kind="document", limits=limits)
     assert ei.value.code == "too_large"

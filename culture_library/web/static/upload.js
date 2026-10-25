@@ -6,12 +6,12 @@ import { $, KINDS, api, fill, fmtSize, h, kindKey, openItem, reloadEntries } fro
 import * as home from './home.js';
 import { toast } from './send.js';
 
-const LIMIT = 50 * 1024 * 1024;
+const LIMIT = 60 * 1024 * 1024;
 const FORMATS = /\.(epub|pdf|md|markdown|txt|json)$/i;
 let dlg, fileIn, drop, pending = null;
 
 function setDrop(...kids) { fill(drop, ...kids, fileIn); }
-const idle = () => setDrop(h('b', {}, 'Drop a file here or choose one'), h('br'), 'EPUB, PDF, Markdown, text or JSON, up to 50 MB');
+const idle = () => setDrop(h('b', {}, 'Drop a file here or choose one'), h('br'), 'EPUB, PDF, Markdown, text or JSON, up to 60 MB');
 function curl() {
   const f = pending ? pending.name : '<file>';
   const k = $('up-kind').value, v = $('up-vis').value;
@@ -21,7 +21,7 @@ function showErr(text) { const err = $('up-err'); err.textContent = text; err.hi
 function pick(f) {
   $('up-err').hidden = true;
   if (!FORMATS.test(f.name)) { showErr(`${f.name} is not a supported format. Choose an EPUB, PDF, Markdown, text or JSON file.`); return; }
-  if (f.size > LIMIT) { showErr(`${f.name} is ${fmtSize(f.size)}. The limit is 50 MB.`); return; }
+  if (f.size > LIMIT) { showErr(`${f.name} is ${fmtSize(f.size)}. The limit is 60 MB.`); return; }
   pending = f;
   setDrop(h('b', { dir: 'auto' }, f.name), h('br'), `${fmtSize(f.size)}. Choose another file to replace it.`);
   $('up-name').value = f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
@@ -32,7 +32,7 @@ function pick(f) {
 export function uploadError(e, name, kind) {
   switch (e.status) {
     case 409: return `${name} is already in the library as an item you cannot see. Choose another file, or ask whoever uploaded it to share it.`;
-    case 413: return `${name} is too large. The limit is 50 MB; choose a smaller file.`;
+    case 413: return `${name} is too large. The limit is 60 MB; choose a smaller file.`;
     case 415: return `${name} is not a supported format. Choose an EPUB, PDF, Markdown, text or JSON file.`;
     case 403: return `Your key cannot add ${KINDS[kindKey(kind)].plural.toLowerCase()}. Use a key with write access to that kind.`;
     case 401: return 'You are not signed in. Sign in, then try again.';

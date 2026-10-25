@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T09:24:00Z",
-  "updated": "2026-10-25T16:29:34Z",
+  "updated": "2026-10-25T19:51:55Z",
   "claims": [
     {
       "id": "c1",
@@ -1324,7 +1324,7 @@
         "t1"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1336,7 +1336,7 @@
         "core/search.py"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -1347,7 +1347,7 @@
         "t12"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l5",
@@ -1358,7 +1358,7 @@
         "t10"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l6",
@@ -1371,7 +1371,7 @@
         "t12"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l7",
@@ -1382,7 +1382,7 @@
         "t13"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l8",
@@ -1393,7 +1393,7 @@
         "t14"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l9",
@@ -1404,7 +1404,7 @@
         "t16"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l10",
@@ -1415,7 +1415,18 @@
         "PR #17"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
+    },
+    {
+      "id": "l11",
+      "code": "control-absent",
+      "what": "During t18 verification the main agent's revoke of the temporary live read key used a mis-parsed id (null) and the wrong revoke syntax, so the key stayed active ~1 min until a follow-up 'keys list' check caught it and it was revoked with --id",
+      "skipped_check": "check the revoke result before moving on",
+      "refs": [
+        "t18"
+      ],
+      "origin": "llm",
+      "status": "approved"
     }
   ],
   "obligations": []
