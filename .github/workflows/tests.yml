@@ -200,3 +200,20 @@ jobs:
           else
             echo "Version bumped: $MAIN_VERSION -> $PR_VERSION"
           fi
+
+  ragas:
+    # Opt-in real-ragas tests: installs the pinned [eval] extra. The `test` job stays ragas-free.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+
+      - run: uv python install 3.12
+
+      - run: uv sync --extra eval
+
+      - name: real-ragas tests
+        run: uv run pytest -m ragas -v
