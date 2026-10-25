@@ -231,3 +231,14 @@ def test_duplicate_of_invisible_item_hides_id(api):
 def test_dav_writes_still_405(api, method):
     r = api.c.request(method, "/dav/", content=b"x")
     assert r.status_code == 405
+
+
+def test_duplicate_of_archived_item_hides_id_from_non_private_key(api):
+    a = _make(api, visibility="public")
+    b = _make(api, data=b"# gone\n", visibility="public")
+    assert api.c.delete(f"/api/library/{b['id']}").status_code == 204
+    assert api.as_(WRITER).c.get(f"/api/library/{b['id']}").status_code == 404
+    r = api.as_(WRITER).put(a["id"], b"# gone\n")
+    assert r.status_code == 409
+    assert r.json()["code"] == "duplicate_content"
+    assert "other_id" not in r.json()

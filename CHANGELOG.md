@@ -15,7 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- On first open after upgrading, the store rebuilds the `items` table once to widen its kind CHECK, preserving ids and the id sequence. It verifies row counts, refuses to open (rolling back) on a mismatch, and writes one diagnostic line to stderr on success. Rollback means restoring the pre-upgrade snapshot; running an older image on a database holding todo items is unsupported.
+- On first open after upgrading, the store rebuilds the `items` table once to widen its kind CHECK, preserving ids and the id sequence. It verifies row counts, refuses to open (rolling back) on a mismatch, and writes one diagnostic line to stderr on success. Rollback means restoring the pre-upgrade snapshot; running an older image on a database holding todo items is unsupported. A database whose CHECK names kinds this release does not know is refused at open, never narrowed. The migration's foreign-key check covers only the tables the rebuild touches.
+
+### Fixed
+
+- Replace and the background indexer no longer race: a job in flight for the old bytes stops without writing their body, vectors or `done` status, and the job stays queued for the new bytes. Replace drops the item's old embeddings.
+- Sending an item's current bytes again restores its file if the stored copy is missing.
+- The 409 `duplicate_content` response names `other_id` only when the caller could GET that item, so archived items stay hidden from non-private keys. The route's kind guard no longer blocks the event loop.
 
 ## [0.11.0] - 2026-10-24
 

@@ -76,6 +76,14 @@ def _norm(sql: str) -> str:
     return " ".join(sql.split())
 
 
+def _check_kinds(sql: str) -> list[str] | None:
+    """The kinds named by an items table's kind CHECK, or ``None`` if it has none."""
+    match = _KIND_CHECK_RE.search(sql)
+    if match is None:
+        return None
+    return [k.strip().strip("'\"") for k in match.group(1).split(",") if k.strip()]
+
+
 def _copy_items(conn: sqlite3.Connection) -> None:
     """Copy every items row into items_new (a seam so tests can simulate a lossy copy)."""
     cols = ", ".join(_ITEM_COLUMNS)
@@ -129,7 +137,13 @@ def _rebuild_items(conn: sqlite3.Connection, old_sql: str) -> str:
             conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('items', ?)", (seq,))
         else:
             conn.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'items'", (seq,))
-    problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+    # Only the tables the rebuild can break; an unrelated old violation must not block it.
+    problems = [
+        row
+        for child in _ITEM_CHILDREN
+        if _table_exists(conn, child)
+        for row in conn.execute(f"PRAGMA foreign_key_check({child})").fetchall()
+    ]
     if problems:
         raise MigrationError(f"items rebuild left foreign-key violations: {problems[:5]}")
     after = _item_counts(conn)
@@ -139,10 +153,10 @@ def _rebuild_items(conn: sqlite3.Connection, old_sql: str) -> str:
             f"items rebuild changed the data (before {before}, seq {seq}; "
             f"after {after}, seq {_items_seq(conn)}); rolled back"
         )
-    match = _KIND_CHECK_RE.search(old_sql)
-    old_kinds = _norm(match.group(1)).replace("'", "") if match else "?"
+    old_kinds = _check_kinds(old_sql)
     return (
-        f"culture-library: migrated items kind CHECK from ({old_kinds}) "
+        f"culture-library: migrated items kind CHECK from "
+        f"({', '.join(old_kinds) if old_kinds is not None else '?'}) "
         f"to ({', '.join(KINDS)}); {before['items']} rows copied"
     )
 
@@ -192,7 +206,9 @@ class Store:
         Runs on its own connection, not :meth:`connect`, because ``PRAGMA foreign_keys``
         has to be switched off *before* the transaction begins. The check is repeated after
         the write lock is held, so racing first opens rebuild at most once. Any integrity
-        mismatch rolls back and raises, leaving the old table and its CHECK untouched.
+        mismatch rolls back and raises, leaving the old table and its CHECK untouched. A
+        CHECK naming kinds this release does not know (a newer release's database) is
+        refused with :class:`MigrationError`, never narrowed.
         """
         summary = None
         conn = self._open()
@@ -204,6 +220,13 @@ class Store:
                     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'"
                 ).fetchone()
                 if row is not None and _KIND_CHECK not in _norm(row[0]):
+                    unknown = sorted(set(_check_kinds(row[0]) or ()) - set(KINDS))
+                    if unknown:  # never narrow a CHECK a newer release widened
+                        raise MigrationError(
+                            f"library.db allows kinds this release does not know "
+                            f"({', '.join(unknown)}); it was written by a newer "
+                            "culture-library. Run that release, or restore a snapshot."
+                        )
                     summary = _rebuild_items(conn, row[0])
             except BaseException:
                 conn.execute("ROLLBACK")

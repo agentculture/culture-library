@@ -200,6 +200,15 @@ def _vis(principal: Principal) -> dict:
     return {"include_private": principal.private, "owner": principal.key_id}
 
 
+def _can_see(principal: Principal, store: Store, item_id: int) -> bool:
+    """Whether this caller may learn *item_id* exists (the GET rule; private sees archived)."""
+    try:
+        library.get(store, item_id, include_archived=principal.private, **_vis(principal))
+    except NotFoundError:
+        return False
+    return True
+
+
 @router.get("")
 def list_items(
     q: str | None = Query(None, description="search title/author"),
@@ -398,13 +407,14 @@ async def replace_item(
 ):
     """Swap the item's bytes under the same id; answer the updated item.
 
-    Guarded like archive/restore (write scope and the item's kind, before any bytes are read).
-    A private, archived or absent item is 404. Refusals map like the upload. Bytes already
-    held by another item are 409 ``duplicate_content``; ``other_id`` names that item only when
-    the caller can see it.
+    Guarded like archive/restore (write scope and the item's kind) before the upload is read
+    or validated; FastAPI has already spooled the multipart body, which ``max_body`` caps. A
+    private, archived or absent item is 404. Refusals map like the upload. Bytes already held
+    by another item are 409 ``duplicate_content``; ``other_id`` names that item only when the
+    caller could GET it (private scope sees archived items too).
     """
     try:
-        _writable(principal, store, item_id)
+        await run_in_threadpool(_writable, principal, store, item_id)
     except NotFoundError:
         return _not_found(item_id)
     # Read at most one byte past the cap so an oversize file is refused as too_large.
@@ -423,11 +433,7 @@ async def replace_item(
         return _not_found(item_id)
     except library.DuplicateContentError as exc:
         body = {"detail": "these bytes already belong to another item", "code": exc.code}
-        if (
-            exc.other_visibility == "public"
-            or principal.private
-            or library.uploaded_by(store, exc.other_id, principal.key_id)
-        ):
+        if await run_in_threadpool(_can_see, principal, store, exc.other_id):
             body["other_id"] = exc.other_id
         return JSONResponse(body, status_code=409)
     except ValidationError as exc:

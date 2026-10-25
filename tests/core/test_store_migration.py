@@ -344,3 +344,34 @@ def test_success_diagnostic_line(tmp_path, capsys):
     assert "devague-record" in line
     assert "todo" in line
     assert "4 rows" in line
+
+
+def test_newer_db_with_unknown_kind_is_refused_not_narrowed(tmp_path):
+    data_dir = tmp_path / "lib"
+    db = _make_old_db(data_dir, n_items=1)
+    conn = _raw(db)
+    sql = _items_sql(db)
+    conn.close()
+    newer = sql.replace("'devague-record')", "'devague-record', 'todo', 'future-kind')")
+    assert newer != sql
+    conn = _raw(db)
+    conn.execute("PRAGMA writable_schema = ON")
+    conn.execute("UPDATE sqlite_master SET sql = ? WHERE type='table' AND name='items'", (newer,))
+    conn.execute("PRAGMA writable_schema = OFF")
+    conn.close()
+    with pytest.raises(store_mod.MigrationError, match="future-kind"):
+        Store(data_dir)
+    assert _items_sql(db) == newer
+
+
+def test_unrelated_fk_violation_does_not_block_migration(tmp_path):
+    data_dir = tmp_path / "lib"
+    db = _make_old_db(data_dir, n_items=2)
+    conn = _raw(db)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("CREATE TABLE parent_x (id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE child_x (pid INTEGER REFERENCES parent_x(id))")
+    conn.execute("INSERT INTO child_x (pid) VALUES (999)")
+    conn.close()
+    Store(data_dir)
+    assert "'todo'" in _items_sql(db)

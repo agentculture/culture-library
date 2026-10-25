@@ -191,3 +191,75 @@ def test_archived_or_missing_or_invisible_raises_not_found(store):
     with pytest.raises(NotFoundError):
         library.replace(store, priv.id, b"x3\n", "n.md", include_private=False)
     library.replace(store, priv.id, b"x3\n", "n.md", include_private=True)
+
+
+def _embedded_text(store, item_id):
+    with store.reader() as conn:
+        rows = conn.execute(
+            "SELECT text FROM embeddings WHERE item_id = ? ORDER BY chunk_no", (item_id,)
+        ).fetchall()
+    return " ".join(r[0] for r in rows)
+
+
+def _vec(texts):
+    return [[1.0, float(len(t)), 0.5] for t in texts]
+
+
+def test_replace_during_embedding_does_not_keep_old_vectors(store):
+    from culture_library.core import indexer as ix
+
+    item = _add(store, b"# Old\n\nalpha text\n")
+    fired = []
+
+    def racing_embed(texts):
+        if not fired:  # the gateway call is in flight when the bytes are replaced
+            fired.append(True)
+            _rep(store, item.id, b"# New\n\nomega text\n", "a.md")
+        return _vec(texts)
+
+    racing_embed.model = "m"
+    assert ix.Indexer(store, embed=racing_embed).run_once() == 0
+    assert "alpha" not in _embedded_text(store, item.id)
+    assert _queue(store, item.id)["state"] == "pending"
+    assert ix.Indexer(store, embed=_vec).run_once() == 1
+    assert "omega" in _embedded_text(store, item.id)
+    assert _queue(store, item.id)["state"] == "done"
+
+
+def test_replace_during_body_extraction_keeps_new_body(store):
+    from culture_library.core import indexer as ix
+
+    item = _add(store, b"# Old\n\nalpha text\n")
+    ix.requeue_all(store)  # body_done=0: the indexer re-extracts the body
+    fired = []
+
+    def racing_text_for(it):
+        if not fired:
+            fired.append(True)
+            _rep(store, item.id, b"# New\n\nomega text\n", "a.md")
+        return "alpha text"  # what the indexer extracted from the old bytes
+
+    assert ix.Indexer(store, text_for=racing_text_for).run_once() == 0
+    assert _hits(store, "omega") == 1
+    assert _hits(store, "alpha") == 0
+    assert _queue(store, item.id)["state"] == "pending"
+
+
+def test_replace_clears_old_embeddings(store):
+    from culture_library.core import indexer as ix
+
+    item = _add(store, b"# Old\n\nalpha text\n")
+    ix.Indexer(store, embed=_vec).run_once()
+    assert "alpha" in _embedded_text(store, item.id)
+    _rep(store, item.id, b"# New\n\nomega text\n", "a.md")
+    assert _embedded_text(store, item.id) == ""
+
+
+def test_same_bytes_restores_a_missing_blob(store):
+    data = b"# Same\n\nbody\n"
+    item = _add(store, data)
+    store.blob_path(item.sha256).unlink()
+    out = _rep(store, item.id, data, "a.md")
+    assert out.sha256 == item.sha256
+    assert store.blob_path(item.sha256).read_bytes() == data
+    assert [e for e in _events(store, item.id) if e["type"] == "updated"] == []

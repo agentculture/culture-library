@@ -316,14 +316,15 @@ def replace(
     Validation (the upload's :func:`~culture_library.core.ingest._validate` +
     ``extract_text_ex``) runs first, outside the write lock, so every refusal raises the
     upload's :class:`ValidationError` code and changes nothing. Then, in one transaction:
-    equal bytes return the item untouched (no event); bytes owned by *another* item raise
-    :class:`DuplicateContentError` before any UPDATE; otherwise the new blob is written if
-    missing (inside the transaction, so A -> B -> A leaves A's blob), the row's
-    sha256/size/format change, the body is re-indexed and the queue row re-opened for the
-    embedder, an ``updated`` event ``{replaced, old_sha256, size, format}`` is appended, and
-    the old blob is unlinked unless another table still names it. Title, author, kind,
-    visibility, created_at and the uploader are untouched. An absent, invisible or archived
-    item raises :class:`NotFoundError`.
+    equal bytes return the item untouched (no event; a missing blob is re-written); bytes
+    owned by *another* item raise :class:`DuplicateContentError` before any UPDATE;
+    otherwise the new blob is written if missing (inside the transaction, so A -> B -> A
+    leaves A's blob), the row's sha256/size/format change, the old embeddings are dropped,
+    the body is re-indexed and the queue row re-opened for the embedder, an ``updated``
+    event ``{replaced, old_sha256, size, format}`` is appended, and the old blob is unlinked
+    unless another table still names it. Title, author, kind, visibility, created_at and
+    the uploader are untouched. An absent, invisible or archived item raises
+    :class:`NotFoundError`.
     """
     try:
         fmt = _validate(data, filename, limits)
@@ -337,6 +338,8 @@ def replace(
         if not _visible(conn, item, include_private, False, owner):
             raise NotFoundError(f"item {item_id} not found")
         if item.sha256 == sha:
+            if not store.blob_path(sha).exists():  # same bytes repair a lost file, as add() does
+                store.write_blob(data)
             return item
         other = conn.execute(
             "SELECT id, visibility FROM items WHERE sha256 = ? AND id != ?", (sha, item_id)
@@ -349,6 +352,7 @@ def replace(
             "UPDATE items SET sha256 = ?, size = ?, format = ? WHERE id = ?",
             (sha, len(data), fmt, item_id),
         )
+        conn.execute("DELETE FROM embeddings WHERE item_id = ?", (item_id,))
         updated = _row(conn, item_id)
         search.set_body(conn, updated, text)  # type: ignore[arg-type]
         indexer.enqueue(conn, item_id)
