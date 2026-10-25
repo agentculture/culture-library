@@ -76,7 +76,10 @@ def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def chunk_text(text: str, max_chars: int = 1000) -> list[str]:
+CHUNK_MAX_CHARS = 1000
+
+
+def chunk_text(text: str, max_chars: int = CHUNK_MAX_CHARS) -> list[str]:
     """Split on blank lines, packing paragraphs up to ``max_chars``; hard-split long runs."""
     chunks: list[str] = []
     cur = ""

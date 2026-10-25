@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Request
 
 from culture_library.core import Store
 from culture_library.core import indexer as ix
+from culture_library.core import search as sr
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
 router = APIRouter()
@@ -44,9 +45,50 @@ def _tally(rows) -> tuple[int, dict, dict, dict]:
     return total, by_kind, by_vis, by_kv
 
 
-def collect(store: Store, private: bool) -> dict:
-    """Build the status document for a caller with (or without) private visibility."""
+def _retrieval_config(state) -> dict:
+    """The configured retrieval setup, from the embedders and reranker on ``app.state``.
+
+    ``embed_model`` is the document embedder's model; ``embed_prompts`` is ``None`` without an
+    embedder or when no prompt is sent. Nothing here calls the gateway.
+    """
+    doc = getattr(state, "doc_embedder", None)
+    query = getattr(state, "query_embedder", None)
+    reranker = getattr(state, "reranker", None)
+    doc_prompt = getattr(doc, "prompt_name", None)
+    query_prompt = getattr(query, "prompt_name", None)
+    prompts = None
+    if (doc is not None or query is not None) and (doc_prompt or query_prompt):
+        prompts = {"document": doc_prompt, "query": query_prompt}
+    return {
+        "embed_model": getattr(doc, "model", None),
+        "embed_prompts": prompts,
+        "chunker_max_chars": sr.CHUNK_MAX_CHARS,
+        "reranker_model": getattr(reranker, "model", None),
+    }
+
+
+def _stored_embeddings(conn, private: bool) -> tuple[int, list[str]]:
+    """Chunk count and distinct embedding models of live items the caller may see."""
+    vis = _vis_clause("i.visibility", private)
+    frm = (
+        "FROM embeddings e JOIN items i ON i.id = e.item_id "
+        f"WHERE i.archived_at IS NULL AND {vis}"
+    )
+    count = conn.execute(f"SELECT COUNT(*) {frm}").fetchone()[0]  # nosec B608
+    models = [
+        row[0] for row in conn.execute(f"SELECT DISTINCT e.model {frm} ORDER BY 1")
+    ]  # nosec B608
+    return count, models
+
+
+def collect(store: Store, private: bool, state=None) -> dict:
+    """Build the status document for a caller with (or without) private visibility.
+
+    ``state`` is ``app.state`` (for the ``retrieval`` block); without it that block reports
+    no embedder or reranker.
+    """
     with store.reader() as conn:
+        chunk_count, embed_models = _stored_embeddings(conn, private)
         vis = _vis_clause("visibility", private)
         item_rows = conn.execute(
             "SELECT kind, visibility, COUNT(*) FROM items WHERE archived_at IS NULL "  # nosec B608
@@ -99,10 +141,15 @@ def collect(store: Store, private: bool) -> dict:
             "source_note": SOURCE_NOTE,
         },
         "feed": {"cursor": cursor},
+        "retrieval": {
+            **_retrieval_config(state),
+            "chunk_count": chunk_count,
+            "embed_models_stored": embed_models,
+        },
     }
 
 
 @router.get("/api/status", tags=["status"])
 def status(request: Request, principal: Annotated[Principal, Depends(current_principal)]) -> dict:
     check(principal, "read")
-    return collect(get_store(request), principal.private)
+    return collect(get_store(request), principal.private, request.app.state)
