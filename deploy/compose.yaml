@@ -23,6 +23,10 @@ services:
     image: *image
     command: ["culture-library", "server", "serve", "--host", "0.0.0.0", "--port", "8796"]
     restart: unless-stopped
+    # The lobes gateway listens on the host (:8001). On the bridge network 127.0.0.1 is the
+    # container itself, so reach the host through this name (docker's host-gateway address).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       CULTURE_LIBRARY_DATA_DIR: /data
       # Cloudflare Access verification for the web UI. Set both or neither.
@@ -32,8 +36,13 @@ services:
       CULTURE_LIBRARY_SEND_TARGETS: ${CULTURE_LIBRARY_SEND_TARGETS:-}
       CULTURE_LIBRARY_LOCAL_URL: ${CULTURE_LIBRARY_LOCAL_URL:-}
       GATEWAY_API_KEY: ${GATEWAY_API_KEY:-}
-      LOBES_GATEWAY_URL: ${LOBES_GATEWAY_URL:-}
-      LOBES_EMBED_MODEL: ${LOBES_EMBED_MODEL:-}
+      # Compose-side defaults matter: an unset ${VAR:-} reaches the container as an empty
+      # string, which would shadow the code's own default.
+      LOBES_GATEWAY_URL: ${LOBES_GATEWAY_URL:-http://host.docker.internal:8001}
+      LOBES_EMBED_MODEL: ${LOBES_EMBED_MODEL:-gemma2-embed}
+      LOBES_RERANK_MODEL: ${LOBES_RERANK_MODEL:-reranker}
+      # `off` disables the Retrieval-document / Retrieval-query prompt names.
+      LOBES_EMBED_PROMPTS: ${LOBES_EMBED_PROMPTS:-on}
       # MQTT broker for send-to-device events (events-cli). The broker must be reachable from
       # the container, e.g. a host address it listens on, not the host's 127.0.0.1.
       EVENTS_BROKER_HOST: ${EVENTS_BROKER_HOST:-}
@@ -74,6 +83,10 @@ services:
     depends_on:
       library:
         condition: service_healthy
+    # Not used today (mcp only calls library). Harmless: it only adds a hosts entry, and it
+    # keeps both services able to resolve the gateway if mcp ever calls it directly.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       CULTURE_LIBRARY_URL: http://library:8796
       # No server-side key: every MCP client sends its own `Authorization: Bearer clk_...`.

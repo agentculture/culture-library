@@ -230,6 +230,69 @@ The second command must list the send targets. A `SendConfigError` means the env
 is wrong: fix it and recreate again. A restart never touches the data volume. Drop
 `--profile remote` only to stop managing cloudflared from this command.
 
+## Enable embeddings
+
+Without a gateway key the library is full-text only. To turn on semantic search, point it
+at the lobes gateway, which serves `gemma2-embed` on `/v1/embeddings` and `reranker` on
+`/v1/rerank`. The gateway listens on the host, not in the container network: inside the
+`library` container `127.0.0.1:8001` is refused. `deploy/compose.yaml` therefore maps
+`host.docker.internal` to the host gateway address for `library` and `mcp`, and the
+default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
+
+1. Add the settings to `$HOME/.config/culture-library/live.env`:
+
+   ```bash
+   LOBES_GATEWAY_URL=http://host.docker.internal:8001
+   LOBES_EMBED_MODEL=gemma2-embed
+   LOBES_RERANK_MODEL=reranker
+   GATEWAY_API_KEY=<gateway key>
+   ```
+
+   `GATEWAY_API_KEY` is what switches embeddings on: without it the embedder is not
+   built. Compose reads it from this file, so this is the one secret the file holds;
+   keep it `chmod 600` and out of git. `LOBES_EMBED_PROMPTS=off` disables the
+   Retrieval-document and Retrieval-query prompt names (on by default).
+2. Recreate the containers: `uv run culture-library deploy restart`. The new
+   environment and `extra_hosts` entry only apply on recreate.
+3. Check the container reaches the gateway (expect `200`):
+
+   ```bash
+   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+     "import urllib.request as u; print(u.urlopen('http://host.docker.internal:8001/health', timeout=5).status)"
+   ```
+
+   Use the gateway's real health path if `/health` differs. A refusal or name error
+   means the mapping is missing: confirm the image's compose file is the current one.
+4. Index. On startup the library re-opens every finished job that has no embeddings, so
+   the restart in step 2 already queues existing items. To recompute everything (for
+   example after changing `LOBES_EMBED_MODEL` or `LOBES_EMBED_PROMPTS`) there is no CLI
+   verb for `requeue_all`; it is a function in `culture_library/core/indexer.py`, run
+   inside the container:
+
+   ```bash
+   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+     "from culture_library.core import Store; from culture_library.core.indexer import requeue_all; print(requeue_all(Store()))"
+   ```
+
+   The running server's indexer picks the jobs up within a few seconds.
+5. Wait until the queue drains: `GET /api/status` (with a read key) must show
+   `index.pending` 0, `index.failed` 0 and `index.done` equal to the item count.
+   `/api/status` does not report embeddings, so count them in the database:
+
+   ```bash
+   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+     "from culture_library.core import Store
+   with Store().reader() as c: print(c.execute('SELECT COUNT(*) FROM embeddings').fetchone()[0])"
+   ```
+
+   The count must be greater than 0 before you rely on semantic search.
+6. Verify: `GET /api/status` is healthy and a `GET /api/search?q=...` answers with
+   `mode` `hybrid` (the response says which mode ran).
+
+Rollback: remove `GATEWAY_API_KEY` (and the other `LOBES_*` lines) from `live.env` and run
+`deploy restart` again. Existing embeddings stay in the database but are unused, and
+full-text search keeps working; a gateway outage alone also degrades to full-text.
+
 ## Upgrading across a schema change
 
 Some releases change the database schema. Release 0.12.0 widens the `items.kind`
