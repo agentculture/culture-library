@@ -214,8 +214,9 @@ def test_generate_samples_propagates_judge_errors():
 
     adapter = RagasAdapter(backend=StubBackend())
     chunks = _chunks()
+    judge = Boom()
     with pytest.raises(EvalApiError):
-        adapter.generate_samples(chunks, 1, Boom())
+        adapter.generate_samples(chunks, 1, judge)
 
 
 # --- scoring (ragas calls stubbed) -----------------------------------------------------
