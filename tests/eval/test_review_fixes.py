@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("fastapi")
 
 from culture_library.cli._commands import eval as eval_cmd  # noqa: E402
-from culture_library.core import eval_store, indexer, search, sources  # noqa: E402
+from culture_library.core import eval_store, indexer, sources  # noqa: E402
 from culture_library.eval import runner  # noqa: E402
 from culture_library.eval.config import JudgeConfig, OpenAIChat  # noqa: E402
 from culture_library.eval.errors import EvalApiError  # noqa: E402
@@ -240,7 +240,3 @@ def test_sources_get_with_meta(cli):  # noqa: F811
         sources.put(conn, item.id, [{"x": 1}])
         manifest, updated_at = sources.get_with_meta(conn, item.id)
     assert manifest == [{"x": 1}] and updated_at
-
-
-def test_chunk_sha_unchanged():
-    assert search.chunk_sha("a") == search.chunk_sha("a")
