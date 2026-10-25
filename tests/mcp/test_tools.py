@@ -20,6 +20,7 @@ def test_specs_cover_every_tool():
         "push_file",
         "list_library",
         "search",
+        "rag_retrieve",
         "read_item",
         "send_to_device",
         "diary_write",
