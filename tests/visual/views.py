@@ -10,7 +10,10 @@ with ``docs/design/reference/``):
 - spec and frame readers (and the frame with the list hidden): d3 again, the prototype's
   "Arriving" chip makes its head row 2px taller than the built site's;
 - the phone send menu: the prototype's menu ran off the right edge, the built site anchors it
-  to the viewport so the page never scrolls sideways.
+  to the viewport so the page never scrolls sideways;
+- the newspaper reader, and the send menu and "sent" toast drawn over it (desktop and phone):
+  #18, the newspaper's source titles render as links (accent colour, underlined), re-approved
+  by the operator on 2026-10-25.
 """
 
 from __future__ import annotations
@@ -39,6 +42,11 @@ DEVIATED = {
         ("desktop", "reader-frame"),
         ("desktop", "reader-list-hidden"),
         ("phone", "send-menu"),
+        ("desktop", "reader-paper"),  # #18 source links
+        ("desktop", "send-menu"),
+        ("desktop", "sent"),
+        ("phone", "reader"),
+        ("phone", "sent"),
     )
 }
 

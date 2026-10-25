@@ -68,6 +68,7 @@ def _spec_tables() -> tuple[dict[str, tuple[str, str]], dict[str, tuple[str, str
         "Spec or plan": "--k-repo",
         "Diary": "--k-diary",
         "To-do": "--k-todo",
+        "Discord message": "--k-discord-message",
     }
     for label, light, dark in re.findall(
         r"^\| ([A-Za-z -]+) \| `(#\w+)` \| `(#\w+)` \|", text, re.M
@@ -81,7 +82,7 @@ def test_stylesheet_tokens_equal_the_design_doc() -> None:
     light, dark_media, dark_attr = _stylesheet_themes()
     tokens, kinds = _spec_tables()
     assert len(tokens) == 9, (tokens, kinds)
-    assert len(kinds) == 7, (tokens, kinds)
+    assert len(kinds) == 8, (tokens, kinds)
     assert dark_media == dark_attr or all(
         dark_media.get(k) == dark_attr.get(k) for k in {**tokens, **kinds}
     )

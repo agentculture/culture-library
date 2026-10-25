@@ -46,10 +46,15 @@ The site's visual and interaction design. The operator approved it on
 | `--accent` (forest green) | `#00684a` | `#5fd897` |
 | `--accent-soft` | `#dcefdf` | `#23485a` |
 
-**Kind colors.** These are categorical, in a fixed order. They were checked
-with the dataviz validator against both surfaces: colorblind separation
-ΔE ≥ 8.4, and normal vision ΔE ≥ 19.3. To-do (#11) took the validated palette's seventh
-slot (violet) without lowering either floor.
+**Kind colors.** These are categorical, in a fixed order, checked with the
+dataviz validator against the site surfaces (`#fffcf3` light, `#1d3354` dark).
+To-do (#11) took the validated palette's seventh slot (violet). Discord message
+(#19) takes an eighth slot outside that palette, a light purple: the palette's own
+eighth hue is red, which reads as the critical status color. With all eight in
+order, the worst adjacent colorblind ΔE is 9.1 light and 8.4 dark, unchanged by the
+purple. The worst adjacent normal-vision ΔE is now the purple beside the to-do
+violet, 16.2 light and 15.8 dark: above the validator's floor of 15, though below
+the 19.3 the first seven reach.
 
 | Kind | Light | Dark |
 |------|-------|------|
@@ -60,6 +65,7 @@ slot (violet) without lowering either floor.
 | Spec or plan | `#e87ba4` | `#d55181` |
 | Diary | `#008300` | `#008300` |
 | To-do | `#6250d6` | `#9085e9` |
+| Discord message | `#b46fe0` | `#a640b8` |
 
 **A kind color never appears without its label.** Three light-mode kinds and
 dark-mode diary are below 3:1 contrast against the surface. Status colors
@@ -119,6 +125,8 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     repo-document lists). The prototype's migration-time rows (xteink, DNS,
     waiting recordings) are not shown (deviation d3). The re-approved
     reference screenshots for home and site state replace the originals.
+  - The newspaper reader's references (and the send menu and "sent" views drawn
+    over it) were re-approved for #18: source titles render as links.
   - Every chart has a hover tooltip, a *Table* toggle, and a source line.
   - Single-series marks use `--accent`.
   - Kind charts use the kind colors with direct labels.
@@ -155,6 +163,18 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
     screenshots don't show this.
 - **Content is untrusted** (claim c38): the reader renders extracted text,
   never markup or script taken from an item.
+  - The one exception is an EPUB's source links (#18). `GET
+    /api/library/{id}/text` gives each section a `links` list parallel to
+    `paragraphs` (`links[i]` is `[{text, href, start}]` for paragraph `i`,
+    with the link text at `paragraphs[i][start:start + len(text)]`). Only
+    absolute `http://` or `https://` hrefs are kept.
+  - The reader (`links.js`) turns each link's text in the paragraph into an
+    `<a>` built with DOM properties. It checks the href again, opens in a new
+    tab with `rel="noopener noreferrer"`, and never uses `innerHTML`. Search
+    highlighting applies inside link text too (a term crossing a link's edge
+    is not marked). A link the markup never closes ends at the paragraph it
+    opened in; one that spans paragraphs counts only when its `</a>` arrives
+    before the next heading or the end of the chapter.
 - **Private items** are labeled *Only me*. There is no *Arriving* label in
   the built site (deviation d3); it existed only in the prototype.
 - **Per-browser state** (theme, last read item, pane state, reading position)

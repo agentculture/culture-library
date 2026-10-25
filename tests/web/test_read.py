@@ -365,7 +365,7 @@ def test_item_text_parses_an_unindexed_epub_once(site: Site, monkeypatch) -> Non
     body = site.c.get(f"/api/library/{item.id}/text").json()
     assert len(calls) == 1
     assert body["text"] == ingest.extract_text(data, "epub")  # same text as the index gets
-    assert body["sections"] == [{"heading": "One", "paragraphs": ["First para"]}]
+    assert body["sections"] == [{"heading": "One", "paragraphs": ["First para"], "links": [[]]}]
 
 
 def test_item_text_of_an_indexed_epub_only_parses_sections(site: Site, monkeypatch) -> None:
@@ -379,4 +379,4 @@ def test_item_text_of_an_indexed_epub_only_parses_sections(site: Site, monkeypat
     body = site.c.get(f"/api/library/{item.id}/text").json()
     assert len(calls) == 1
     assert body["text"] == "indexed epub body"
-    assert body["sections"] == [{"heading": "One", "paragraphs": ["Para"]}]
+    assert body["sections"] == [{"heading": "One", "paragraphs": ["Para"], "links": [[]]}]
