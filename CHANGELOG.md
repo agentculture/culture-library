@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `deploy restart` injects the lobes gateway key from grant (`--inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY`), the same way it injects the tunnel token, so `live.env` stays secret-free. `--gateway-secret NAME` picks another grant secret and `--no-gateway-key` skips the key, which turns embeddings off. An env file that sets `GATEWAY_API_KEY` is refused before anything runs (deviation d2).
+- `deploy restart` injects the lobes gateway key from grant (`--inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY`), the same way it injects the tunnel token, so `live.env` stays secret-free. `--gateway-secret NAME` picks another grant secret and `--no-gateway-key` skips the key, which turns embeddings off. An env file that sets `GATEWAY_API_KEY` or `TUNNEL_TOKEN` is refused before anything runs, naming the grant secret to use instead (deviation d2). Restart checks that each grant secret exists (`grant show`) before compose runs, never lets a shell-exported key reach compose, and treats `--gateway-secret` and `--no-gateway-key` as mutually exclusive.
 - Runbook "Enable embeddings": the key comes from grant, not `live.env`; rollback is `deploy restart --no-gateway-key`.
 
 ## [0.16.0] - 2026-10-25

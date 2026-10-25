@@ -125,6 +125,7 @@ secret (`cultureflare --grant` stores it as `CULTUREFLARE_LIBRARY_CULTURE_DEV_TU
 
 ```bash
 grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+  --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY \
   -- docker compose -f deploy/compose.yaml --env-file deploy/.env --profile remote up -d
 ```
 
@@ -192,7 +193,8 @@ CULTURE_LIBRARY_SEND_TARGETS='[{"label":"<label>","type":"<description>","enable
 ```
 
 If the file is missing, rebuild it from the running container before you recreate
-anything (this prints settings only; the library container carries no token):
+anything. The container's environment also holds `GATEWAY_API_KEY`, so keep the grep: it
+prints the three settings only, never the key:
 
 ```bash
 docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{println .}}{{end}}' \
@@ -210,10 +212,12 @@ uv run culture-library deploy restart --dry-run  # print the commands, run nothi
 ```
 
 It reads `$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`, and
-runs exactly this, which also works by hand:
+first checks that each grant secret exists (`grant show`, which never prints a value),
+then runs exactly this, which also works by hand:
 
 ```bash
-grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+  --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- \
   docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
   --profile remote up -d --no-deps library mcp
 ```
@@ -340,7 +344,8 @@ for any such release.
    ```bash
    git checkout <new-tag-or-commit>
    docker compose -p culture-library -f deploy/compose.yaml build library
-   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+     --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- \
      docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
      --profile remote up -d --no-deps library mcp
    ```
