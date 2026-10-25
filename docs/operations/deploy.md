@@ -156,6 +156,52 @@ Schedule backups before relying on the stack: see
 `culture-library backup schedule --print`. Run them inside the container (or against a
 bind-mounted data directory), writing to a location outside `/data`.
 
+## Restart the live stack
+
+On spark the live stack has no `deploy/.env`. Its settings live in a host env file
+outside git, `~/.config/culture-library/live.env`, and the tunnel token comes from
+`grant`. Keep every value the stack needs in that file, never typed on the command
+line: a hand-typed placeholder such as `'[...]'` for the send targets starts the
+library with a broken send menu (`SendConfigError: CULTURE_LIBRARY_SEND_TARGETS is not
+valid JSON`).
+
+The file holds no secrets. Values are single-quoted so the JSON stays literal:
+
+```bash
+COMPOSE_PROJECT_NAME=culture-library
+CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+CULTURE_LIBRARY_ACCESS_AUD=<application AUD tag>
+CULTURE_LIBRARY_SEND_TARGETS='[{"label":"<label>","type":"<description>","enabled":true}]'
+```
+
+If the file is missing, rebuild it from the running container before you recreate
+anything (this prints settings only; the library container carries no token):
+
+```bash
+docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep -E '^CULTURE_LIBRARY_(ACCESS_TEAM_DOMAIN|ACCESS_AUD|SEND_TARGETS)='
+```
+
+Recreate `library` and `mcp` with the current image (cloudflared keeps its tunnel):
+
+```bash
+grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+  docker compose -f deploy/compose.yaml --env-file ~/.config/culture-library/live.env \
+  --profile remote up -d --no-deps library mcp
+```
+
+Then check it came back with its settings:
+
+```bash
+curl -s http://127.0.0.1:8796/api/health
+docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+  "from culture_library.core import send; print(send.load_targets('/data'))"
+```
+
+The second command must list the send targets. A `SendConfigError` means the env file
+is wrong: fix it and recreate again. A restart never touches the data volume. Drop
+`--profile remote` only to stop managing cloudflared from this command.
+
 ## Upgrading across a schema change
 
 Some releases change the database schema. Release 0.12.0 widens the `items.kind`
@@ -191,18 +237,19 @@ for any such release.
    ```
 
 3. Build the new image and recreate only `library` and `mcp` (cloudflared keeps its
-   tunnel). Pass the same environment the stack was started with; the tunnel token
-   comes from `grant` and is never printed:
+   tunnel). Use the env file from [Restart the live stack](#restart-the-live-stack), so
+   every setting carries over; the tunnel token comes from `grant` and is never
+   printed:
 
    ```bash
    git checkout <new-tag-or-commit>
    docker compose -p culture-library -f deploy/compose.yaml build library
-   COMPOSE_PROJECT_NAME=culture-library \
-   CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN=<team domain> CULTURE_LIBRARY_ACCESS_AUD=<aud> \
-   CULTURE_LIBRARY_SEND_TARGETS='<send targets JSON>' \
    grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
-     docker compose -f deploy/compose.yaml --profile remote up -d --no-deps library mcp
+     docker compose -f deploy/compose.yaml --env-file ~/.config/culture-library/live.env \
+     --profile remote up -d --no-deps library mcp
    ```
+
+   Then run the send-targets check from that section.
 
 4. Check the container logs for the one-line migration diagnostic, which the store
    writes to stderr once, on success:

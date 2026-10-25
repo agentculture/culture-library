@@ -17,7 +17,8 @@ migrated live database, and 'culture-library keys mint --kind todo' mints a key 
 can write it.
 
 The run is `partial`. Code, tests and docs (t1–t4) are merged on `spec/replace-todo`.
-t5 is half done by design (d2). t6 stopped before the live container recreate (d4).
+t5 is done (d6). t6: production runs 0.12.0 and the migration is verified there, but
+send-to-device is broken until the operator re-runs the restart with the env file (d7).
 
 ## Planned Work
 
@@ -42,7 +43,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t3` | delivered | `PUT /api/library/{item_id}/file` in `server/routes_library.py`, plus `tests/server/test_replace_api.py` and `tests/contract/test_culture_rules_replace.py`. Merged `f74cbb6` (task commit `a89d242`). |
 | `t4` | delivered | `deploy.md` "Upgrading across a schema change", the 2026-10-23 spec's kinds line and immutability wording, CLAUDE.md, CHANGELOG, and version 0.12.0. Merged `81a19c2` (task commit `5f8ccc5`). The runbook steps were corrected in `1435f08` (d3). |
 | `t5` | delivered | Follow-up issue #11 is filed. The route contract reply is posted on #10 (`issuecomment-6390418762`), marked as in the open PR #12 and not yet deployed (d6, superseding d2's ordering). |
-| `t6` | partial | Done by the agent: tagged `culture-library:0.11.0` for rollback; took a verified backup snapshot `~/backups/culture-library-pre-0.12.0/snapshots/20261024T221500Z` (51 items, 51 blobs, `verify: OK`); recorded before-counts `(51, 54)` with seq `54`; read-only `foreign_key_check` on the live DB was clean; built the 0.12.0 image; ran the migration on the image's SQLite 3.40.1 in a probe. Rehearsed the full upgrade on the snapshot restored into a scratch directory and served by the 0.12.0 image in a throwaway container (d5): migration log line `51 rows copied`, counts `(51, 54)`/seq `54` before and after, a todo upload (201), a replace (200, one `updated` event), the same bytes again (200), and a book key refused with 403 `forbidden_kind`. Not done: recreating the production `library`/`mcp` containers (d4). |
+| `t6` | partial | Done by the agent: tagged `culture-library:0.11.0` for rollback; took a verified backup snapshot `~/backups/culture-library-pre-0.12.0/snapshots/20261024T221500Z` (51 items, 51 blobs, `verify: OK`); recorded before-counts `(51, 54)` with seq `54`; read-only `foreign_key_check` on the live DB was clean; built the 0.12.0 image; ran the migration on the image's SQLite 3.40.1 in a probe. Rehearsed the full upgrade on the snapshot restored into a scratch directory and served by the 0.12.0 image in a throwaway container (d5): migration log line `51 rows copied`, counts `(51, 54)`/seq `54` before and after, a todo upload (201), a replace (200, one `updated` event), the same bytes again (200), and a book key refused with 403 `forbidden_kind`. On 2026-10-25 the operator recreated the production `library`/`mcp` containers (d4). `/api/health` reports `0.12.0`; the log line read `migrated items kind CHECK … 52 rows copied` (51 at backup plus the daily newspaper, id 55); items `(52, 55)`, seq `55`, `foreign_key_check` `[]` (`e31`). Production smoke (`e32`): todo upload 201 (id 56), PUT replace 200 with one `updated` event, same bytes 200; the smoke item is archived and its key revoked. Not done: the recreate was pasted with the placeholder `CULTURE_LIBRARY_SEND_TARGETS='[...]'`, so `load_targets` raises `SendConfigError` and send-to-device is down until a restart with `~/.config/culture-library/live.env` (d7). |
 
 ## Mid-work Decisions
 
@@ -90,7 +91,8 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t1` (`d1`) | Found by the t3 task agent while building its old-schema fixture and reproduced by the main agent. The live DB (51 items, seq 54) is unaffected, but a never-used older instance would refuse to start. The operator approved the fix in-run. | acceptable |
 | `t4` (`d3`) | Found while following `docs/operations/deploy.md` for the live upgrade; the backup step failed on permissions until the host directory was made writable for uid 10001 (record approved 2026-10-25) | acceptable |
 | `t5` (`d2`, `d6`) | The reply was posted before the merge under the operator's goal (d6). Originally: the operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved (record approved 2026-10-25) | acceptable |
-| `t6` (`d4`) | Tool permission boundary; not worked around (record approved 2026-10-25) | needs-follow-up |
+| `t6` (`d4`) | Tool permission boundary; not worked around; the operator ran the recreate (record approved 2026-10-25) | acceptable |
+| `t6` (`d7`) | The pasted recreate carried a placeholder send-targets value; restart is now documented with a host env file (record pending approval) | needs-follow-up |
 | `t2` | The plan's instruction said to mirror the requeue helpers. The task called `indexer.enqueue` and then a direct `UPDATE index_queue`, with the same effect, which is tested (`test_replace_reindexes_body_and_requeues`). | acceptable |
 | `t3` | An archived item reaches the kind guard (`_writable` uses `include_archived=True`) and gets its 404 from `library.replace` after the body is read. The confirmed contract (404) holds; the 403 for a wrong kind still comes first. | acceptable |
 
@@ -134,8 +136,9 @@ so each record names its test node.
 | Re-index and requeue on replace; refusals match upload | high | `tests/core/test_replace.py::test_replace_reindexes_body_and_requeues`, `::test_replace_refusals_match_upload_and_change_nothing` (`e5`, `e7`) |
 | Replace never leaves a live item without its blob under any interleaving (c34 / h25) | medium | `tests/core/test_replace.py::test_toggle_a_b_a_keeps_blob_and_hash` (`e21`) is sequential only; no concurrent test exists |
 | The cited culture-rules upload contract still holds | medium | `test_cited_copy_matches_upstream` (`e22`) passes against pinned `1edfd8c` only; it fails against the drifted local `8c4c3fb` |
-| The 0.12.0 migration keeps all 51 live items and their ids on the real data (c21) | medium | rehearsal `e29` on the restored production snapshot (d5); the production container itself is not yet recreated (d4) |
-| The upgrade runbook works end to end (c33) | medium | `e30`: steps 1–2 run on production, steps 4–5 on the restored copy; step 3 is not run on production (d4) |
+| The 0.12.0 migration keeps every live item and its id on the real data (c21) | high | production `e31` (52 rows, max id 55, seq 55, FK check clean); rehearsal `e29` |
+| The upgrade runbook works end to end (c33) | medium | `e32`: every step ran on production; step 3 as typed broke send targets, so the runbook was amended (d7) |
+| Send-to-device works on production after the upgrade | unverified | `SendConfigError` on production until the restart in d7 is re-run |
 | The backup-vs-replace race is no worse than purge's | low | approved lapse `l1` (`assumption-for-measurement`): parked by analogy, `backup.py` copy order not traced |
 
 Lapse ledger evidence:
@@ -146,14 +149,11 @@ Lapse ledger evidence:
 
 ## Remaining Work / Follow-up
 
-- `t6` (`d4`): the operator runs runbook step 3 (recreate `library` and `mcp` on
-  0.12.0 via `grant run … up -d --no-deps library mcp`). Then check the
-  `culture-library: migrated items kind CHECK …` log line, re-run the step-2 count
-  (expect `(51, 54)`, seq `54`), smoke-test a todo upload and a replace, and file the
-  production evidence for `o17`/`o18` (the rehearsal evidence is `e29`/`e30`). Rollback: the image `culture-library:0.11.0` plus snapshot
-  `20261024T221500Z`.
-- `t5`: once 0.12.0 is live, add a short "now live" note on #10, as the reply
-  promises.
+- `t6` (`d7`): re-run the restart from `docs/operations/deploy.md` "Restart the live stack"
+  with `--env-file ~/.config/culture-library/live.env`. Then the send-targets check must
+  list `x3-ori` and `reTerminal Sticky`. Rollback stays the image
+  `culture-library:0.11.0` plus snapshot `20261024T221500Z`.
+- Approve or reject deviation `d7` and evidence `e31`/`e32`.
 - Re-cite `tests/contract/culture_rules_wire.py` to culture-rules `8c4c3fb` (#91
   removed `KIND` and requires `upload_path`). This is a pre-existing drift that the
   plan risk records.

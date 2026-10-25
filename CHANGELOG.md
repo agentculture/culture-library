@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `PUT /api/library/{id}/file` replaces an item's file in place: same id, new sha256, size and format; title, author, kind and visibility are unchanged. It applies the upload caps and format checks, appends an `updated` feed event (replaced, old_sha256, size, format), and unlinks the old blob when nothing references it. Errors: 403 forbidden_kind, 409 duplicate_content, 404 for archived or unknown items. Sending the same bytes again returns 200 with no event.
 - New `todo` kind for Markdown checklists, one per recording.
-- Docs: "Upgrading across a schema change" runbook in `docs/operations/deploy.md`; the library spec lists every kind and allows a same-id file replace.
+- Docs: "Upgrading across a schema change" and "Restart the live stack" runbooks in `docs/operations/deploy.md` (restart reads a host env file, so settings such as the send targets are never retyped); the library spec lists every kind and allows a same-id file replace.
 
 ### Changed
 

@@ -2,7 +2,7 @@
   "plan_slug": "replace-item-file-todo-kind-10",
   "schema_version": 2,
   "created": "2026-10-24T22:13:09Z",
-  "updated": "2026-10-25T05:07:31Z",
+  "updated": "2026-10-25T05:14:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -82,6 +82,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 36
+    },
+    {
+      "id": "d7",
+      "what": "t6 live recreate ran with CULTURE_LIBRARY_SEND_TARGETS='[...]' (the abbreviated placeholder in the agent's message, pasted literally), so send-to-device raises SendConfigError on production. Per the operator, restart is now documented: deploy.md gains 'Restart the live stack' using a host env file ~/.config/culture-library/live.env (no secrets), and upgrade step 3 uses it. The operator re-runs the restart with that file",
+      "task_ref": "t6",
+      "reason": "the agent abbreviated a required value in a command meant to be pasted; the runbook had the same hand-typed placeholder",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": null,
+      "seq": 39
     }
   ],
   "evidence": [
@@ -654,6 +667,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 34
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o17",
+      "test_ref": "production: culture-library-library-1 recreated on culture-library:local (0.12.0) by the operator; /api/health version 0.12.0",
+      "behavior_text": "first boot logged 'migrated items kind CHECK ... to (..., todo); 52 rows copied'; items (52,55) seq 55 (51/54 at backup plus daily newspaper id 55); foreign_key_check []; todo upload got id 56, continuing after 55",
+      "contract_text": "c21 \u2014 the kind CHECK migration runs on the live database, keeps every row, id and the sequence",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "run against the production container and database, read-only checks plus one smoke upload",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T05:13:00",
+        "commit": "dc420b6"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o18",
+      "test_ref": "deploy.md 'Upgrading across a schema change' step 3 run by the operator on production, steps 4-5 by the agent",
+      "behavior_text": "grep -i migrat matched the one-line diagnostic; step-2 query after: (52, 55) (55,), equal to before plus the one item uploaded since; smoke: todo upload 201, PUT replace 200 with one updated event, same bytes 200, archive 204, smoke key revoked",
+      "contract_text": "c33 \u2014 the runbook upgrades production as written",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "steps executed as written; step 3 was hand-typed with a placeholder send-targets value, which broke send (recorded as a delta, runbook amended)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-25T05:13:00",
+        "commit": "dc420b6"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 38
     }
   ],
   "deltas": [
