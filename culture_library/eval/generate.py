@@ -148,8 +148,8 @@ def generate_newspaper_set(
     if not articles:
         raise GenerateError(
             f"newspaper item {item_id} has no sources sidecar",
-            "upload one with `culture-library eval sources put <id> <manifest.json>` "
-            "(a list of {excerpt, source_urls})",
+            f"PUT /api/library/{item_id}/sources with a list of "
+            "{article_title, source_urls, excerpt} (culture-rules pushes it with each issue)",
         )
     chunks = _body_chunks(client, item_id)
     normalized = [(c, _norm(c.text)) for c in chunks]
