@@ -254,15 +254,16 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
    Retrieval-document and Retrieval-query prompt names (on by default).
 2. Recreate the containers: `uv run culture-library deploy restart`. The new
    environment and `extra_hosts` entry only apply on recreate.
-3. Check the container reaches the gateway (expect `200`):
+3. Check the container reaches the gateway. `/capabilities` needs no key and lists the
+   `gemma2-embed` and `reranker` roles:
 
    ```bash
    docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
-     "import urllib.request as u; print(u.urlopen('http://host.docker.internal:8001/health', timeout=5).status)"
+     "import urllib.request as u; b = u.urlopen('http://host.docker.internal:8001/capabilities', timeout=5).read().decode(); print('ok' if 'gemma2-embed' in b else 'missing gemma2-embed')"
    ```
 
-   Use the gateway's real health path if `/health` differs. A refusal or name error
-   means the mapping is missing: confirm the image's compose file is the current one.
+   Expect `ok`. A refusal or name error means the `host.docker.internal` mapping is
+   missing, so the container was not recreated from the current compose file.
 4. Index. On startup the library re-opens every finished job that has no embeddings, so
    the restart in step 2 already queues existing items. To recompute everything (for
    example after changing `LOBES_EMBED_MODEL` or `LOBES_EMBED_PROMPTS`) there is no CLI
@@ -277,7 +278,8 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
    The running server's indexer picks the jobs up within a few seconds.
 5. Wait until the queue drains: `GET /api/status` (with a read key) must show
    `index.pending` 0, `index.failed` 0 and `index.done` equal to the item count.
-   `/api/status` does not report embeddings, so count them in the database:
+   `/api/status` does not report embeddings yet (a later release adds an embeddings and
+   chunk count to it), so for now count them in the database:
 
    ```bash
    docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
