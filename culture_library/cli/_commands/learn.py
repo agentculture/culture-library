@@ -34,6 +34,7 @@ Commands
   culture-library migrate from-xteink  Copy an xteink library in (dry run unless --apply).
   culture-library migrate overview   Describe the migrate noun.
   culture-library keys mint          Mint an API key (shown once).
+  culture-library keys rotate ID     Replace a key (then --confirm NEW_ID revokes ID).
   culture-library keys overview      Describe the keys noun.
   culture-library backup run         Snapshot DB + files to a second location.
   culture-library backup restore     Restore a snapshot into an empty dir (verified).
@@ -76,6 +77,7 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["migrate", "from-xteink"], "summary": "Migrate xteink items (--apply)."},
             {"path": ["migrate", "overview"], "summary": "Describe the migrate noun."},
             {"path": ["keys", "mint"], "summary": "Mint an API key (shown once)."},
+            {"path": ["keys", "rotate"], "summary": "Replace a key; --confirm revokes old."},
             {"path": ["keys", "overview"], "summary": "Describe the keys noun."},
             {"path": ["backup", "run"], "summary": "Snapshot DB + files to a second location."},
             {"path": ["backup", "restore"], "summary": "Restore a snapshot (verified)."},

@@ -164,3 +164,99 @@ def test_authenticate_without_a_keys_table_is_an_auth_error(store):
         assert c.execute("SELECT name FROM sqlite_master WHERE name='api_keys'").fetchone() is None
     with pytest.raises(keys.AuthError):
         keys.authenticate(store, "clk_deadbeef_secret")
+
+
+# ------------------------------------------------------------------ rotate (#14)
+
+
+def _rules_key(store):
+    """Like culture-rules' key 3: write, newspaper + transcript, private."""
+    key, _ = keys.mint(
+        store, "culture-rules", ["write"], kinds=["newspaper", "transcript"], private=True
+    )
+    return key
+
+
+def test_rotate_copies_settings_and_adds_a_kind(store):
+    old = _rules_key(store)
+    new, raw = keys.rotate(store, old.id, add_kinds=["todo"])
+    assert (new.name, new.scopes, new.private) == (old.name, old.scopes, old.private)
+    assert new.kinds == ("newspaper", "transcript", "todo")
+    assert new.replaces == old.id
+    assert keys.authenticate(store, raw).id == new.id
+    assert keys.list_keys(store)[0].revoked_at is None  # the old key stays valid
+
+
+def test_rotate_overrides_scope_private_and_drops_kinds(store):
+    old = _rules_key(store)
+    new, _ = keys.rotate(store, old.id, scopes=["read"], private=False, drop_kinds=["transcript"])
+    assert new.scopes == ("read",)
+    assert new.private is False
+    assert new.kinds == ("newspaper",)
+
+
+def test_rotate_any_kind_key_stays_any_kind(store):
+    old, _ = keys.mint(store, "ops", ["write"])
+    new, _ = keys.rotate(store, old.id, add_kinds=["todo"])
+    assert new.kinds is None
+
+
+@pytest.mark.parametrize("revoked", [True, False])
+def test_rotate_refuses_revoked_or_missing_before_minting(store, revoked):
+    old = _rules_key(store)
+    target = old.id
+    if revoked:
+        keys.revoke(store, old.id)
+    else:
+        target = 999
+    with pytest.raises((keys.RotationError, NotFoundError)):
+        keys.rotate(store, target, add_kinds=["todo"])
+    assert len(keys.list_keys(store)) == 1
+
+
+def test_confirm_revokes_the_old_key(store):
+    old = _rules_key(store)
+    new, raw = keys.rotate(store, old.id, add_kinds=["todo"])
+    gone, kept = keys.confirm_rotation(store, old.id, new.id)
+    assert gone.id == old.id
+    assert gone.revoked_at is not None
+    assert kept.id == new.id
+    assert kept.revoked_at is None
+    assert keys.authenticate(store, raw).id == new.id
+
+
+@pytest.mark.parametrize("case", ["unknown", "revoked", "not_a_replacement", "self"])
+def test_confirm_refuses_and_changes_nothing(store, case):
+    old = _rules_key(store)
+    new, _ = keys.rotate(store, old.id, add_kinds=["todo"])
+    other, _ = keys.mint(store, "other", ["read"])
+    new_id = {"unknown": 999, "revoked": new.id, "not_a_replacement": other.id, "self": old.id}[
+        case
+    ]
+    if case == "revoked":
+        keys.revoke(store, new.id)
+    with pytest.raises((keys.RotationError, NotFoundError)) as info:
+        keys.confirm_rotation(store, old.id, new_id)
+    if isinstance(info.value, keys.RotationError):
+        assert info.value.code
+    assert [k.id for k in keys.list_keys(store) if k.revoked_at is None and k.id == old.id] == [
+        old.id
+    ]
+
+
+def test_old_keys_table_gains_replaces_column(store):
+    with store.connect() as c:  # the table as it was before rotate added `replaces`
+        c.execute(
+            "CREATE TABLE api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,"
+            " key_id TEXT NOT NULL UNIQUE, key_hash TEXT NOT NULL, scopes TEXT NOT NULL,"
+            " kinds TEXT, private INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,"
+            " revoked_at TEXT, last_used TEXT)"
+        )
+        c.execute(
+            "INSERT INTO api_keys (name, key_id, key_hash, scopes, created_at)"
+            " VALUES ('old', 'abcd1234', 'h', 'read', '2026-01-01T00:00:00+00:00')"
+        )
+    assert keys.list_keys(store)[0].replaces is None
+    new, _ = keys.rotate(store, 1)
+    assert new.replaces == 1
+    assert keys.list_keys(store)[1].to_dict()["replaces"] == 1

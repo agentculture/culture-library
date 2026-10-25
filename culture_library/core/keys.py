@@ -46,6 +46,7 @@ SCOPES = ("read", "write", "admin")
 LAST_USED_INTERVAL_S = 60
 LAST_USED_BUSY_MS = 100
 _INVALID_KEY = "invalid key"
+_BY_ID = "SELECT * FROM api_keys WHERE id = ?"
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -58,13 +59,30 @@ CREATE TABLE IF NOT EXISTS api_keys (
     private INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     revoked_at TEXT,
-    last_used TEXT
+    last_used TEXT,
+    replaces INTEGER REFERENCES api_keys(id)
 );
 """
 
 
+def _ensure(c: sqlite3.Connection) -> None:
+    """Create ``api_keys`` if needed and add ``replaces`` to a table that predates it."""
+    c.execute(_DDL)
+    cols = {row[1] for row in c.execute("PRAGMA table_info(api_keys)")}
+    if "replaces" not in cols:
+        c.execute("ALTER TABLE api_keys ADD COLUMN replaces INTEGER REFERENCES api_keys(id)")
+
+
 class AuthError(CoreError):
     """A key is malformed, unknown, revoked, or does not match its hash."""
+
+
+class RotationError(ValidationError):
+    """A rotate or confirm was refused; ``code`` says why. Nothing was changed."""
+
+    def __init__(self, message: str, code: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -80,6 +98,7 @@ class ApiKey:
     created_at: str
     revoked_at: str | None = None
     last_used: str | None = None
+    replaces: int | None = None
 
     def effective_scopes(self) -> frozenset[str]:
         """The scopes with the hierarchy applied (admin > write > read)."""
@@ -101,6 +120,7 @@ class ApiKey:
             "created_at": self.created_at,
             "revoked_at": self.revoked_at,
             "last_used": self.last_used,
+            "replaces": self.replaces,
         }
 
 
@@ -146,6 +166,7 @@ def _row(r) -> ApiKey:
         created_at=r["created_at"],
         revoked_at=r["revoked_at"],
         last_used=r["last_used"],
+        replaces=r["replaces"] if "replaces" in r.keys() else None,
     )
 
 
@@ -158,6 +179,20 @@ def mint(
     private: bool = False,
 ) -> tuple[ApiKey, str]:
     """Create a key; return ``(ApiKey, raw_key)``. The raw key is never retrievable again."""
+    with store.connect() as c:
+        return _mint(c, name, scopes, kinds=kinds, private=private)
+
+
+def _mint(
+    c: sqlite3.Connection,
+    name: str,
+    scopes: Iterable[str],
+    *,
+    kinds: Iterable[str] | None = None,
+    private: bool = False,
+    replaces: int | None = None,
+) -> tuple[ApiKey, str]:
+    """:func:`mint` inside the caller's transaction, optionally recording ``replaces``."""
     if not isinstance(name, str) or not name.strip():
         raise ValidationError("key name is required")
     scope_t = _ordered(scopes, SCOPES, "scope")
@@ -169,22 +204,23 @@ def mint(
         if not kinds_t:
             raise ValidationError("kinds must name at least one kind (omit it for any kind)")
     raw, key_id, key_hash = generate_key()
-    with store.connect() as c:
-        c.execute(_DDL)
-        cur = c.execute(
-            "INSERT INTO api_keys (name, key_id, key_hash, scopes, kinds, private, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                name.strip(),
-                key_id,
-                key_hash,
-                ",".join(scope_t),
-                ",".join(kinds_t) if kinds_t is not None else None,
-                int(bool(private)),
-                now(),
-            ),
-        )
-        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (cur.lastrowid,)).fetchone()
+    _ensure(c)
+    cur = c.execute(
+        "INSERT INTO api_keys"
+        " (name, key_id, key_hash, scopes, kinds, private, created_at, replaces)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            name.strip(),
+            key_id,
+            key_hash,
+            ",".join(scope_t),
+            ",".join(kinds_t) if kinds_t is not None else None,
+            int(bool(private)),
+            now(),
+            replaces,
+        ),
+    )
+    row = c.execute(_BY_ID, (cur.lastrowid,)).fetchone()
     return _row(row), raw
 
 
@@ -244,20 +280,87 @@ def authenticate(store: Store, raw: str) -> ApiKey:
 def revoke(store: Store, api_key_id: int) -> ApiKey:
     """Revoke a key by row id (idempotent for an already-revoked key)."""
     with store.connect() as c:
-        c.execute(_DDL)
+        _ensure(c)
         c.execute(
             "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
             (now(), api_key_id),
         )
-        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (api_key_id,)).fetchone()
+        row = c.execute(_BY_ID, (api_key_id,)).fetchone()
     if row is None:
         raise NotFoundError(f"api key {api_key_id} not found")
     return _row(row)
 
 
+def _live(c: sqlite3.Connection, api_key_id: int, what: str) -> ApiKey:
+    row = c.execute(_BY_ID, (api_key_id,)).fetchone()
+    if row is None:
+        raise NotFoundError(f"{what} key {api_key_id} not found")
+    key = _row(row)
+    if key.revoked_at is not None:
+        raise RotationError(f"{what} key {api_key_id} is revoked", "key_revoked")
+    return key
+
+
+def rotate(
+    store: Store,
+    api_key_id: int,
+    *,
+    add_kinds: Iterable[str] = (),
+    drop_kinds: Iterable[str] = (),
+    scopes: Iterable[str] | None = None,
+    private: bool | None = None,
+) -> tuple[ApiKey, str]:
+    """Mint a replacement for a live key; return ``(new ApiKey, raw_key)``.
+
+    The new key copies the old one's name, scopes, kinds and private flag, with the given
+    changes: ``add_kinds``/``drop_kinds`` edit a kind list (a key for any kind stays any
+    kind), ``scopes`` and ``private`` replace the old values. It records ``replaces``. The
+    old key stays valid until :func:`confirm_rotation`. A missing key raises
+    :class:`NotFoundError`, a revoked one :class:`RotationError` (``key_revoked``), before
+    anything is minted.
+    """
+    with store.connect() as c:
+        _ensure(c)
+        old = _live(c, api_key_id, "old")
+        kinds = old.kinds
+        if kinds is not None:
+            drop = set(_ordered(drop_kinds, KINDS, "kind"))
+            kinds = tuple(k for k in (*kinds, *_ordered(add_kinds, KINDS, "kind")) if k not in drop)
+        else:
+            _ordered((*add_kinds, *drop_kinds), KINDS, "kind")  # still reject unknown kinds
+        return _mint(
+            c,
+            old.name,
+            old.scopes if scopes is None else scopes,
+            kinds=kinds,
+            private=old.private if private is None else private,
+            replaces=old.id,
+        )
+
+
+def confirm_rotation(store: Store, old_id: int, new_id: int) -> tuple[ApiKey, ApiKey]:
+    """Revoke ``old_id`` once its replacement ``new_id`` is in use; return ``(old, new)``.
+
+    Refuses, changing nothing, unless both keys exist and are live and ``new_id`` was minted
+    by :func:`rotate` as ``old_id``'s replacement (:class:`RotationError` codes
+    ``key_revoked`` and ``not_a_replacement``; a missing key is :class:`NotFoundError`).
+    """
+    with store.connect() as c:
+        _ensure(c)
+        old = _live(c, old_id, "old")
+        new = _live(c, new_id, "new")
+        if new.replaces != old.id:
+            raise RotationError(
+                f"key {new_id} was not minted as key {old_id}'s replacement", "not_a_replacement"
+            )
+        c.execute("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (now(), old.id))
+        row = c.execute(_BY_ID, (old.id,)).fetchone()
+    return _row(row), new
+
+
 def list_keys(store: Store) -> list[ApiKey]:
     with store.connect() as c:
-        c.execute(_DDL)
+        _ensure(c)
         return [_row(r) for r in c.execute("SELECT * FROM api_keys ORDER BY id")]
 
 
@@ -266,12 +369,15 @@ __all__ = [
     "SCOPES",
     "ApiKey",
     "AuthError",
+    "RotationError",
     "authenticate",
+    "confirm_rotation",
     "generate_key",
     "hash_key",
     "list_keys",
     "mint",
     "parse_key",
     "revoke",
+    "rotate",
     "verify",
 ]

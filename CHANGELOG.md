@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-10-25
+
+### Added
+
+- `culture-library keys rotate ID [--kind K] [--drop-kind K] [--scope S] [--private | --no-private]` mints a replacement for key ID with its name, scopes, kinds and private flag, plus the changes given, and prints it once (#14). Key ID stays valid until `keys rotate ID --confirm NEW_ID`, which revokes it only when NEW_ID is live and was minted as ID's replacement; otherwise it refuses (`key_revoked`, `not_a_replacement`) and changes nothing. A missing or revoked ID is refused before anything is minted. `--json` reports `{old_id, new_id, name, scope, kinds, private}`, and the first step adds `key`.
+- API keys record `replaces`; `keys list` and `GET /api/keys` show it. An existing `api_keys` table gains the column on first use. `keys list` text also shows each key's kinds.
+- Runbook: "Rotate a client's key" in `docs/operations/deploy.md`.
+
+### Changed
+
+- `keys mint` (and `keys rotate`) print only the key on stdout in text mode; the "shown once" note goes to stderr, so the output pipes straight into `grant set NAME - --hidden`.
+
 ## [0.13.0] - 2026-10-25
 
 ### Added
