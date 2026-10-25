@@ -139,8 +139,11 @@ without it `generate` and `run` exit 2 with a hint to install `culture-library[e
 
 - `CULTURE_LIBRARY_URL` — library base URL (default `http://127.0.0.1:8796`).
 - `CULTURE_LIBRARY_API_KEY` — API key (required; mint one with `culture-library keys mint`).
-- `CULTURE_LIBRARY_EVAL_LLM_URL` / `CULTURE_LIBRARY_EVAL_LLM_MODEL` — the judge (default:
-  the lobes gateway, model `cortex`). Non-public text is never sent to a non-local judge.
+- The judge: `--judge-url`, `--judge-model` and `--judge-max-tokens` on `generate` and `run`
+  override `CULTURE_LIBRARY_EVAL_LLM_URL` / `_MODEL` / `_MAX_TOKENS`, which override the
+  defaults (the lobes gateway, model `cortex`, 8192 tokens). `eval overview` shows the
+  effective judge and where each value came from. Non-public text is never sent to a
+  non-local judge.
 - `GATEWAY_API_KEY` is sent only to the lobes gateway or a local judge; any other judge uses
   `CULTURE_LIBRARY_EVAL_LLM_KEY`. Judge calls never follow redirects.
 

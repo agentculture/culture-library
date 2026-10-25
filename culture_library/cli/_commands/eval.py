@@ -44,10 +44,15 @@ def _make_client():
     return LibraryClient(os.environ.get(ENV_URL) or DEFAULT_URL, key)
 
 
-def _make_judge():
+def _make_judge(args: argparse.Namespace | None = None):
+    """The judge: --judge-* flags, else CULTURE_LIBRARY_EVAL_LLM_* env, else defaults."""
     from culture_library.eval.config import JudgeConfig
 
-    return JudgeConfig.from_env()
+    return JudgeConfig.from_env(
+        url=getattr(args, "judge_url", None),
+        model=getattr(args, "judge_model", None),
+        max_tokens=getattr(args, "judge_max_tokens", None),
+    )
 
 
 def _make_llm(judge):
@@ -114,6 +119,23 @@ def _default_hint(text: str) -> str:
 # ---- verbs ---------------------------------------------------------------------------------
 
 
+def _judge_items() -> list[str]:
+    from culture_library.eval.config import judge_settings
+
+    return [f"{name}: {value} ({source})" for name, value, source in judge_settings()] + [
+        "flags: --judge-url URL, --judge-model NAME, --judge-max-tokens N on generate and run",
+        "env: CULTURE_LIBRARY_EVAL_LLM_URL / _MODEL / _MAX_TOKENS / _KEY (non-gateway judge)",
+    ]
+
+
+def _judge_opts(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--judge-url", help="Judge base URL (OpenAI-compatible; default the gateway).")
+    p.add_argument("--judge-model", help="Judge model or gateway role (default cortex).")
+    p.add_argument(
+        "--judge-max-tokens", type=int, help="Judge output limit in tokens (default 8192)."
+    )
+
+
 def cmd_overview(args: argparse.Namespace) -> int:
     emit_overview(
         "culture-library eval",
@@ -132,9 +154,13 @@ def cmd_overview(args: argparse.Namespace) -> int:
                 "items": [
                     f"{ENV_URL} (default {DEFAULT_URL})",
                     f"{ENV_KEY} (required)",
-                    "judge: CULTURE_LIBRARY_EVAL_LLM_URL / _MODEL, GATEWAY_API_KEY",
                     "install: pip install 'culture-library[eval]'",
                 ],
+            },
+            {
+                "title": "Judge (effective; --judge-url / --judge-model / --judge-max-tokens "
+                "override it per command)",
+                "items": _judge_items(),
             },
         ],
         json_mode=_json(args),
@@ -146,7 +172,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     def go() -> dict[str, Any]:
         from culture_library.eval import generate as gen
 
-        judge = _make_judge()
+        judge = _make_judge(args)
         adapter = _make_adapter(judge)
         client = _make_client()
         kind = args.kind or (client.get_item(args.item_id) or {}).get("kind")
@@ -184,7 +210,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     def go() -> dict[str, Any]:
         from culture_library.eval import runner
 
-        judge = None if args.no_llm else _make_judge()
+        judge = None if args.no_llm else _make_judge(args)
         adapter = runner.IdOnlyAdapter() if judge is None else _make_adapter(judge)
         client = _make_client()
         eval_set = client.get_set(args.set_id)
@@ -288,6 +314,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     g.add_argument("--samples", type=int, default=20, help="Samples to generate (default 20).")
     g.add_argument("--seed", type=int, default=0, help="Selection seed (default 0).")
     g.add_argument("--kind", choices=["book", "newspaper"], help="Override the item's kind.")
+    _judge_opts(g)
     g.add_argument("--json", action="store_true", help=_JSON_HELP)
     g.set_defaults(func=cmd_generate)
 
@@ -297,6 +324,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument("--k", type=int, default=5, help="Passages per query (default 5).")
     _bool_opt(r, "rerank", "Force reranking on (default: server decides).")
     r.add_argument("--candidates", type=int, default=None, help="Rerank candidate pool size.")
+    _judge_opts(r)
     r.add_argument(
         "--no-llm", action="store_true", help="Skip LLM-judged metrics (ID metrics only)."
     )

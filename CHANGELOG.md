@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.3] - 2026-10-25
+
+### Added
+
+- The eval judge is easy to adjust. `eval generate` and `eval run` take `--judge-url`, `--judge-model` and `--judge-max-tokens`, which override `CULTURE_LIBRARY_EVAL_LLM_URL` / `_MODEL` / `_MAX_TOKENS`, which override the defaults. `eval overview` lists the effective judge and the source of each value. The gateway key still follows the effective URL and never goes to a non-local judge.
+
+### Fixed
+
+- Eval judge calls set `max_tokens`, defaulting to 8192 and configurable with `CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS`. On the first live run the reasoning judge (`cortex`) overflowed ragas's 1024-token default, so every LLM-judged metric failed.
+- If only the LLM-judged scoring fails, the run is still stored `complete`, with ID-based aggregates over every sample, and `config.llm_metrics_failed` records why. Before, the run became `partial` and all aggregates were dropped.
+
 ## [0.16.2] - 2026-10-25
 
 ### Changed

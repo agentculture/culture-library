@@ -242,3 +242,57 @@ def test_sources_get_with_meta(cli):  # noqa: F811
         manifest, updated_at = sources.get_with_meta(conn, item.id)
     assert manifest == [{"x": 1}]
     assert updated_at
+
+
+# judge output limit (live run: reasoning model hit ragas's 1024-token default) ----------------
+
+
+def test_judge_max_tokens_default_and_env():
+    assert JudgeConfig(url="http://127.0.0.1:1").max_tokens == 8192
+    env = {"CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS": "16000"}
+    assert JudgeConfig.from_env(env).max_tokens == 16000
+
+
+def test_chat_sends_max_tokens(fake_judge_server):
+    judge = fake_judge_server.config()
+    chat = OpenAIChat(judge)
+    chat.complete([{"role": "user", "content": "hi"}])
+    assert fake_judge_server.payloads[-1]["max_tokens"] == judge.max_tokens
+
+
+# judge is easy to adjust: flags > env > defaults --------------------------------------------
+
+
+def test_from_env_overrides_win_over_env():
+    env = {"CULTURE_LIBRARY_EVAL_LLM_MODEL": "cortex", "CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS": "100"}
+    j = JudgeConfig.from_env(env, model="worker", max_tokens=2048)
+    assert (j.model, j.max_tokens) == ("worker", 2048)
+
+
+def test_overridden_non_local_url_never_gets_the_gateway_key():
+    env = {"LOBES_GATEWAY_URL": "http://127.0.0.1:8001", "GATEWAY_API_KEY": "gw"}
+    assert JudgeConfig.from_env(env, url="https://api.example.com").api_key == ""
+    assert JudgeConfig.from_env(env, url="http://127.0.0.1:9000").api_key == "gw"
+
+
+def test_cli_judge_flags_reach_the_judge(monkeypatch):
+    import argparse
+
+    monkeypatch.setenv("CULTURE_LIBRARY_EVAL_LLM_MODEL", "cortex")
+    args = argparse.Namespace(judge_url=None, judge_model="worker", judge_max_tokens=4096)
+    j = eval_cmd._make_judge(args)
+    assert (j.model, j.max_tokens) == ("worker", 4096)
+
+
+def test_overview_shows_the_effective_judge(monkeypatch, capsys):
+    from culture_library.cli import main
+
+    monkeypatch.setenv("CULTURE_LIBRARY_EVAL_LLM_MODEL", "worker")
+    monkeypatch.delenv("CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS", raising=False)
+    assert main(["eval", "overview", "--json"]) == 0
+    sections = json.loads(capsys.readouterr().out)["sections"]
+    judge = next(s for s in sections if s["title"].startswith("Judge"))
+    text = " ".join(judge["items"])
+    assert "worker (CULTURE_LIBRARY_EVAL_LLM_MODEL)" in text
+    assert "8192 (default)" in text
+    assert "--judge-model" in text

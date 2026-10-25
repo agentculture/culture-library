@@ -36,7 +36,7 @@ def cli(library, monkeypatch):
     library.app.state.reranker = None
     adapter = FakeAdapter()
     monkeypatch.setattr(eval_cmd, "_make_client", lambda: library.client)
-    monkeypatch.setattr(eval_cmd, "_make_judge", lambda: LOCAL)
+    monkeypatch.setattr(eval_cmd, "_make_judge", lambda args=None: LOCAL)
     monkeypatch.setattr(eval_cmd, "_make_llm", lambda judge: FakeJudge())
     monkeypatch.setattr(eval_cmd, "_make_adapter", lambda judge: adapter)
     library.adapter = adapter
@@ -162,7 +162,9 @@ def test_wrong_kind_and_no_samples_are_user_errors(cli, capsys):
 
 def test_non_public_item_to_remote_judge_is_policy_error(cli, capsys, monkeypatch):
     monkeypatch.setattr(
-        eval_cmd, "_make_judge", lambda: JudgeConfig(url="https://api.example.com", model="m")
+        eval_cmd,
+        "_make_judge",
+        lambda args=None: JudgeConfig(url="https://api.example.com", model="m"),
     )
     item = cli.add_item(b"secret", kind="book", visibility="private")
     rc, _, err = _run(capsys, "eval", "generate", str(item.id))
