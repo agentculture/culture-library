@@ -112,7 +112,9 @@ def create_set(
 
 
 def get_set(conn: sqlite3.Connection, set_id: int) -> dict[str, Any]:
-    row = conn.execute(f"SELECT {_SET_COLS} FROM eval_sets WHERE id = ?", (set_id,)).fetchone()
+    row = conn.execute(
+        f"SELECT {_SET_COLS} FROM eval_sets WHERE id = ?", (set_id,)
+    ).fetchone()  # nosec B608 - fixed column lists
     if row is None:
         raise NotFoundError(f"eval set {set_id} not found")
     return _decode(row, _SET_COLS, _JSON_SET)
@@ -186,7 +188,8 @@ def list_samples(conn: sqlite3.Connection, set_id: int) -> list[dict[str, Any]]:
         "reference_contexts, source_urls"
     )
     rows = conn.execute(
-        f"SELECT {cols} FROM eval_samples WHERE set_id = ? ORDER BY id", (set_id,)
+        f"SELECT {cols} FROM eval_samples WHERE set_id = ? ORDER BY id",
+        (set_id,),  # nosec B608 - fixed column lists
     )  # nosec B608
     return [
         _decode(r, cols, ("reference_chunk_shas", "reference_contexts", "source_urls"))
@@ -246,7 +249,9 @@ def add_run_sample(
 
 
 def get_run(conn: sqlite3.Connection, run_id: int) -> dict[str, Any]:
-    row = conn.execute(f"SELECT {_RUN_COLS} FROM eval_runs WHERE id = ?", (run_id,)).fetchone()
+    row = conn.execute(
+        f"SELECT {_RUN_COLS} FROM eval_runs WHERE id = ?", (run_id,)
+    ).fetchone()  # nosec B608 - fixed column lists
     if row is None:
         raise NotFoundError(f"eval run {run_id} not found")
     return _decode(row, _RUN_COLS, _JSON_RUN)
@@ -278,7 +283,8 @@ def list_runs(
 def list_run_samples(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
     cols = "run_id, sample_id, retrieved_chunk_shas, scores_json"
     rows = conn.execute(
-        f"SELECT {cols} FROM eval_run_samples WHERE run_id = ? ORDER BY sample_id", (run_id,)
+        f"SELECT {cols} FROM eval_run_samples WHERE run_id = ? ORDER BY sample_id",
+        (run_id,),  # nosec B608 - fixed column lists
     ).fetchall()  # nosec B608
     return [_decode(r, cols, ("retrieved_chunk_shas", "scores_json")) for r in rows]
 
