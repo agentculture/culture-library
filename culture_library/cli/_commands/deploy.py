@@ -50,6 +50,7 @@ REQUIRED_SETTINGS = (
     send.TARGETS_ENV,
 )
 SERVICES = ("library", "mcp")
+_EXPORT = "export "
 DEFAULT_PORT = "8796"
 STEP_TIMEOUT = 900
 _RUNBOOK = "docs/operations/deploy.md, 'Restart the live stack'"
@@ -115,8 +116,7 @@ def read_env_file(path: Path) -> dict[str, str]:
             continue
         key, raw = line.split("=", 1)
         key = key.strip()
-        if key.startswith("export "):
-            key = key[len("export ") :].strip()
+        key = key.removeprefix(_EXPORT).strip()
         values[key] = _env_value(key, raw, str(path))
     return values
 
@@ -137,7 +137,7 @@ def env_file_keys(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, raw = line.split("=", 1)
-        key = key.strip().removeprefix("export ").strip()
+        key = key.strip().removeprefix(_EXPORT).strip()
         keys[key] = raw
     return keys
 
@@ -299,7 +299,8 @@ def _health_url(values: dict[str, str]) -> str:
     return f"http://{host}:{port}/api/health"  # NOSONAR - local health probe, not a remote URL
 
 
-def cmd_restart(args: argparse.Namespace) -> int:
+def _inputs(args: argparse.Namespace) -> tuple[Path, Path]:
+    """The env file and compose file, refused when missing; secret names refused when empty."""
     env_file = Path(args.env_file) if args.env_file else default_env_file()
     if not env_file.is_file():
         raise CliError(
@@ -322,6 +323,11 @@ def cmd_restart(args: argparse.Namespace) -> int:
             raise CliError(
                 EXIT_USER_ERROR, f"{flag} is empty", f"pass a grant secret name to {flag}"
             )
+    return env_file, compose
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    env_file, compose = _inputs(args)
     gateway = None if args.no_gateway_key else args.gateway_secret
     secrets = {"TUNNEL_TOKEN": args.tunnel_secret, "GATEWAY_API_KEY": args.gateway_secret}
     _refuse_secrets(env_file_keys(env_file), str(env_file), secrets)  # before value parsing
