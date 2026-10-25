@@ -20,7 +20,7 @@ DELETE *archives* (decision c45) and
 and file shows archived items to private-scope callers. Every error body on these routes,
 auth and request-shape errors included, is a flat ``{"detail": str, "code": str}``: ingest
 refusals are 413 (``too_large``), 415 (``unsupported_format``) or 400 (any other code).
-The upload body is capped while it streams (50 MiB + 1 MiB of form framing; a larger
+The upload body is capped while it streams (60 MiB + 1 MiB of form framing; a larger
 ``Content-Length`` is refused before reading). Bytes matching a private item answer 409
 ``conflict`` without an id to a caller lacking private access, unless that caller's key
 uploaded it (its idempotent retry). Bytes matching an *archived* item the caller can see but

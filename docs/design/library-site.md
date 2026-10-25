@@ -128,7 +128,7 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
 - **Search** matches titles and full text, highlights matches in the reader,
   and opens the first full-text hit.
 - **Upload** offers drag-and-drop or a file picker for EPUB, PDF, Markdown,
-  text or JSON, up to 50 MB.
+  text or JSON, up to 60 MB.
   - The form sets the title (defaulting to the file name), the kind, and who
     can see it (*Everyone with access* or *Only me*).
   - It shows the matching API call:

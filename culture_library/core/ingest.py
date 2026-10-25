@@ -69,7 +69,7 @@ _PANDOC_FROM = {"md": "markdown", "html": "html"}
 
 @dataclass(frozen=True)
 class IngestLimits:
-    max_bytes: int = 50 * 1024 * 1024
+    max_bytes: int = 60 * 1024 * 1024
     max_zip_entries: int = 5000
     max_uncompressed_bytes: int = 500 * 1024 * 1024
     convert_timeout_s: float = 60.0
