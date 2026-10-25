@@ -49,7 +49,12 @@ The site's visual and interaction design. The operator approved it on
 **Kind colors.** These are categorical, in a fixed order. They were checked
 with the dataviz validator against both surfaces: colorblind separation
 ΔE ≥ 8.4, and normal vision ΔE ≥ 19.3. To-do (#11) took the validated palette's seventh
-slot (violet) without lowering either floor.
+slot (violet) and Discord message (#19) took the eighth (red), without lowering either floor.
+Re-run on the eight in order against the site surfaces (`#fffcf3` light, `#1d3354` dark), the
+worst adjacent colorblind ΔE is 9.1 light and 8.4 dark, and the worst adjacent normal-vision ΔE
+is 19.6 light and 19.3 dark; the new violet-to-red pair is not the worst in either mode.
+Red is also the palette's alert hue, so a kind color is never read alone: status colors carry
+an icon and a label, and so does every kind.
 
 | Kind | Light | Dark |
 |------|-------|------|
@@ -60,6 +65,7 @@ slot (violet) without lowering either floor.
 | Spec or plan | `#e87ba4` | `#d55181` |
 | Diary | `#008300` | `#008300` |
 | To-do | `#6250d6` | `#9085e9` |
+| Discord message | `#e34948` | `#e66767` |
 
 **A kind color never appears without its label.** Three light-mode kinds and
 dark-mode diary are below 3:1 contrast against the surface. Status colors

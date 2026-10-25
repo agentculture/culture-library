@@ -23,8 +23,9 @@ it all, published at **library.culture.dev**.
     ingest, keys, feed, search and indexer, repo documents, library rules,
     send events, backup, and the uploaders table.
     Kinds are `book`, `article`, `newspaper`, `document`, `transcript`,
-    `diary`, `spec`, `plan`, `devague-record` and `todo` (Markdown
-    checklists, one per recording). Adding a kind widens the `items` kind
+    `diary`, `spec`, `plan`, `devague-record`, `todo` (Markdown
+    checklists, one per recording) and `discord-message` (one saved Discord
+    message as Markdown; a `discord-react` sibling is not reserved yet). Adding a kind widens the `items` kind
     CHECK; the store rebuilds the table once on first open (see
     `docs/operations/deploy.md`, "Upgrading across a schema change").
   - `server/`: the FastAPI app and its `routes_*.py` modules. These serve
