@@ -11,12 +11,13 @@ gateway lives outside ``core`` in :mod:`culture_library.gateway` (core stays net
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import sqlite3
 from array import array
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Any, Callable, Iterable, Mapping, NamedTuple, Sequence, Union
 
 from . import uploaders
 from .errors import CoreError
@@ -263,3 +264,150 @@ def hybrid(
         )
         for k in order
     ]
+
+
+# ---------------------------------------------------------------- chunk-level passages (RAG)
+
+
+class Vis(NamedTuple):
+    """Who is asking: the same two inputs every visibility-aware search takes."""
+
+    include_private: bool = False
+    owner: str | None = None
+
+
+VisLike = Union[Vis, "tuple[bool, str | None]", Mapping[str, Any]]
+
+
+def _as_vis(vis: VisLike) -> Vis:
+    if isinstance(vis, Mapping):
+        return Vis(bool(vis.get("include_private", False)), vis.get("owner"))
+    return Vis(*vis)
+
+
+@dataclass(frozen=True)
+class Passage:
+    """One stored chunk, with its full text, for retrieval-augmented generation.
+
+    ``chunk_no`` 0 is the indexer's title/author header; it is returned like any chunk but
+    flagged ``is_header`` so generators can skip it.
+    """
+
+    item_id: int
+    title: str
+    kind: str
+    chunk_no: int
+    chunk_sha: str
+    text: str
+    score: float
+    source: str  # "semantic" | "hybrid"
+    is_header: bool = False
+
+
+class Chunk(NamedTuple):
+    chunk_no: int
+    chunk_sha: str
+    text: str
+    is_header: bool
+
+
+def chunk_sha(text: str) -> str:
+    """sha256 hex of a stored chunk's text (utf-8): same text, same sha, across re-index."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _filters(
+    vis: Vis, kind: str | None, item_ids: Iterable[int] | None
+) -> tuple[str, list[Any]] | None:
+    """``(where, params)`` for live, visible items narrowed by kind/ids; None if nothing can
+    match (an empty ``item_ids``)."""
+    where, params = _visible(vis.include_private, vis.owner)
+    out: list[Any] = list(params)
+    if kind is not None:
+        where += " AND i.kind = ?"
+        out.append(kind)
+    if item_ids is not None:
+        ids = sorted({int(x) for x in item_ids})
+        if not ids:
+            return None
+        where += f" AND i.id IN ({','.join('?' * len(ids))})"
+        out.extend(ids)
+    return where, out
+
+
+def _fts_item_rank(conn: sqlite3.Connection, query: str, where: str, params: list) -> dict:
+    """``item_id -> 0-based FTS rank`` among the filtered, visible items."""
+    match = _fts_query(query)
+    if not match:
+        return {}
+    sql = (
+        "SELECT i.id FROM search_fts JOIN items i ON i.id = search_fts.rowid "
+        f"WHERE search_fts MATCH ? AND {where} "  # nosec B608
+        "ORDER BY bm25(search_fts, 5.0, 1.0), i.id"
+    )
+    rows = conn.execute(sql, (match, *params)).fetchall()
+    return {r[0]: pos for pos, r in enumerate(rows)}
+
+
+def passages(
+    conn: sqlite3.Connection,
+    qvec: Sequence[float],
+    k: int,
+    mode: str,
+    vis: VisLike,
+    kind: str | None = None,
+    item_ids: Iterable[int] | None = None,
+    *,
+    query: str = "",
+) -> list[Passage]:
+    """The top ``k`` chunks for a query vector the caller already embedded.
+
+    ``semantic`` ranks every visible chunk by cosine; ``hybrid`` adds reciprocal-rank fusion
+    (k=60) of each chunk's semantic rank with its item's FTS rank for ``query`` (no FTS
+    match, or an empty ``query``, contributes nothing). Visibility is the same rule as
+    :func:`semantic`/:func:`fulltext`; archived items never yield. ``kind`` and ``item_ids``
+    narrow the candidates before the ``k`` cutoff.
+    """
+    if mode not in ("semantic", "hybrid"):
+        raise ValueError(f"unknown passages mode {mode!r} (expected 'semantic' or 'hybrid')")
+    if k <= 0 or not qvec:
+        return []
+    flt = _filters(_as_vis(vis), kind, item_ids)
+    if flt is None:
+        return []
+    where, params = flt
+    sql = (
+        "SELECT i.id, i.title, i.kind, e.chunk_no, e.text, e.vec "
+        "FROM embeddings e JOIN items i ON i.id = e.item_id "
+        f"WHERE {where}"  # nosec B608
+    )
+    rows = conn.execute(sql, params).fetchall()
+    scored = [(_cosine(qvec, unpack_vec(r[5])), r) for r in rows]
+    scored.sort(key=lambda s: (-s[0], s[1][0], s[1][3]))
+    if mode == "hybrid":
+        fts = _fts_item_rank(conn, query, where, params)
+        fused = []
+        for pos, (_, r) in enumerate(scored):
+            score = 1.0 / (60 + pos)
+            if r[0] in fts:
+                score += 1.0 / (60 + fts[r[0]])
+            fused.append((score, r))
+        fused.sort(key=lambda s: (-s[0], s[1][0], s[1][3]))
+        scored = fused
+    return [
+        Passage(r[0], r[1], r[2], r[3], chunk_sha(r[4]), r[4], score, mode, r[3] == 0)
+        for score, r in scored[:k]
+    ]
+
+
+def item_chunks(conn: sqlite3.Connection, item_id: int, vis: VisLike) -> list[Chunk]:
+    """Every stored chunk of one item in order, or ``[]`` if it is hidden, archived or
+    unindexed for this caller."""
+    v = _as_vis(vis)
+    where, params = _visible(v.include_private, v.owner)
+    sql = (
+        "SELECT e.chunk_no, e.text FROM embeddings e JOIN items i ON i.id = e.item_id "
+        f"WHERE i.id = ? AND {where} ORDER BY e.chunk_no"  # nosec B608
+    )
+    rows = conn.execute(sql, (item_id, *params)).fetchall()
+    return [Chunk(r[0], chunk_sha(r[1]), r[1], r[0] == 0) for r in rows]
