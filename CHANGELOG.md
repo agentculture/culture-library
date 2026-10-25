@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.3] - 2026-10-25
+
+### Fixed
+
+- Eval judge calls set `max_tokens`, defaulting to 8192 and configurable with `CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS`. On the first live run the reasoning judge (`cortex`) overflowed ragas's 1024-token default, so every LLM-judged metric failed.
+- If only the LLM-judged scoring fails, the run is still stored `complete`, with ID-based aggregates over every sample, and `config.llm_metrics_failed` records why. Before, the run became `partial` and all aggregates were dropped.
+
 ## [0.16.2] - 2026-10-25
 
 ### Changed
