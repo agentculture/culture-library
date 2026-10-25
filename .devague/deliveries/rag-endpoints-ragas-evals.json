@@ -1,0 +1,25 @@
+{
+  "plan_slug": "rag-endpoints-ragas-evals",
+  "schema_version": 2,
+  "created": "2026-10-25T14:39:42Z",
+  "updated": "2026-10-25T14:48:03Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t5's [eval] extra is not importable as locked: ragas 0.4.3 imports langchain_community.chat_models.vertexai, removed in langchain-community 0.4.2 (what uv.lock resolves). Proposed: extra becomes ['ragas==0.4.3', 'openai>=1', 'langchain-community<0.4.2'], uv.lock refreshed, test_zero_deps asserts the 3-entry extra, and the opt-in ragas CI job fails (not skips) when ragas can't import",
+      "task_ref": "t5",
+      "reason": "reproduced in a clean py3.12 venv: ModuleNotFoundError langchain_community.chat_models.vertexai; importorskip silently skipped the real-ragas tests, so the opt-in job would pass vacuously",
+      "affects": [
+        "t5",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
