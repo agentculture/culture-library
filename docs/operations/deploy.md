@@ -159,7 +159,7 @@ bind-mounted data directory), writing to a location outside `/data`.
 ## Restart the live stack
 
 On spark the live stack has no `deploy/.env`. Its settings live in a host env file
-outside git, `~/.config/culture-library/live.env`, and the tunnel token comes from
+outside git, `$HOME/.config/culture-library/live.env`, and the tunnel token comes from
 `grant`. Keep every value the stack needs in that file, never typed on the command
 line: a hand-typed placeholder such as `'[...]'` for the send targets starts the
 library with a broken send menu (`SendConfigError: CULTURE_LIBRARY_SEND_TARGETS is not
@@ -186,7 +186,7 @@ Recreate `library` and `mcp` with the current image (cloudflared keeps its tunne
 
 ```bash
 grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
-  docker compose -f deploy/compose.yaml --env-file ~/.config/culture-library/live.env \
+  docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
   --profile remote up -d --no-deps library mcp
 ```
 
@@ -245,7 +245,7 @@ for any such release.
    git checkout <new-tag-or-commit>
    docker compose -p culture-library -f deploy/compose.yaml build library
    grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
-     docker compose -f deploy/compose.yaml --env-file ~/.config/culture-library/live.env \
+     docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
      --profile remote up -d --no-deps library mcp
    ```
 
