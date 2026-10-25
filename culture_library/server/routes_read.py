@@ -7,9 +7,12 @@ omitted) for a caller without ``Principal.private`` (an item's own uploader exce
 - ``GET /api/library/{id}/text`` -> ``{item_id, kind, format, title, text, sections, reason}``.
   ``text`` is :func:`culture_library.core.ingest.extract_text` output: plain text, never
   markup (the body already indexed for search when present, else extracted on request).
-  For EPUB, ``sections`` is ``[{heading, paragraphs: [str]}]``, split at ``h1``-``h3``
-  by a stdlib parser that keeps character data only (``script``/``style``/``head``/``title``
-  bodies are dropped, attributes are never read); otherwise ``null``.
+  For EPUB, ``sections`` is ``[{heading, paragraphs: [str], links: [[{text, href}]]}]``,
+  split at ``h1``-``h3`` by a stdlib parser that keeps character data only
+  (``script``/``style``/``head``/``title`` bodies are dropped); otherwise ``null``. The one
+  attribute it reads is an ``<a>``'s ``href``, kept only when it is an absolute ``http(s)``
+  URL: ``links[i]`` lists paragraph ``i``'s links (``[]`` when none), each ``text`` a
+  substring of that paragraph (#18). ``paragraphs`` and ``text`` are unchanged by links.
   ``reason`` explains an empty text (e.g. ``pdftotext_missing``).
 - ``GET /api/repodocs/{id}/rendered?commit=`` -> ``{doc_id, repo, path, kind, format, title,
   html | text}``. A ``.json`` document that parses is rendered by
@@ -29,6 +32,7 @@ import re
 import sqlite3
 from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -61,12 +65,42 @@ def _not_found(what: str) -> HTTPException:
 # ------------------------------------------------------------------ EPUB sections
 
 
+_LINK_HREF_MAX = 2048
+
+
+def _safe_href(href: str | None) -> str | None:
+    """``href`` (already entity-decoded by the parser) when it is an absolute ``http://`` or
+    ``https://`` URL with a host, else ``None``: ``javascript:``, ``data:``, relative and
+    protocol-relative (``//host``) links, other schemes, and anything with whitespace or
+    control characters inside stay plain text."""
+    if not href:
+        return None
+    href = href.strip()
+    if not href or len(href) > _LINK_HREF_MAX:
+        return None
+    if any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F or c == "\\" for c in href):
+        return None
+    if not href.lower().startswith(("http://", "https://")):
+        return None
+    try:
+        parts = urlsplit(href)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        return None
+    return href
+
+
 class _SectionParser(HTMLParser):
     """Character data of an XHTML chapter, grouped into sections at ``h1``-``h3``.
 
-    Attributes are ignored and the bodies of ``script``/``style``/``head``/``title`` (and
-    inline ``svg``/``math``) are dropped, so nothing an item carries can become markup,
-    a URL or code: the output is a list of plain strings.
+    The bodies of ``script``/``style``/``head``/``title`` (and inline ``svg``/``math``) are
+    dropped, so nothing an item carries can become markup or code: paragraphs are plain
+    strings. The one attribute read is an ``<a>``'s ``href``, and only an absolute
+    ``http(s)`` URL is kept (:func:`_safe_href`): each section carries ``links``, parallel
+    to ``paragraphs``, where ``links[i]`` lists ``{text, href}`` for paragraph ``i``. A
+    link's ``text`` is a substring of its paragraph, found from the end of the previous
+    link, so a reader can locate it in the plain text. Links in headings are not kept.
     """
 
     _SKIP = {"script", "style", "head", "title", "svg", "math", "noscript", "template"}
@@ -98,14 +132,38 @@ class _SectionParser(HTMLParser):
         self._skip_depth = 0
         self._in_head = False
         self._buf: list[str] = []
+        self._buf_len = 0
+        self._a_depth = 0
+        self._link: tuple[str, int] | None = None  # (href, start offset in the buffer)
+        self._spans: list[tuple[int, int, str]] = []  # closed links in the current buffer
         self._start("")
 
     def _start(self, heading: str) -> None:
-        self.sections.append({"heading": heading, "paragraphs": []})
+        self.sections.append({"heading": heading, "paragraphs": [], "links": []})
+
+    @staticmethod
+    def _paragraph_links(spans, raw: str, text: str) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        at = 0
+        for start, end, href in spans:
+            piece = _WS.sub(" ", raw[start:end]).strip()
+            found = text.find(piece, at) if piece else -1
+            if found < 0:
+                continue
+            out.append({"text": piece, "href": href})
+            at = found + len(piece)
+        return out
 
     def _flush(self) -> None:
-        text = _WS.sub(" ", "".join(self._buf)).strip()
+        if self._link is not None:  # a link spanning a block break: keep the part so far
+            href, start = self._link
+            self._spans.append((start, self._buf_len, href))
+            self._link = (href, 0)
+        raw = "".join(self._buf)
+        text = _WS.sub(" ", raw).strip()
+        spans, self._spans = self._spans, []
         self._buf = []
+        self._buf_len = 0
         if not text:
             return
         if self._in_head:
@@ -115,12 +173,33 @@ class _SectionParser(HTMLParser):
             else:
                 cur["heading"] = text
         else:
-            self.sections[-1]["paragraphs"].append(text)
+            cur = self.sections[-1]
+            cur["paragraphs"].append(text)
+            cur["links"].append(self._paragraph_links(spans, raw, text))
+
+    def _open_link(self, attrs) -> None:
+        self._a_depth += 1
+        if self._a_depth == 1:
+            href = _safe_href(dict(attrs).get("href"))
+            self._link = (href, self._buf_len) if href else None
+
+    def _close_link(self) -> None:
+        if not self._a_depth:
+            return
+        self._a_depth -= 1
+        if not self._a_depth and self._link is not None:
+            href, start = self._link
+            self._spans.append((start, self._buf_len, href))
+            self._link = None
 
     def handle_starttag(self, tag, attrs):
         if tag in self._SKIP:
             self._skip_depth += 1
-        elif not self._skip_depth and (tag in self._HEAD or tag in self._BLOCK):
+        elif self._skip_depth:
+            return
+        elif tag == "a":
+            self._open_link(attrs)
+        elif tag in self._HEAD or tag in self._BLOCK:
             self._flush()
             if tag in self._HEAD:
                 self._in_head = True
@@ -132,7 +211,11 @@ class _SectionParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag in self._SKIP:
             self._skip_depth = max(0, self._skip_depth - 1)
-        elif not self._skip_depth and (tag in self._HEAD or tag in self._BLOCK):
+        elif self._skip_depth:
+            return
+        elif tag == "a":
+            self._close_link()
+        elif tag in self._HEAD or tag in self._BLOCK:
             self._flush()
             if tag in self._HEAD:
                 self._in_head = False
@@ -140,6 +223,7 @@ class _SectionParser(HTMLParser):
     def handle_data(self, data):
         if not self._skip_depth:
             self._buf.append(data)
+            self._buf_len += len(data)
 
     def close(self) -> None:
         super().close()
