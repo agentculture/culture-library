@@ -22,6 +22,12 @@ server = [
     "mcp>=1.2,<2",
     "python-multipart>=0.0.9",
 ]
+# Opt-in RAG evaluation (culture_library.eval, `culture-library eval ...`): pinned ragas plus
+# the OpenAI-compatible client. Never part of base dependencies or the dev group.
+eval = [
+    "ragas==0.4.3",
+    "openai>=1",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/culture-library"
@@ -94,5 +100,6 @@ skips = ["B101", "B404", "B603"]
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
+    "ragas: real-ragas tests (opt-in: `uv sync --extra eval`, then `pytest -m ragas`; skipped unless ragas is installed)",
     "visual: Playwright visual-parity tests against docs/design/reference (opt-in: -m visual or CULTURE_LIBRARY_VISUAL=1)",
 ]

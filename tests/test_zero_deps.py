@@ -14,7 +14,9 @@ import importlib, pkgutil, sys
 
 class Block:
     def find_spec(self, name, path=None, target=None):
-        if name.split('.')[0] in {'fastapi', 'uvicorn', 'starlette', 'mcp', 'multipart', 'httpx'}:
+        top = name.split('.')[0]
+        if top in {'fastapi', 'uvicorn', 'starlette', 'mcp', 'multipart', 'httpx',
+                   'ragas', 'openai', 'datasets', 'instructor'} or top.startswith('langchain'):
             raise ImportError('blocked: ' + name)
 
 sys.meta_path.insert(0, Block())
@@ -73,3 +75,19 @@ def test_cli_imports_in_fresh_venv_without_extra(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert "culture-library[server]" in proc.stderr
+
+
+def test_eval_extra_pinned_and_not_in_dev() -> None:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert data["project"]["dependencies"] == []
+    assert data["project"]["optional-dependencies"]["eval"] == ["ragas==0.4.3", "openai>=1"]
+    dev = " ".join(data["dependency-groups"]["dev"])
+    assert "ragas" not in dev
+    assert "ragas" in " ".join(data["tool"]["pytest"]["ini_options"]["markers"])
+
+
+def test_default_ci_sync_has_no_eval_extra() -> None:
+    wf = (ROOT / ".github/workflows/tests.yml").read_text()
+    syncs = [ln.strip() for ln in wf.splitlines() if "uv sync" in ln]
+    assert "- run: uv sync" in syncs
+    assert [s for s in syncs if "eval" in s] == ["- run: uv sync --extra eval"]
