@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-10-25
+
+### Added
+
+- `POST /api/rag/retrieve` returns ranked passages (full chunk text plus `chunk_sha`, the sha256 of the chunk text) in `semantic` or `hybrid` mode. It needs `read` scope and follows `/api/search` visibility. An optional rerank stage uses the gateway `reranker` role (Qwen3-Reranker-0.6B on `/v1/rerank`) and falls back to the unreranked order with `reranked: false`. It returns 503 `rag_unavailable` when there is no embedder. `GET /api/rag/items/{id}/chunks` lists an item's chunks with its sha256 and index state.
+- `PUT`/`GET /api/library/{id}/sources`: a newspaper sources sidecar (`[{article_title, source_urls, excerpt}]`) that culture-rules pushes with each issue (culture-rules#97). Writes honour key kind limits.
+- `/api/eval/sets` and `/api/eval/runs` store generated eval sets and scored runs in new item-child tables. They cascade on delete and are covered by the kinds-rebuild integrity check. Aggregates are stored only on `complete` runs, and runs compare only on the same set version.
+- `/api/status` gains a `retrieval` block: embed model and prompts, chunker `max_chars`, reranker model, stored chunk count and stored model labels.
+- The MCP `rag_retrieve` tool mirrors the retrieve endpoint.
+- `culture-library eval {overview,generate,run,show}`, backed by the `culture_library.eval` package. It holds a framework-neutral adapter interface, with RAGAS 0.4.3 as the first adapter scoring ID-based and LLM context precision/recall. Book sets are generated from the book's own chunks, and newspaper sets from the sources sidecar. Runs refuse stale, archived or re-indexing items and record the server's retrieval config. Text from non-public items is never sent to a non-local judge.
+- An optional `[eval]` extra: `ragas==0.4.3`, `openai>=1` and `langchain-community<0.4.2`. Without the cap, ragas 0.4.3 fails to import. Base dependencies stay empty, and an opt-in CI job runs the real-ragas tests.
+- Runbook: "Enable embeddings" in `docs/operations/deploy.md`.
+
+### Changed
+
+- The gateway embedder sends gemma2-embed prompt names: `Retrieval-document` when indexing and `Retrieval-query` for queries. `LOBES_EMBED_PROMPTS=off` turns them off. `embeddings.model` records the label, for example `gemma2-embed+Retrieval-document`.
+- Gateway clients refuse HTTP redirects, so the key never leaves the configured origin.
+- `deploy/compose.yaml` adds `host.docker.internal:host-gateway`, because the container could not reach the gateway on 127.0.0.1. It also sets defaults for `LOBES_GATEWAY_URL`, `LOBES_EMBED_MODEL`, `LOBES_RERANK_MODEL` and `LOBES_EMBED_PROMPTS`.
+
 ## [0.15.0] - 2026-10-25
 
 ### Added
