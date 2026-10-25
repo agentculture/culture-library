@@ -11,6 +11,12 @@ from culture_library.cli._commands import deploy
 TARGETS = '[{"label":"x3","type":"reader","enabled":true}]'
 
 
+@pytest.fixture(autouse=True)
+def _grant_secrets_exist(monkeypatch):
+    """Every grant secret exists unless a test says otherwise."""
+    monkeypatch.setattr(deploy, "_grant_secret_exists", lambda name, env: True)
+
+
 def _env(tmp_path, **over):
     values = {
         "COMPOSE_PROJECT_NAME": "culture-library",
@@ -65,6 +71,8 @@ def test_dry_run_prints_the_exact_command_and_runs_nothing(tmp_path, compose, ca
             "run",
             "--inject",
             "TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN",
+            "--inject",
+            "GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY",
             "--",
             "docker",
             "compose",
@@ -304,3 +312,114 @@ def test_text_dry_run_is_shell_quoted(tmp_path, calls, capsys):
         == 0
     )
     assert f"'{env}'" in capsys.readouterr().out
+
+
+def _dry(tmp_path, compose, capsys, *extra, **env_over):
+    env = _env(tmp_path, **env_over)
+    rc = _restart("--env-file", str(env), "--compose", str(compose), "--dry-run", *extra)
+    return rc, capsys.readouterr()
+
+
+def test_gateway_key_is_injected_from_grant_by_default(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys)
+    assert rc == 0
+    step = json.loads(out.out)["steps"][-1]
+    assert step[: step.index("--")].count("--inject") == 2
+    assert "GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY" in step
+
+
+def test_gateway_secret_name_can_be_changed(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys, "--gateway-secret", "OTHER_KEY")
+    assert rc == 0
+    assert "GATEWAY_API_KEY=OTHER_KEY" in json.loads(out.out)["steps"][-1]
+
+
+def test_no_gateway_key_skips_the_injection(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys, "--no-gateway-key")
+    assert rc == 0
+    step = json.loads(out.out)["steps"][-1]
+    assert not any(a.startswith("GATEWAY_API_KEY=") for a in step)
+
+
+def test_gateway_key_in_the_env_file_is_refused(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys, GATEWAY_API_KEY="sk-abc")
+    assert rc == 1
+    assert calls == []
+    err = json.loads(out.err)
+    assert "GATEWAY_API_KEY" in err["message"]
+    assert "grant" in err["remediation"]
+
+
+# PR #20 review ------------------------------------------------------------------------------
+
+
+def test_shell_gateway_key_never_reaches_compose(tmp_path, compose, monkeypatch, capsys):
+    seen_env: list[dict] = []
+
+    def fake_run(argv, **kw):
+        seen_env.append(dict(kw.get("env") or {}))
+        out = '["x3"]\n' if "exec" in argv else ""
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(deploy, "_run", fake_run)
+    monkeypatch.setattr(deploy, "_which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(deploy, "_health", lambda url, timeout: {"status": "ok", "version": "x"})
+    monkeypatch.setenv("GATEWAY_API_KEY", "from-shell")
+    monkeypatch.setenv("TUNNEL_TOKEN", "from-shell")
+    env = _env(tmp_path)
+    assert _restart("--env-file", str(env), "--compose", str(compose), "--no-gateway-key") == 0
+    assert seen_env
+    assert all("GATEWAY_API_KEY" not in e and "TUNNEL_TOKEN" not in e for e in seen_env)
+
+
+def test_missing_grant_secret_is_refused_before_compose(tmp_path, compose, monkeypatch, capsys):
+    seen: list[list[str]] = []
+
+    def fake_run(argv, **kw):
+        seen.append(list(argv))
+        missing = argv[:2] == ["grant", "show"] and argv[2] == "LOBES_GATEWAY_API_KEY"
+        return subprocess.CompletedProcess(argv, 1 if missing else 0, stdout="", stderr="")
+
+    monkeypatch.undo()
+    monkeypatch.setattr(deploy, "_run", fake_run)
+    monkeypatch.setattr(deploy, "_which", lambda tool: f"/usr/bin/{tool}")
+    env = _env(tmp_path)
+    assert _restart("--env-file", str(env), "--compose", str(compose)) == 2
+    err = json.loads(capsys.readouterr().err)
+    assert "LOBES_GATEWAY_API_KEY" in err["message"]
+    assert "--no-gateway-key" in err["remediation"]
+    assert not any("compose" in a for a in seen)
+
+
+def test_gateway_flags_are_exclusive_and_non_empty(tmp_path, compose, calls, capsys):
+    env = _env(tmp_path)
+    base = ("--env-file", str(env), "--compose", str(compose), "--dry-run")
+    with pytest.raises(SystemExit) as exc:
+        _restart(*base, "--gateway-secret", "X", "--no-gateway-key")
+    assert exc.value.code == 1
+    capsys.readouterr()
+    assert _restart(*base, "--gateway-secret", "") == 1
+    assert calls == []
+
+
+def test_secret_refusal_names_the_configured_grant_secret(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys, "--gateway-secret", "OTHER", GATEWAY_API_KEY="k")
+    assert rc == 1
+    assert "OTHER" in json.loads(out.err)["remediation"]
+
+
+def test_tunnel_token_in_the_env_file_is_refused(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys, TUNNEL_TOKEN="t")
+    assert rc == 1
+    err = json.loads(out.err)
+    assert "TUNNEL_TOKEN" in err["message"]
+    assert "CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN" in err["remediation"]
+
+
+def test_secret_with_dollar_is_refused_as_a_secret_not_interpolation(
+    tmp_path, compose, calls, capsys
+):
+    rc, out = _dry(tmp_path, compose, capsys, GATEWAY_API_KEY="sk-$abc")
+    assert rc == 1
+    err = json.loads(out.err)
+    assert "must not be in the env file" in err["message"]

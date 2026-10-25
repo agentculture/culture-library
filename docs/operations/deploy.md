@@ -125,6 +125,7 @@ secret (`cultureflare --grant` stores it as `CULTUREFLARE_LIBRARY_CULTURE_DEV_TU
 
 ```bash
 grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+  --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY \
   -- docker compose -f deploy/compose.yaml --env-file deploy/.env --profile remote up -d
 ```
 
@@ -192,7 +193,8 @@ CULTURE_LIBRARY_SEND_TARGETS='[{"label":"<label>","type":"<description>","enable
 ```
 
 If the file is missing, rebuild it from the running container before you recreate
-anything (this prints settings only; the library container carries no token):
+anything. The container's environment also holds `GATEWAY_API_KEY`, so keep the grep: it
+prints the three settings only, never the key:
 
 ```bash
 docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{println .}}{{end}}' \
@@ -210,10 +212,12 @@ uv run culture-library deploy restart --dry-run  # print the commands, run nothi
 ```
 
 It reads `$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`, and
-runs exactly this, which also works by hand:
+first checks that each grant secret exists (`grant show`, which never prints a value),
+then runs exactly this, which also works by hand:
 
 ```bash
-grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+  --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- \
   docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
   --profile remote up -d --no-deps library mcp
 ```
@@ -245,15 +249,18 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
    LOBES_GATEWAY_URL=http://host.docker.internal:8001
    LOBES_EMBED_MODEL=gemma2-embed
    LOBES_RERANK_MODEL=reranker
-   GATEWAY_API_KEY=<gateway key>
    ```
 
-   `GATEWAY_API_KEY` is what switches embeddings on: without it the embedder is not
-   built. Compose reads it from this file, so this is the one secret the file holds;
-   keep it `chmod 600` and out of git. `LOBES_EMBED_PROMPTS=off` disables the
-   Retrieval-document and Retrieval-query prompt names (on by default).
-2. Recreate the containers: `uv run culture-library deploy restart`. The new
-   environment and `extra_hosts` entry only apply on recreate.
+   The gateway key is **not** written here: the env file stays secret-free, and
+   `deploy restart` refuses one that sets `GATEWAY_API_KEY`. The key lives in grant as
+   `LOBES_GATEWAY_API_KEY` (check with `grant show LOBES_GATEWAY_API_KEY`, which never
+   prints the value). `GATEWAY_API_KEY` is what switches embeddings on: without it the
+   embedder is not built. `LOBES_EMBED_PROMPTS=off` disables the Retrieval-document and
+   Retrieval-query prompt names (on by default).
+2. Recreate the containers: `uv run culture-library deploy restart`. It runs
+   `grant run --inject TUNNEL_TOKEN=... --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY`
+   around `docker compose up` (`--gateway-secret NAME` picks another grant secret). The
+   new environment and `extra_hosts` entry only apply on recreate.
 3. Check the container reaches the gateway. `/capabilities` needs no key and lists the
    `gemma2-embed` and `reranker` roles:
 
@@ -291,8 +298,8 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
 6. Verify: `GET /api/status` is healthy and a `GET /api/search?q=...` answers with
    `mode` `hybrid` (the response says which mode ran).
 
-Rollback: remove `GATEWAY_API_KEY` (and the other `LOBES_*` lines) from `live.env` and run
-`deploy restart` again. Existing embeddings stay in the database but are unused, and
+Rollback: run `deploy restart --no-gateway-key` (and drop the `LOBES_*` lines from
+`live.env` if you like). Existing embeddings stay in the database but are unused, and
 full-text search keeps working; a gateway outage alone also degrades to full-text.
 
 ## Upgrading across a schema change
@@ -337,7 +344,8 @@ for any such release.
    ```bash
    git checkout <new-tag-or-commit>
    docker compose -p culture-library -f deploy/compose.yaml build library
-   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN -- \
+   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+     --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- \
      docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
      --profile remote up -d --no-deps library mcp
    ```

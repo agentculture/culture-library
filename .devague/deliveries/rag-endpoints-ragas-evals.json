@@ -2,7 +2,7 @@
   "plan_slug": "rag-endpoints-ragas-evals",
   "schema_version": 2,
   "created": "2026-10-25T14:39:42Z",
-  "updated": "2026-10-25T14:48:03Z",
+  "updated": "2026-10-25T18:25:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -17,6 +17,20 @@
       "status": "approved",
       "classification": "risky",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "Live GATEWAY_API_KEY is injected from grant at deploy restart (like the tunnel token), not stored in live.env; deploy.py gains the injection, the runbook is updated, and t18 waits for that PR",
+      "task_ref": "t18",
+      "reason": "user decision 2026-10-25: keep live.env secret-free (supersedes c42's 'into the host env file' for the key only)",
+      "affects": [
+        "t18",
+        "t6"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],

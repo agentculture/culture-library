@@ -5,12 +5,14 @@
 setting present, no placeholder, send targets that parse), then runs, with a fixed argv
 and no shell::
 
-    grant run --inject TUNNEL_TOKEN=<secret> -- docker compose -f deploy/compose.yaml \\
-      --env-file <env file> --profile remote up -d --no-deps library mcp
+    grant run --inject TUNNEL_TOKEN=<secret> --inject GATEWAY_API_KEY=<secret> -- \\
+      docker compose -f deploy/compose.yaml --env-file <env file> --profile remote \\
+      up -d --no-deps library mcp
 
 and checks ``/api/health`` and the send targets inside the new container. ``--build``
 rebuilds the image first; ``--dry-run`` prints the commands and runs nothing. The tunnel
-token stays in ``grant`` and never passes through this process.
+token and the gateway key stay in ``grant`` and never pass through this process; an env
+file that contains ``GATEWAY_API_KEY`` is refused.
 """
 
 from __future__ import annotations
@@ -34,6 +36,13 @@ from culture_library.core import send
 LIVE_ENV_VAR = "CULTURE_LIBRARY_LIVE_ENV"
 # The grant secret's *name*; the token itself never enters this process.
 DEFAULT_TUNNEL_SECRET = "CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN"  # nosec B105
+# The grant secret holding the lobes gateway key (embeddings + reranker); never in live.env.
+DEFAULT_GATEWAY_SECRET = "LOBES_GATEWAY_API_KEY"  # nosec B105
+# Settings that are secrets: never in the env file, always injected from grant by name.
+SECRET_SETTINGS = {
+    "TUNNEL_TOKEN": DEFAULT_TUNNEL_SECRET,
+    "GATEWAY_API_KEY": DEFAULT_GATEWAY_SECRET,
+}
 REQUIRED_SETTINGS = (
     "COMPOSE_PROJECT_NAME",
     "CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN",
@@ -41,6 +50,7 @@ REQUIRED_SETTINGS = (
     send.TARGETS_ENV,
 )
 SERVICES = ("library", "mcp")
+_EXPORT = "export "
 DEFAULT_PORT = "8796"
 STEP_TIMEOUT = 900
 _RUNBOOK = "docs/operations/deploy.md, 'Restart the live stack'"
@@ -106,8 +116,7 @@ def read_env_file(path: Path) -> dict[str, str]:
             continue
         key, raw = line.split("=", 1)
         key = key.strip()
-        if key.startswith("export "):
-            key = key[len("export ") :].strip()
+        key = key.removeprefix(_EXPORT).strip()
         values[key] = _env_value(key, raw, str(path))
     return values
 
@@ -120,8 +129,37 @@ def _placeholder(source: str, what: str, value: str) -> CliError:
     )
 
 
+def env_file_keys(path: Path) -> dict[str, str]:
+    """``KEY -> raw value`` for each assignment, before any quoting or interpolation check."""
+    keys: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw = line.split("=", 1)
+        key = key.strip().removeprefix(_EXPORT).strip()
+        keys[key] = raw
+    return keys
+
+
+def _refuse_secrets(
+    values: dict[str, str], source: str, secrets: dict[str, str] | None = None
+) -> None:
+    """Refuse an env file that sets a secret; the hint names the grant secret it comes from."""
+    secrets = SECRET_SETTINGS if secrets is None else secrets
+    for key, grant_name in secrets.items():
+        if values.get(key, "").strip().strip("'\"").strip():
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"{source}: {key} is a secret and must not be in the env file",
+                f"remove it; deploy restart injects it from grant ({grant_name})",
+            )
+
+
 def check_settings(values: dict[str, str], source: str) -> None:
-    """Refuse a missing, empty or placeholder setting, or send targets that do not parse."""
+    """Refuse a missing, empty or placeholder setting, send targets that do not parse, or a
+    secret written into the (secret-free) env file."""
+    _refuse_secrets(values, source)
     for key in REQUIRED_SETTINGS:
         value = values.get(key, "")
         if not value.strip():
@@ -151,7 +189,7 @@ def _child_env(values: dict[str, str]) -> dict[str, str]:
     Compose prefers a shell variable over ``--env-file``; dropping them makes the checked
     file the only source of those settings.
     """
-    drop = set(values) | set(REQUIRED_SETTINGS)
+    drop = set(values) | set(REQUIRED_SETTINGS) | set(SECRET_SETTINGS)
     return {k: v for k, v in os.environ.items() if k not in drop}
 
 
@@ -159,13 +197,45 @@ def _compose_base(compose: Path, env_file: Path) -> list[str]:
     return ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
 
 
-def plan(compose: Path, env_file: Path, secret: str, *, build: bool) -> list[list[str]]:
-    """The commands ``restart`` runs, in order."""
+def plan(
+    compose: Path,
+    env_file: Path,
+    secret: str,
+    *,
+    build: bool,
+    gateway_secret: str | None = DEFAULT_GATEWAY_SECRET,
+) -> list[list[str]]:
+    """The commands ``restart`` runs, in order. Secrets are injected by name from grant."""
     base = _compose_base(compose, env_file)
     steps = [base + ["build", "library"]] if build else []
     up = base + ["--profile", "remote", "up", "-d", "--no-deps", *SERVICES]
-    steps.append(["grant", "run", "--inject", f"TUNNEL_TOKEN={secret}", "--", *up])
+    inject = ["--inject", f"TUNNEL_TOKEN={secret}"]
+    if gateway_secret:
+        inject += ["--inject", f"GATEWAY_API_KEY={gateway_secret}"]
+    steps.append(["grant", "run", *inject, "--", *up])
     return steps
+
+
+def _grant_secret_exists(name: str, env: dict[str, str]) -> bool:
+    proc = _run(  # nosec B603 - fixed argv; grant show prints metadata, never the value
+        ["grant", "show", name], capture_output=True, text=True, timeout=30, check=False, env=env
+    )
+    return proc.returncode == 0
+
+
+def _check_grant_secrets(names: list[str], env: dict[str, str]) -> None:
+    """Refuse, before compose runs, when a grant secret to inject does not exist."""
+    if _which("grant") is None:
+        raise CliError(EXIT_ENV_ERROR, "grant is not on PATH", "install grant")
+    for name in names:
+        if not _grant_secret_exists(name, env):
+            hint = (
+                "store the tunnel token with 'cultureflare --grant'"
+                if name == DEFAULT_TUNNEL_SECRET
+                else "add it with 'grant set NAME - --hidden', or pass --no-gateway-key to "
+                "restart without embeddings"
+            )
+            raise CliError(EXIT_ENV_ERROR, f"grant secret {name} not found", hint)
 
 
 def _step(argv: list[str], env: dict[str, str], *, verbose: bool) -> subprocess.CompletedProcess:
@@ -229,7 +299,8 @@ def _health_url(values: dict[str, str]) -> str:
     return f"http://{host}:{port}/api/health"  # NOSONAR - local health probe, not a remote URL
 
 
-def cmd_restart(args: argparse.Namespace) -> int:
+def _inputs(args: argparse.Namespace) -> tuple[Path, Path]:
+    """The env file and compose file, refused when missing; secret names refused when empty."""
     env_file = Path(args.env_file) if args.env_file else default_env_file()
     if not env_file.is_file():
         raise CliError(
@@ -244,9 +315,25 @@ def cmd_restart(args: argparse.Namespace) -> int:
             f"compose file {compose} does not exist",
             "run from the culture-library checkout, or pass --compose",
         )
+    for flag, name in (
+        ("--tunnel-secret", args.tunnel_secret),
+        ("--gateway-secret", args.gateway_secret),
+    ):
+        if not (name or "").strip():
+            raise CliError(
+                EXIT_USER_ERROR, f"{flag} is empty", f"pass a grant secret name to {flag}"
+            )
+    return env_file, compose
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    env_file, compose = _inputs(args)
+    gateway = None if args.no_gateway_key else args.gateway_secret
+    secrets = {"TUNNEL_TOKEN": args.tunnel_secret, "GATEWAY_API_KEY": args.gateway_secret}
+    _refuse_secrets(env_file_keys(env_file), str(env_file), secrets)  # before value parsing
     values = read_env_file(env_file)
     check_settings(values, str(env_file))
-    steps = plan(compose, env_file, args.tunnel_secret, build=args.build)
+    steps = plan(compose, env_file, args.tunnel_secret, build=args.build, gateway_secret=gateway)
     if args.dry_run:
         emit_result(
             (
@@ -259,6 +346,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         return 0
     env = _child_env(values)
     verbose = not _json(args)
+    _check_grant_secrets([args.tunnel_secret, *([gateway] if gateway else [])], env)
     for argv in steps:
         _step(argv, env, verbose=verbose)
     health = _health(_health_url(values), args.timeout)
@@ -303,6 +391,8 @@ def cmd_overview(args: argparse.Namespace) -> int:
                     "$HOME/.config/culture-library/live.env)",
                     "--compose (default deploy/compose.yaml in this checkout)",
                     f"--tunnel-secret (grant secret name, default {DEFAULT_TUNNEL_SECRET})",
+                    f"--gateway-secret (grant secret injected as GATEWAY_API_KEY, default "
+                    f"{DEFAULT_GATEWAY_SECRET}); --no-gateway-key skips it",
                     "needs grant and docker on PATH",
                 ],
             },
@@ -323,6 +413,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     rs.add_argument(
         "--tunnel-secret", default=DEFAULT_TUNNEL_SECRET, help="grant secret holding the token."
     )
+    gw = rs.add_mutually_exclusive_group()
+    gw.add_argument(
+        "--gateway-secret",
+        default=DEFAULT_GATEWAY_SECRET,
+        help="grant secret injected as GATEWAY_API_KEY (embeddings + reranker).",
+    )
+    gw.add_argument("--no-gateway-key", action="store_true", help="Do not inject GATEWAY_API_KEY.")
     rs.add_argument("--build", action="store_true", help="Rebuild the image first.")
     rs.add_argument("--dry-run", action="store_true", help="Print the commands; run nothing.")
     rs.add_argument(
