@@ -140,7 +140,9 @@ def test_pre_19_migration_is_announced_once(tmp_path, capsys):
     capsys.readouterr()
     Store(data)
     lines = capsys.readouterr().err.splitlines()
-    assert len(lines) == 1 and "discord-message" in lines[0] and "2 rows" in lines[0]
+    assert len(lines) == 1
+    assert "discord-message" in lines[0]
+    assert "2 rows" in lines[0]
     Store(data)
     assert capsys.readouterr().err == ""
     assert store_mod._KIND_CHECK in " ".join(_items_sql(data / "library.db").split())

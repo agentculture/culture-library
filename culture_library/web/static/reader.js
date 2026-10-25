@@ -124,16 +124,20 @@ function checklist(text) {
 }
 
 /* ---------- library items ---------- */
+/** One EPUB section: its heading, then its paragraphs (a list for newspapers). */
+function sectionNodes(i, s) {
+  const out = [];
+  if (s.heading) out.push(h('h3', { class: 'sh', dir: 'auto' }, hl(s.heading)));
+  // Source links (#18): s.links[n] lists paragraph n's http(s) links, built by links.js.
+  const tag = i.kind === 'newspaper' ? 'li' : 'p';
+  const paras = s.paragraphs.map((p, n) => h(tag, { class: 'para', dir: 'auto' }, linkedNodes(p, s.links?.[n], hl)));
+  out.push(tag === 'li' ? h('ul', {}, paras) : paras);
+  return out;
+}
 function itemBody(i, t) {
   const kids = [];
   if (t.sections?.length) {
-    for (const s of t.sections) {
-      if (s.heading) kids.push(h('h3', { class: 'sh', dir: 'auto' }, hl(s.heading)));
-      // Source links (#18): s.links[n] lists paragraph n's http(s) links, built by links.js.
-      const tag = i.kind === 'newspaper' ? 'li' : 'p';
-      const paras = s.paragraphs.map((p, n) => h(tag, { class: 'para', dir: 'auto' }, linkedNodes(p, s.links?.[n], hl)));
-      kids.push(tag === 'li' ? h('ul', {}, paras) : paras);
-    }
+    for (const s of t.sections) kids.push(...sectionNodes(i, s));
   } else if (t.text && i.format === 'pdf') {
     kids.push(paragraphs(t.text));
   } else if (t.text) {

@@ -55,15 +55,19 @@ def test_opds_feed_and_catalog_list_the_kind(api):
     api.as_(_writer("discord-message"))
     _push(api)
     cat = api.c.get("/opds")
-    assert cat.status_code == 200 and "discord-message" in cat.text
+    assert cat.status_code == 200
+    assert "discord-message" in cat.text
     feed = api.c.get("/opds/discord-message")
-    assert feed.status_code == 200 and "msg" in feed.text
+    assert feed.status_code == 200
+    assert "msg" in feed.text
 
 
 def test_webdav_lists_the_kind(api):
     api.as_(_writer("discord-message"))
     _push(api)
     root = api.c.request("PROPFIND", "/dav/", headers={"Depth": "1"})
-    assert root.status_code == 207 and "/dav/discord-message/" in root.text
+    assert root.status_code == 207
+    assert "/dav/discord-message/" in root.text
     folder = api.c.request("PROPFIND", "/dav/discord-message/", headers={"Depth": "1"})
-    assert folder.status_code == 207 and "msg" in folder.text
+    assert folder.status_code == 207
+    assert "msg" in folder.text
