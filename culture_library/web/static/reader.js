@@ -3,13 +3,15 @@
  *
  * Item text comes from GET /api/library/{id}/text (extracted plain text; a to-do checklist
  * reads its Markdown from /file and is parsed by checklist.js) and is inserted
- * as text nodes only. Specs (Markdown) and devague frames (JSON) are parsed here into the
+ * as text nodes only, except an EPUB section's http(s) source links, which links.js builds
+ * as <a> elements with DOM properties. Specs (Markdown) and devague frames (JSON) are parsed here into the
  * prototype's layouts, again as text nodes. Other devague JSON (plans) uses the server's
  * fragment from GET /api/repodocs/{id}/rendered, inserted as HTML because
  * culture_library.render.devague.render escapes every input string.
  */
 import { $, KINDS, S, api, apiText, chip, fill, fmtSize, h, kc, repoShort } from './app.js';
 import { parseChecklist } from './checklist.js';
+import { linkedNodes } from './links.js';
 import * as search from './search.js';
 import * as send from './send.js';
 
@@ -127,8 +129,10 @@ function itemBody(i, t) {
   if (t.sections?.length) {
     for (const s of t.sections) {
       if (s.heading) kids.push(h('h3', { class: 'sh', dir: 'auto' }, hl(s.heading)));
-      if (i.kind === 'newspaper') kids.push(h('ul', {}, s.paragraphs.map(p => h('li', { class: 'para', dir: 'auto' }, hl(p)))));
-      else kids.push(s.paragraphs.map(p => h('p', { class: 'para', dir: 'auto' }, hl(p))));
+      // Source links (#18): s.links[n] lists paragraph n's http(s) links, built by links.js.
+      const tag = i.kind === 'newspaper' ? 'li' : 'p';
+      const paras = s.paragraphs.map((p, n) => h(tag, { class: 'para', dir: 'auto' }, linkedNodes(p, s.links?.[n], hl)));
+      kids.push(tag === 'li' ? h('ul', {}, paras) : paras);
     }
   } else if (t.text && i.format === 'pdf') {
     kids.push(paragraphs(t.text));
