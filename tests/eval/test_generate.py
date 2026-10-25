@@ -1,14 +1,12 @@
-"""Book and newspaper eval-set generation (test-only server routes for chunks and sources)."""
+"""Book and newspaper eval-set generation, against the real chunks and sources routes."""
 
 from __future__ import annotations
-
-import hashlib
 
 import pytest
 
 pytest.importorskip("fastapi")
-from fastapi import APIRouter, HTTPException  # noqa: E402
 
+from culture_library.core.indexer import Indexer, enqueue  # noqa: E402
 from culture_library.eval.config import JudgeConfig  # noqa: E402
 from culture_library.eval.errors import EvalPolicyError  # noqa: E402
 from culture_library.eval.generate import (  # noqa: E402
@@ -23,47 +21,42 @@ LOCAL = JudgeConfig(url="http://127.0.0.1:9", model="m")
 REMOTE = JudgeConfig(url="https://api.example.com", model="m")
 
 
-def _sha(t: str) -> str:
-    return hashlib.sha256(t.encode()).hexdigest()
+def _para(i: int, lead: str = "Paragraph") -> str:
+    # ~600 chars so the chunker (max 1000) keeps one paragraph per chunk
+    return f"{lead} number {i} opens here. " + ("filler words fill the line. " * 20).strip()
 
 
-def _mount(library, chunks_by_item: dict, sources_by_item: dict, log: list):
-    router = APIRouter()
-
-    @router.get("/api/rag/items/{item_id}/chunks")
-    def chunks(item_id: int):
-        log.append(("chunks", item_id))
-        rows = [
-            {"chunk_no": i, "chunk_sha": _sha(t), "text": t, "is_header": i == 0}
-            for i, t in enumerate(chunks_by_item[item_id])
-        ]
-        return {"item_id": item_id, "chunks": rows}
-
-    @router.get("/api/library/{item_id}/sources")
-    def sources(item_id: int):
-        if item_id not in sources_by_item:
-            raise HTTPException(404, "no sources")
-        return {"sources": sources_by_item[item_id]}
-
-    library.app.include_router(router)
+def _embed(texts):
+    return [[1.0, 0.0] for _ in texts]
 
 
-TEXTS = ["HEADER"] + [
-    f"Paragraph number {i} with some words.  Extra   spacing." for i in range(1, 31)
-]
+def _index_item(library, paragraphs, *, kind="book", **kw):
+    body = "\n\n".join(paragraphs).encode()
+    item = library.add_item(body, kind=kind, **kw)
+    with library.store.connect() as conn:
+        enqueue(conn, item.id)
+    Indexer(library.store, _embed, model="fake-embed").run_once()
+    return item
+
+
+def _chunks(library, item):
+    return library.client.get_chunks(item.id)
 
 
 def test_book_samples_reference_item_chunks(library):
-    item = library.add_item(b"book body", kind="book")
-    _mount(library, {item.id: TEXTS}, {}, [])
-    adapter = FakeAdapter()
-    s = generate_book_set(library.client, adapter, FakeJudge(), LOCAL, item.id, samples=5, seed=3)
-    shas = {_sha(t) for t in TEXTS[1:]}
-    texts = set(TEXTS[1:])
+    item = _index_item(library, [_para(i) for i in range(30)], title="Big Book")
+    all_chunks = _chunks(library, item)
+    assert len(all_chunks) > 20
+    shas = {c.chunk_sha for c in all_chunks if not c.is_header}
+    texts = {c.text for c in all_chunks if not c.is_header}
+    header = [c.chunk_sha for c in all_chunks if c.is_header]
+    s = generate_book_set(
+        library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=5, seed=3
+    )
     assert len(s.samples) == 5
     for smp in s.samples:
         assert set(smp.reference_chunk_shas) <= shas
-        assert _sha(TEXTS[0]) not in smp.reference_chunk_shas
+        assert not set(smp.reference_chunk_shas) & set(header)
         assert all(c in texts for c in smp.reference_contexts)
     assert s.item_sha256 == item.sha256
     assert s.generator == {
@@ -76,14 +69,16 @@ def test_book_samples_reference_item_chunks(library):
 
 
 def test_book_deterministic_by_seed_and_default_20(library):
-    item = library.add_item(b"b", kind="book")
-    _mount(library, {item.id: TEXTS}, {}, [])
-    run = lambda seed: [  # noqa: E731
-        x.reference_chunk_shas
-        for x in generate_book_set(
-            library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, seed=seed
-        ).samples
-    ]
+    item = _index_item(library, [_para(i) for i in range(30)])
+
+    def run(seed):
+        return [
+            x.reference_chunk_shas
+            for x in generate_book_set(
+                library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, seed=seed
+            ).samples
+        ]
+
     assert run(1) == run(1)
     assert run(1) != run(2)
     assert len(run(1)) == 20
@@ -92,8 +87,8 @@ def test_book_deterministic_by_seed_and_default_20(library):
 def test_bad_adapter_refs_are_dropped_and_contexts_made_verbatim(library):
     from culture_library.eval.models import Sample
 
-    item = library.add_item(b"b", kind="book")
-    _mount(library, {item.id: TEXTS}, {}, [])
+    item = _index_item(library, [_para(i) for i in range(6)])
+    texts = {c.text for c in _chunks(library, item)}
 
     class Bad(FakeAdapter):
         def generate_samples(self, chunks, n, llm):
@@ -105,79 +100,71 @@ def test_bad_adapter_refs_are_dropped_and_contexts_made_verbatim(library):
 
     s = generate_book_set(library.client, Bad(), FakeJudge(), LOCAL, item.id, samples=3)
     assert [x.question for x in s.samples] == ["q2"]
-    assert s.samples[0].reference_contexts[0] in TEXTS
+    assert s.samples[0].reference_contexts[0] in texts
     assert s.generator["dropped"] == 1
 
 
-def test_egress_guard_runs_before_chunks_fetched(library):
-    item = library.add_item(b"secret", kind="book", visibility="private")
-    log: list = []
-    _mount(library, {item.id: TEXTS}, {}, log)
+def test_egress_guard_runs_before_chunks_fetched(library, monkeypatch):
+    item = _index_item(library, [_para(i) for i in range(3)], visibility="private")
+    fetched: list = []
+    real = library.client.get_chunks
+    monkeypatch.setattr(library.client, "get_chunks", lambda i: fetched.append(i) or real(i))
     with pytest.raises(EvalPolicyError):
         generate_book_set(library.client, FakeAdapter(), FakeJudge(), REMOTE, item.id)
-    assert log == []
+    assert fetched == []
 
 
 def test_chunker_recorded_from_status(library, monkeypatch):
-    item = library.add_item(b"b", kind="book")
-    _mount(library, {item.id: TEXTS}, {}, [])
+    item = _index_item(library, [_para(i) for i in range(4)])
     s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=2)
-    assert s.chunker == {}  # no "retrieval" key until the status route reports one
-    monkeypatch.setattr(library.client, "status", lambda: {"retrieval": {"chunk_chars": 800}})
+    assert s.chunker == library.client.status().get("retrieval", {})
+    monkeypatch.setattr(library.client, "status", lambda: {})
     s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=2)
-    assert s.chunker == {"chunk_chars": 800}
+    assert s.chunker == {}
 
 
-NEWS = [
-    "HEADER",
-    "Mayor opens   the NEW bridge today after years of delay.",
-    "Storm hits the coast; thousands lose power overnight.",
-    "Local team wins the final in extra time.",
-]
+ARTICLES = [_para(i, lead=w) for i, w in enumerate(["Mayor", "Storm", "Team"])]
 
 
-def test_newspaper_requires_sources(library):
-    item = library.add_item(b"paper", kind="newspaper")
-    log: list = []
-    _mount(library, {item.id: NEWS}, {}, log)
+def _manifest(*pairs):
+    return [{"article_title": "a", "excerpt": e, "source_urls": [u]} for e, u in pairs]
+
+
+def test_newspaper_requires_sources(library, monkeypatch):
+    item = _index_item(library, ARTICLES, kind="newspaper")
+    fetched: list = []
+    monkeypatch.setattr(library.client, "get_chunks", lambda i: fetched.append(i))
     with pytest.raises(GenerateError) as e:
         generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
     assert e.value.hint
-    assert log == []
+    assert fetched == []
 
 
 def test_newspaper_maps_articles_to_chunks_with_urls(library):
-    item = library.add_item(b"paper", kind="newspaper")
-    sources = [
-        {"excerpt": "mayor OPENS the new bridge", "source_urls": ["https://a.example/1"]},
-        {"excerpt": "Storm hits the coast;  thousands", "source_urls": ["https://a.example/2"]},
-        {"excerpt": "Not in the paper at all", "source_urls": ["https://a.example/3"]},
-    ]
-    _mount(library, {item.id: NEWS}, {item.id: sources}, [])
+    item = _index_item(library, ARTICLES, kind="newspaper")
+    by_text = {c.text: c for c in _chunks(library, item)}
+    library.client.put_sources(
+        item.id,
+        _manifest(
+            (ARTICLES[0][:60].upper().replace(" ", "   "), "https://a.example/1"),
+            (ARTICLES[1][:80], "https://a.example/2"),
+            ("Not in the paper at all", "https://a.example/3"),
+        ),
+    )
     s = generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
     assert s.generator["unmatched"] == 1
     assert len(s.samples) == 2
     by_url = {x.source_urls[0]: x for x in s.samples}
-    assert by_url["https://a.example/1"].reference_chunk_shas == [_sha(NEWS[1])]
-    assert by_url["https://a.example/2"].reference_contexts == [NEWS[2]]
+    assert by_url["https://a.example/1"].reference_chunk_shas == [by_text[ARTICLES[0]].chunk_sha]
+    assert by_url["https://a.example/2"].reference_contexts == [ARTICLES[1]]
     assert all(x.source_urls for x in s.samples)
 
 
-def test_newspaper_skips_articles_without_urls(library):
-    item = library.add_item(b"paper", kind="newspaper")
-    sources = [
-        {"excerpt": "Local team wins the final", "source_urls": []},
-        {"excerpt": "Storm hits the coast", "source_urls": ["https://a.example/2"]},
-    ]
-    _mount(library, {item.id: NEWS}, {item.id: sources}, [])
-    s = generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
-    assert len(s.samples) == 1 and s.generator["unmatched"] == 1
-
-
-def test_newspaper_guard_before_chunks(library):
-    item = library.add_item(b"paper", kind="newspaper", visibility="private")
-    log: list = []
-    _mount(library, {item.id: NEWS}, {item.id: [{"excerpt": "x", "source_urls": ["u"]}]}, log)
+def test_newspaper_guard_before_chunks(library, monkeypatch):
+    item = _index_item(library, ARTICLES, kind="newspaper", visibility="private")
+    library.client.put_sources(item.id, _manifest((ARTICLES[0][:60], "https://a.example/u")))
+    fetched: list = []
+    monkeypatch.setattr(library.client, "get_chunks", lambda i: fetched.append(i))
     with pytest.raises(EvalPolicyError):
         generate_newspaper_set(library.client, FakeAdapter(), FakeJudge(), REMOTE, item.id)
-    assert log == []
+    assert fetched == []
