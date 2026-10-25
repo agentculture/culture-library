@@ -57,6 +57,23 @@ Mint narrower keys for each machine client afterwards (`culture-library keys
 overview` describes the verbs). MCP clients send their own key as
 `Authorization: Bearer clk_...`; the MCP service holds none.
 
+### Rotate a client's key
+
+To change what a client's key may do (for example, add a kind), replace it in two
+steps instead of retyping a mint. The new key copies the old one's name, scopes, kinds
+and private flag. The old key keeps working until you confirm:
+
+```bash
+docker compose -f deploy/compose.yaml exec -T library \
+  culture-library keys rotate 3 --kind todo | grant set LIBRARY_PUSH_API_KEY - --hidden
+# restart the consumer on the new key, then:
+docker compose -f deploy/compose.yaml exec library \
+  culture-library keys rotate 3 --confirm <new id>
+```
+
+stdout carries only the key; the new id and the confirm command go to stderr. `keys list`
+shows which key replaced which.
+
 ## Remote access with cultureflare
 
 Remote access is opt-in. `library.culture.dev` gets its own tunnel, because

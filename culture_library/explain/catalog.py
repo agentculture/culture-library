@@ -135,9 +135,21 @@ Mint, list and revoke API keys on this host. The first admin key comes from here
 because the `/api/keys` routes need an admin key.
 
 - `keys mint --name N --scope read|write|admin [--kind K] [--private]` prints the key once;
-  only a hash is stored.
-- `keys list` shows scopes, kinds and status, never the secret.
+  only a hash is stored. In text mode stdout carries only the key, so it pipes straight into
+  a secret store (`| grant set NAME - --hidden`); the note goes to stderr.
+- `keys list` shows scopes, kinds, status and `replaces` (which key a key replaced), never
+  the secret.
 - `keys revoke --id N` revokes a key.
+- `keys rotate ID [--kind K] [--drop-kind K] [--scope S] [--private | --no-private]` mints a
+  replacement with key ID's name, scopes, kinds and private flag, plus the changes given
+  (`--kind` adds to the kind list; a key for any kind stays any kind). It prints the new key
+  once, like `mint`, and records `replaces`. Key ID stays valid. A missing or revoked ID is
+  refused before anything is minted.
+- `keys rotate ID --confirm NEW_ID` revokes ID once the consumer uses the new key. It refuses
+  and changes nothing unless NEW_ID exists, is live and was minted as ID's replacement
+  (codes `key_revoked`, `not_a_replacement`).
+- `--json` on rotate reports `{old_id, new_id, name, scope, kinds, private}`; the first step
+  adds `key`, the only place the secret appears.
 
 Scopes: read; write implies read; admin implies both. `--kind` limits writes to those
 kinds; `--private` lets the key see private items.
@@ -242,5 +254,6 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("keys", "mint"): _KEYS,
     ("keys", "list"): _KEYS,
     ("keys", "revoke"): _KEYS,
+    ("keys", "rotate"): _KEYS,
     ("keys", "overview"): _KEYS,
 }
