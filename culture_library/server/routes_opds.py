@@ -209,11 +209,16 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _entry(feed: ET.Element, item: Item) -> None:
+def modified_at(item: Item, changed: dict[int, str]) -> str:
+    """When the item's file last changed: its upload, or a later in-place replace (#10)."""
+    return max(item.created_at, changed.get(item.id, ""))
+
+
+def _entry(feed: ET.Element, item: Item, changed: dict[int, str]) -> None:
     entry = ET.SubElement(feed, _q("entry"))
     _text(entry, "title", item.title)
     _text(entry, "id", f"urn:culture-library:item:{item.id}")
-    _text(entry, "updated", item.created_at)
+    _text(entry, "updated", modified_at(item, changed))
     if item.author:
         ET.SubElement(ET.SubElement(entry, _q("author")), _q("name")).text = item.author
     content = _text(entry, "content", f"{item.kind}, {item.format}, {item.size} bytes")
@@ -228,14 +233,21 @@ def _entry(feed: ET.Element, item: Item) -> None:
 
 
 def _acquisition_feed(
-    items: list[Item], *, feed_id: str, title: str, self_href: str, links: dict[str, str]
+    store: Store,
+    items: list[Item],
+    *,
+    feed_id: str,
+    title: str,
+    self_href: str,
+    links: dict[str, str],
 ) -> Response:
-    updated = max((i.created_at for i in items), default=_now())
+    changed = library.file_changed_at(store, [i.id for i in items])
+    updated = max((modified_at(i, changed) for i in items), default=_now())
     feed = _feed(feed_id, title, updated, self_href, ACQ_TYPE, OPDS_ROOT)
     for rel, href in links.items():
         _link(feed, rel, href, ACQ_TYPE)
     for item in items:
-        _entry(feed, item)
+        _entry(feed, item, changed)
     return _render(feed, ACQ_TYPE)
 
 
@@ -301,6 +313,7 @@ def search(
         else []
     )
     return _acquisition_feed(
+        store,
         items,
         feed_id="urn:culture-library:opds:search",
         title=f"Search: {q}",
@@ -353,6 +366,7 @@ def kind_feed(
     if len(rows) > PAGE_SIZE:
         links["next"] = f"/opds/{kind}?page={page + 1}"
     return _acquisition_feed(
+        store,
         rows[:PAGE_SIZE],
         feed_id=f"urn:culture-library:kind:{kind}",
         title=kind,

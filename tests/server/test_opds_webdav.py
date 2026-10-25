@@ -339,3 +339,50 @@ def test_list_items_newest_first_is_opt_in(env):
     desc = library.list_items(env.store, include_private=True, newest_first=True)
     assert [i.id for i in asc] == sorted(i.id for i in asc)
     assert [i.id for i in desc] == [i.id for i in reversed(asc)]
+
+
+# ------------------------------------------------------------------ in-place replace (#10)
+
+
+def _replace_later(env, monkeypatch, stamp="2030-01-02T03:04:05+00:00"):
+    """Replace the public Markdown note with a feed clock in the future, so the change is
+    visible against created_at."""
+    from culture_library.core import feed
+
+    monkeypatch.setattr(feed, "now", lambda: stamp, raising=False)
+    library.replace(env.store, env.pub_md.id, b"# p2\n", "p.md", include_private=True)
+    with env.store.reader() as conn:
+        (at,) = conn.execute(
+            "SELECT at FROM feed WHERE item_id = ? AND type = 'updated' ORDER BY cursor DESC",
+            (env.pub_md.id,),
+        ).fetchone()
+    assert at > env.pub_md.created_at
+    return at
+
+
+def test_opds_updated_follows_an_in_place_replace(env, monkeypatch):
+    at = _replace_later(env, monkeypatch)
+    feed = parse(env.c.get("/opds/diary", headers=env.basic(env.reader)))
+    entries = {e.find(ATOM + "title").text: e for e in feed.findall(ATOM + "entry")}
+    assert entries["Pub Note"].find(ATOM + "updated").text == at
+    assert feed.find(ATOM + "updated").text == at
+
+
+def test_dav_lastmodified_follows_an_in_place_replace(env, monkeypatch):
+    from email.utils import format_datetime
+
+    from culture_library.server.routes_opds import parse_when
+
+    at = _replace_later(env, monkeypatch)
+    want = format_datetime(parse_when(at), usegmt=True)
+    href = f"/dav/diary/{env.pub_md.id}-Pub Note.md".replace(" ", "%20")
+    got = responses(propfind(env, "/dav/diary/"))
+    assert prop(got[href], "getlastmodified").text == want
+    one = responses(propfind(env, href, depth="0"))
+    assert prop(one[href], "getlastmodified").text == want
+
+
+def test_file_changed_at_ignores_restores_and_other_events(env):
+    library.archive(env.store, env.book.id)
+    library.restore(env.store, env.book.id)
+    assert library.file_changed_at(env.store, [env.book.id, env.pdf.id]) == {}

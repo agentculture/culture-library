@@ -28,6 +28,7 @@ from culture_library.server.routes_opds import (
     file_name,
     kind_summary,
     media_type,
+    modified_at,
     not_found,
     parse_when,
     reader_principal,
@@ -90,7 +91,7 @@ def _response(
     if item is not None:
         ET.SubElement(prop, _q("getcontentlength")).text = str(item.size)
         ET.SubElement(prop, _q("getcontenttype")).text = media_type(item.format)
-        modified = item.created_at
+        modified = modified or item.created_at
     date = _http_date(modified)
     if date:
         ET.SubElement(prop, _q("getlastmodified")).text = date
@@ -155,9 +156,12 @@ def _kind_listing(
     """PROPFIND ``/dav/<kind>/``: the kind's collection and (``deep``) its visible files."""
     _response(ms, _href(kind, collection=True), kind, collection=True)
     if deep:
-        for item in _kind_items(store, principal, kind):
+        items = list(_kind_items(store, principal, kind))
+        changed = library.file_changed_at(store, [i.id for i in items])
+        for item in items:
             name = file_name(item)
-            _response(ms, _href(kind, name), name, collection=False, item=item)
+            when = modified_at(item, changed)
+            _response(ms, _href(kind, name), name, collection=False, item=item, modified=when)
 
 
 @router.api_route("/dav", methods=["PROPFIND"])
@@ -184,7 +188,8 @@ def propfind(
     if item is None:
         return not_found(f"/dav/{path}")
     name = file_name(item)
-    _response(ms, _href(kind, name), name, collection=False, item=item)
+    when = modified_at(item, library.file_changed_at(store, [item.id]))
+    _response(ms, _href(kind, name), name, collection=False, item=item, modified=when)
     return _multistatus(ms)
 
 

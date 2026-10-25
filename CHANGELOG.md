@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-10-25
+
+### Added
+
+- Site: `todo` is its own kind (#11). It gets a violet colour (`#6250d6` light, `#9085e9` dark), the validated palette's seventh slot, re-checked with the dataviz validator in both themes, plus a filter chip, a shelf legend entry and an upload option. A Markdown to-do opens as a read-only checklist: `- [ ]`/`- [x]` lines become checkboxes, `#` lines headings, and `<!-- ... -->` ids stay hidden. It is parsed by `web/static/checklist.js` from the item's file, as text nodes only.
+- OPDS `<updated>` and WebDAV `getlastmodified` follow an in-place replace (`library.file_changed_at`, read from the feed's `replaced` events), so readers that sync by date pick up a new file under the same id.
+
+### Fixed
+
+- Replace and purge unlink an old blob only after their transaction commits, re-checking references under a fresh write lock. Before, other connections could briefly see the committed old row pointing at a deleted file; a new concurrent-replace test found it.
+- `backup run` no longer fails when a replace or purge commits between its database snapshot and the blob copy. It takes a fresh snapshot, up to three attempts. A blob missing while still referenced still fails.
+
+### Changed
+
+- Contract tests cite culture-rules at `e936acf` (0.28.1). Its `KIND` constant is gone, and the library comes from actor config. The tests drive the real port's Markdown to-do upload and its replace through `PUT /api/library/{id}/file`.
+
 ## [0.14.0] - 2026-10-25
 
 ### Added

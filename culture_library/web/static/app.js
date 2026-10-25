@@ -27,8 +27,9 @@ export const KINDS = {
   transcript: { label: 'Transcript', plural: 'Transcripts' },
   repo: { label: 'Spec or plan', plural: 'Specs and plans' },
   diary: { label: 'Diary', plural: 'Diary' },
+  todo: { label: 'To-do', plural: 'To-dos' },
 };
-// API kinds (core.models.KINDS) to the six display kinds and their colors.
+// API kinds (core.models.KINDS) to the seven display kinds and their colors.
 const KIND_OF = { spec: 'repo', plan: 'repo', 'devague-record': 'repo', article: 'document' };
 export const kindKey = k => KIND_OF[k] || (KINDS[k] ? k : 'document');
 export const kc = k => `var(--k-${k})`;

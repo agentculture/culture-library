@@ -47,6 +47,7 @@ import hashlib
 import os
 import sqlite3
 import threading
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 from . import feed, indexer, search, uploaders  # noqa: F401 - they register their schema
@@ -320,11 +321,11 @@ def replace(
     owned by *another* item raise :class:`DuplicateContentError` before any UPDATE;
     otherwise the new blob is written if missing (inside the transaction, so A -> B -> A
     leaves A's blob), the row's sha256/size/format change, the old embeddings are dropped,
-    the body is re-indexed and the queue row re-opened for the embedder, an ``updated``
-    event ``{replaced, old_sha256, size, format}`` is appended, and the old blob is unlinked
-    unless another table still names it. Title, author, kind, visibility, created_at and
-    the uploader are untouched. An absent, invisible or archived item raises
-    :class:`NotFoundError`.
+    the body is re-indexed and the queue row re-opened for the embedder, and an ``updated``
+    event ``{replaced, old_sha256, size, format}`` is appended. After the commit the old
+    blob is unlinked unless something still names it (:func:`_unlink_unreferenced`).
+    Title, author, kind, visibility, created_at and the uploader are untouched. An absent,
+    invisible or archived item raises :class:`NotFoundError`.
     """
     try:
         fmt = _validate(data, filename, limits)
@@ -367,8 +368,7 @@ def replace(
             updated,  # type: ignore[arg-type]
             {"replaced": True, "old_sha256": item.sha256, "size": len(data), "format": fmt},
         )
-        if not _blob_referenced(conn, item.sha256):
-            store.blob_path(item.sha256).unlink(missing_ok=True)
+    _unlink_unreferenced(store, [item.sha256])
     return updated  # type: ignore[return-value]
 
 
@@ -516,16 +516,61 @@ def _blob_referenced(conn: sqlite3.Connection, sha: str) -> bool:
     return False
 
 
+_CHANGED_CHUNK = 500  # ids per query, well under SQLite's bound-parameter limit
+
+
+def file_changed_at(store: Store, item_ids: Iterable[int]) -> dict[int, str]:
+    """``{item_id: at}`` of each item's latest in-place file replace (:func:`replace`).
+
+    Read from the feed's ``updated`` events marked ``replaced`` (restores and other updates
+    are not file changes); items never replaced are absent. ``created_at`` stays the upload
+    time, so a reader that syncs by date takes the later of the two (OPDS, WebDAV).
+    """
+    ids = sorted({int(i) for i in item_ids})
+    out: dict[int, str] = {}
+    with store.reader() as conn:
+        for start in range(0, len(ids), _CHANGED_CHUNK):
+            chunk = ids[start : start + _CHANGED_CHUNK]
+            marks = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                "SELECT item_id, max(at) FROM feed WHERE type = 'updated' "  # nosec B608
+                f"AND json_extract(data, '$.replaced') = 1 AND item_id IN ({marks}) "
+                "GROUP BY item_id",
+                chunk,
+            ).fetchall()
+            out.update({row[0]: row[1] for row in rows})
+    return out
+
+
+def _unlink_unreferenced(store: Store, shas: list[str]) -> None:
+    """Delete each blob no row names, *after* the change that dropped it has committed.
+
+    Unlinking inside that transaction would let other connections see the committed old
+    row pointing at a deleted file until COMMIT. Here a fresh write transaction re-checks the
+    references under the lock: an upload or replace that brought the same bytes back has
+    either committed (so the blob is kept) or re-writes a missing blob in its own
+    transaction (``add`` and ``replace`` both do).
+    """
+    if not shas:
+        return
+    with store.connect() as conn:
+        for sha in shas:
+            if not _blob_referenced(conn, sha):
+                store.blob_path(sha).unlink(missing_ok=True)
+
+
 def purge_expired(store: Store, now: datetime | None = None) -> list[int]:
     """Permanently remove items archived at least :data:`RETENTION` ago; return their ids.
 
     One transaction: delete the rows (index queue and embeddings cascade, the FTS row is
-    deleted here), append ``purged`` events, and unlink each blob no other row names. The
-    unlink happens while the write lock is held, and :func:`add` re-writes a missing blob
-    inside its own write transaction, so a same-bytes upload racing a purge keeps its bytes.
+    deleted here) and append ``purged`` events. Then each blob no other row names is
+    unlinked by :func:`_unlink_unreferenced`, after the commit and under a fresh write lock;
+    :func:`add` re-writes a missing blob inside its own write transaction, so a same-bytes
+    upload racing a purge keeps its bytes.
     """
     cutoff = _now(now) - RETENTION
     purged: list[int] = []
+    dropped: list[str] = []
     with store.connect() as conn:
         rows = conn.execute(_SEL + " WHERE archived_at IS NOT NULL ORDER BY id").fetchall()
         for row in rows:
@@ -535,9 +580,9 @@ def purge_expired(store: Store, now: datetime | None = None) -> list[int]:
             conn.execute("DELETE FROM search_fts WHERE rowid = ?", (item.id,))
             conn.execute("DELETE FROM items WHERE id = ?", (item.id,))
             _event(conn, "purged", item, {"archived_at": item.archived_at})
-            if not _blob_referenced(conn, item.sha256):
-                store.blob_path(item.sha256).unlink(missing_ok=True)
+            dropped.append(item.sha256)
             purged.append(item.id)
+    _unlink_unreferenced(store, dropped)
     return purged
 
 
@@ -598,6 +643,7 @@ __all__ = [
     "check_kind",
     "check_visibility",
     "default_kind",
+    "file_changed_at",
     "get",
     "list_items",
     "purge_expired",

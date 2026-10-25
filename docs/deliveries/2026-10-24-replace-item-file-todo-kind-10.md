@@ -153,10 +153,16 @@ Lapse ledger evidence:
 
 ## Remaining Work / Follow-up
 
-- Re-cite `tests/contract/culture_rules_wire.py` to culture-rules `8c4c3fb` (#91
-  removed `KIND` and requires `upload_path`). This is a pre-existing drift that the
-  plan risk records.
-- A concurrent-replace test for c34 (threads interleaving A→B→A), to raise its
-  confidence from medium.
-- Trace `backup.py`'s copy order to settle lapse `l1` and the parked backup race.
-- #11: show the `todo` kind on the site.
+All four follow-ups were done in 0.15.0, after this run closed:
+
+- The contract copy is re-cited at culture-rules `e936acf` (0.28.1). The tests now drive
+  the real port's upload, and its replace through `PUT /api/library/{id}/file`.
+- A concurrent-replace test for c34 now exists. Its first run found a real bug: the old
+  blob was unlinked before the commit, so other connections could see the committed old
+  row pointing at a deleted file. `replace` and `purge_expired` now unlink after the
+  commit, re-checking references under a fresh write lock.
+- Lapse `l1` is traced. `run_backup` copies the database first and then the blobs it
+  names. A replace or purge in between made the run fail with "missing". It now takes a
+  fresh snapshot, up to three attempts.
+- #11: the site shows `todo` as its own kind, with a violet colour (validated), a filter
+  chip, an upload option and a read-only checklist reader.
