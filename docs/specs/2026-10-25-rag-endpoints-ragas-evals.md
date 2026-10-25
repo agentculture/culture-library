@@ -67,6 +67,39 @@
 - eval generate refuses to send a non-public item's text to a non-local judge endpoint (host not 127.0.0.1/localhost/::1) and exits with a CliError + hint
   - instruction: unit test: private item + judge URL <https://api.example.com> -> exit 1 with hint; same item + 127.0.0.1 -> proceeds
   - honesty: The locality check runs before any item text is read into a request body
+- Every new item-child table (eval sets, eval samples, eval runs if item-keyed, `item_sources`) is added to `_ITEM_CHILDREN` so the items kind-rebuild counts and FK-checks it; the rebuild runs with `foreign_keys` OFF and checks only listed tables (store.py:68, 120-150)
+  - instruction: tests/core/`test_store_migration.py`: seed rows in every new table, force a kind rebuild, assert counts unchanged and no FK violations
+  - honesty: A future kind addition never silently drops or orphans eval or sidecar rows
+- Each eval set pins the item sha256 (and chunker params) it was generated from; eval run refuses — or records the run as stale — when the item's current sha256 differs (PUT /api/library/{id}/file replace keeps the id but drops embeddings, library.py:306-370), when the item is archived, or when its `index_queue` row is not done
+  - instruction: tests: generate set, replace item bytes, eval run -> refused/stale with a hint; archive item -> refused; pending re-index -> refused
+  - honesty: No stored run mixes references from one version of an item's text with retrieval over another
+- The local-judge rule (c36) also covers eval run: when the judge endpoint is non-local, scoring sends no text from non-public items — retrieved passages from private items (which a private-capable key can retrieve for any query) are excluded or the run uses ID-based metrics only
+  - instruction: test: private-capable key, non-local judge, a query that retrieves a private passage -> that passage's text never appears in a judge request (fake judge records payloads)
+  - honesty: With a non-local judge, the judge's request log contains only public-item text
+- The server reports its retrieval config — embed model, chunker `max_chars`, chunk count — via /api/status (or each retrieve response), and eval run records those server-reported values, not client-side guesses (`routes_status.py` exposes no embed model today)
+  - instruction: tests: /api/status includes `embed_model` and chunker; a stored run's config equals the server-reported values
+  - honesty: A run's recorded embed model is the one that produced the vectors searched
+- A run that fails midway (judge timeout, gateway down, 503) is stored with status=partial or failed and the completed sample count, or not stored — never as complete with aggregates over a subset
+  - instruction: fake judge fails on sample 3 of 5 -> stored run status != complete and aggregates are absent or flagged
+  - honesty: Aggregate scores are only reported for runs where every sample was scored
+- Live enablement is a runbook step: docs/operations/deploy.md gains an 'enable embeddings' section — set `GATEWAY_API_KEY`, `LOBES_GATEWAY_URL`=<http://host.docker.internal:8001> (with the compose `extra_hosts`), `LOBES_EMBED_MODEL`=gemma2-embed and the reranker role in live.env, deploy restart, `requeue_all`, wait for `index_queue` all done and embeddings > 0; rollback = unset the vars and restart (search degrades to full-text, per the `routes_search.py` hybrid fallback)
+  - instruction: after the runbook: live /api/status reports `embed_model` and a non-zero chunk count; /api/rag/retrieve returns passages
+  - honesty: Rolling back the embedder leaves live search working in full-text mode with no data loss
+- The embedder is gemma2-embed (google/embeddinggemma-2, served from orin), reached through the lobes gateway by role name — the same path embodiment uses (embodiment/vectors.py `EMBED_ROLE`)
+  - instruction: live /api/status reports `embed_model` gemma2-embed and the embeddings table fills after re-embed
+  - honesty: Vectors in the embeddings table are all from gemma2-embed (embeddings.model) — no mixed-model corpus
+- RAG retrieval has a reranker stage using the lobes gateway's reranker role (Qwen/Qwen3-Reranker-0.6B on /v1/rerank)
+  - instruction: retrieve with rerank on returns passages ordered by reranker relevance; eval runs record reranker on/off
+  - honesty: Reranked and unreranked runs over the same eval set are stored as distinct, comparable configs
+- Rerank detail: /api/rag/retrieve takes rerank (default true when a reranker is configured) and candidates (default 50); it fetches that many passages, POSTs {model: reranker, query, documents} to /v1/rerank (shape per lobes `roles_measure.py`:239), reorders by `relevance_score`, returns top k with both scores and reranked: true|false; an unreachable reranker degrades to the unreranked order with reranked: false, never a 5xx
+  - instruction: tests with a fake reranker: reorders; failure -> reranked false + original order; eval run config records rerank + candidates so runs with and without rerank are comparable
+  - honesty: A reranker outage changes ordering quality only, never availability of /api/rag/retrieve
+- The library container reaches the gateway through a host-reachable URL: compose adds `extra_hosts` host.docker.internal:host-gateway and live.env sets `LOBES_GATEWAY_URL`=<http://host.docker.internal:8001> — the default 127.0.0.1:8001 is refused inside the container (bridge network culture-`library_default`)
+  - instruction: docker exec culture-library-library-1 can GET $`LOBES_GATEWAY_URL`/capabilities -> 200 after deploy restart
+  - honesty: The gateway key only travels to the configured gateway origin (no redirects followed), as embodiment's transport enforces
+- Asymmetric prompts for gemma2-embed: chunks are embedded with `prompt_name` Retrieval-document and queries with Retrieval-query (the lane accepts these and refuses Query, per embodiment/vectors.py:20-23, `PROMPT_NAMES`); the prompt pair is part of the recorded embed config. Live has 0 embeddings today, so adopting it before the first re-embed costs nothing extra
+  - instruction: tests: GatewayEmbedder sends `prompt_name` per role (document at index, query at retrieve); /api/status reports the prompt config
+  - honesty: Index-time and query-time prompts are never mixed across embed configs within one run
 
 ## Honesty conditions
 
@@ -143,7 +176,7 @@
   - seeds: `c14`, `q1` (question, resolved)
 - `s14` — `culture_library/core/models.py KINDS`: no newsletter kind; newspaper is the culture-rules daily web-sourced EPUB; adding a kind forces the items-table rebuild
   - seeds: `q2` (question, resolved)
-- `s15` — `lobes gateway :8001`: gateway is reachable (returned `invalid_api_key` without a key); only /v1/embeddings is used in code; chat model availability unverified
+- `s15` — `lobes gateway :8001`: verified 2026-10-25 via GET <http://127.0.0.1:8001/capabilities> (no key needed): gemma2-embed = google/embeddinggemma-2 on /v1/embeddings, ready, proxied from orin; reranker = Qwen/Qwen3-Reranker-0.6B on /v1/rerank, ready (orin/spark2/thor lanes); /v1/chat/completions served (cortex = Qwen3.8-27B-NVFP4 local, worker on thor) — a judge LLM exists
   - seeds: `c15`, `q3` (question, resolved)
 - `s16` — `GitHub issues #4 and #7`: \#4 adds repodocs to FTS/embeddings; #7 asks for recall@5 on real queries to compare gemma2-embed vs Qwen3 — the harness is the natural tool for #7
   - seeds: `c17`
@@ -151,6 +184,32 @@
   - seeds: `c18`
 - `s18` — `culture_library/core/indexer.py _index_embeddings`: chunks are only written when an embedder is configured (early return when self.embed is None), so passage retrieval depends on embeddings; keyword-only passage retrieval would need a separate chunk store
   - seeds: `c3`
+- `s19` — `challenge pass / adjacent-systems lens: live library container env + library.db`: read-only probe: `GATEWAY_API_KEY`, `LOBES_GATEWAY_URL`, `LOBES_EMBED_MODEL` unset; 0 embedding rows; live search is full-text only, so RAG retrieve has nothing to serve
+  - seeds: `q6` (question, resolved)
+- `s20` — `challenge pass / unstated-assumptions lens: live corpus composition`: items by kind (live, read-only): book 1, newspaper 15, document 36, transcript 3, todo 2 — c30's >=3 books is not reachable today
+  - seeds: `q7` (question, resolved)
+- `s21` — `challenge pass / migration lens: core/store.py _rebuild_items`: rebuild drops/renames items with FKs off and verifies only `_ITEM_CHILDREN`; an unlisted child table would escape the integrity check (`item_uploaders` is already unlisted — pre-existing, out of scope)
+  - seeds: `c37`
+- `s22` — `challenge pass / lifecycle lens: core/library.py replace() + archive()`: replace swaps bytes under the same id, deletes embeddings and re-queues; archive hides the item from search — both silently invalidate `chunk_sha` references
+  - seeds: `c38`
+- `s23` — `challenge pass / security lens: c36 vs eval run data flow`: c36 gated only generate; LLM-based context precision/recall send retrieved passages to the judge, and retrieval can return other private items' passages
+  - seeds: `c39`
+- `s24` — `challenge pass / observability lens: server/routes_status.py`: no embed model or chunker info is exposed; c19's run record would otherwise rely on CLI config that can disagree with the server
+  - seeds: `c40`
+- `s25` — `challenge pass / failure-mode lens: eval run against live gateway`: judge LLM and embed gateway are separate failure points; no claim covered a half-finished run
+  - seeds: `c41`
+- `s26` — `challenge pass / cheap-probe lens: PyPI ragas`: latest ragas 0.4.3, requires openai, langchain, langchain-openai, datasets>=4, instructor — confirms the optional extra; API churned across 0.1/0.2/0.3/0.4, so the adapter pins a version
+  - seeds: `q8` (question, resolved)
+- `s27` — `challenge pass / recovery lens: core/backup.py`: clean: `_backup_db` uses sqlite online backup of the whole DB, so new tables are snapshotted and restored; verify() checks items/repodocs only, eval rows aren't verified but are derived and regenerable
+- `s28` — `challenge pass / security lens: item visibility mutability`: clean: no route or core function updates items.visibility, so visibility-at-generation equals visibility-at-read; residual risk only if a visibility-change feature is added later
+- `s29` — `challenge pass / concurrency lens: indexer vs eval run`: covered by the not-done/sha refusal requirement; residual: the live indexer and an eval run share one gateway — contention only, not correctness
+- `s30` — `challenge pass / adjacent-systems lens: lobes-cli roles_measure.py rerank probe`: lobes posts {model, query, documents} to /v1/rerank (`roles_measure.py`:239); vLLM rerank answers results\[{index, `relevance_score`}\] — the library reranker client copies that shape
+  - seeds: `c48`
+- `s31` — `challenge pass / operations lens: live library container networking`: probe from inside culture-library-library-1: 127.0.0.1:8001 connection refused, host.docker.internal unresolvable, 172.17.0.1:8001 -> 200; compose sets no `extra_hosts` and the default gateway URL would fail silently into full-text
+  - seeds: `c49`
+- `s32` — `challenge pass / adjacent-systems lens: embodiment/embodiment/vectors.py`: embodiment calls gemma2-embed via the same gateway with `prompt_name` Retrieval-query / Retrieval-document; culture-library gateway.py:46 sends only {model, input} — no prompt
+  - seeds: `c50`
+- `s33` — `challenge pass / adjacent-systems lens: embodiment/embodiment/library/index.py`: Gwen keeps her own 0600 chunk index over library items because the library's search was title/author only for her; she reconciles by (item id, sha256). Once /api/rag/retrieve exists she is a natural client, but migrating her is out of scope here (a sibling-repo follow-up)
 
 ## Decisions
 
@@ -159,20 +218,29 @@
 - First cut success is a recorded baseline, not a quality gate: no score threshold blocks delivery
 - First cut is retrieval-only: RAG endpoints return passages; evals score context precision/recall
 - 'Newsletters' means the existing newspaper kind; its source links arrive as a culture-rules sidecar; the judge LLM is a configurable OpenAI-compatible endpoint defaulting to local lobes, with non-local endpoints limited to public items
+- Enabling the embedder on live is part of this delivery: `GATEWAY_API_KEY` and `LOBES_`\* go into ~/.config/culture-library/live.env, culture-library deploy restart, then a full re-embed of the live corpus before the baseline
+- The operator uploads at least 2 more books to live before the baseline run, so c30's >= 3 books holds as written
+- Every eval run scores ID-based context precision/recall over `chunk_sha`; LLM-judged context precision/recall are added when a judge endpoint is configured, subject to c39
 
 ## Hard questions
 
+- RAGAS 0.4.3 (PyPI probe) offers ID-based context precision/recall that compare retrieved vs reference context ids without an LLM — `chunk_sha` fits that exactly. Baseline on ID-based metrics only (deterministic, no judge at run time), LLM-based only, or both? (resolved: User 2026-10-25: both — ID-based (`chunk_sha`) context precision/recall on every run; LLM-based context precision/recall added when a judge is configured, under the c39 rule)
 - Links are dropped at ingest today (Markdown keeps label only, ingest.py:236; EPUB `handle_starttag` ignores href attrs, ingest.py:181-185) and items have no `source_url` column — do we (a) extract links from the stored EPUB blob at eval time, (b) add a link table at ingest, or (c) have culture-rules push a sources sidecar? (resolved: User 2026-10-25: culture-rules pushes a sources sidecar (manifest of article→source URLs) with each issue; library ingest is not changed to extract hrefs)
 - The user says 'newsletters' but KINDS (models.py:12-23) has no newsletter — is it the existing 'newspaper' kind (daily EPUB pushed by culture-rules, spec s5/s24), or a new kind for third-party newsletters? (resolved: User 2026-10-25: 'newsletters' = the existing newspaper kind (culture-rules daily EPUB); no new kind)
 - No chat/completions client exists in the repo and the gateway's chat model list wasn't verifiable from here (key absent) — which model judges/generates (local Qwen3.8-27B via lobes per CHANGELOG:287, or Claude via API), and is cost/quality of a local judge acceptable? (resolved: User 2026-10-25: configurable OpenAI-compatible judge endpoint, defaulting to the local lobes gateway; an external model may only be used for public items)
 - Is the first cut retrieval-only (context precision/recall against our search) or also a generation endpoint (/api/rag/answer) — the user said 'we fetch what we want', which reads retrieval-first? (resolved: User 2026-10-25: retrieval only for the first cut — context precision/recall; answer generation + faithfulness come later via the same adapter seam)
 - Where do eval results live — in the library DB (new tables, viewable on the site/API) or as files/repo artifacts (e.g. docs/evidence JSON)? And who triggers runs: CLI on demand, a culture-rules schedule, or on ingest? (resolved: User 2026-10-25: eval sets + run results live in the library DB (item-child tables, readable via /api/eval and MCP); runs are CLI on demand (eval generate / eval run) against the live server; no schedule, no on-ingest generation)
+- The live library runs with no embedder (`GATEWAY_API_KEY`/`LOBES_`\* unset in culture-library-library-1; embeddings table has 0 rows, `index_queue` 58 done) so /api/rag/retrieve would 503 live. Does this delivery include turning on the gateway key in live.env and a full re-embed (`requeue_all`), or is the baseline taken against a local/staging server instead? (resolved: User 2026-10-25: enable the embedder on live in this delivery — `GATEWAY_API_KEY` + `LOBES_`\* in live.env, deploy restart, full re-embed; baseline measured on live)
+- Live has 1 book, 15 newspapers, 36 documents, 3 transcripts, 2 todos (non-archived). c30 needs >= 3 books: upload more books, lower the bar to the books that exist, or count documents/transcripts as long-form sources? (resolved: User 2026-10-25: keep >= 3 books; the operator uploads >= 2 more books before the baseline run)
 
 ## Open parks
 
 - [unknown_nonblocking] Copyright/size: whole-book generation cost (tokens, time) on long books — sampling strategy (N chunks per book) undecided
 - [unknown_nonblocking] Exact sidecar schema (fields per article; excerpt vs offsets) to be agreed with culture-rules in the c20 sibling issue
+- [unknown_nonblocking] Gateway contention: an eval run's per-query embeddings + judge calls share the lobes gateway with the live indexer and colleague; throughput impact unmeasured
+- [unknown_nonblocking] Residual: lenses examined here do not cover OPDS/WebDAV/send paths (judged untouched by this feature) or the culture-rules side of the sidecar; no claim is made that no other blind spots exist
 - [follow_up] Keyword-only passage retrieval (no embedder): needs chunks stored independent of embeddings, e.g. a chunk FTS table — deferred
+- [follow_up] Follow-up: offer embodiment (Gwen) /api/rag/retrieve as a replacement for her private chunk index — sibling-repo decision
 
 ## Resolved vagueness
 
