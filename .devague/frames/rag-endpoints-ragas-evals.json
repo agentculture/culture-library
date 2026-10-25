@@ -1,0 +1,888 @@
+{
+  "slug": "rag-endpoints-ragas-evals",
+  "title": "RAG endpoints + RAGAS evals",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-25T09:24:00Z",
+  "updated": "2026-10-25T11:05:20Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-library ships RAG retrieval endpoints and a pluggable eval harness (RAGAS first): books get benchmarks generated from their text, newspapers get evals grounded in their sources and links, and every run proves search fetches what we want",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Retrieval quality is measured against references derived from the content itself, not hand-written expectations that could flatter search",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the success signals pass on the live library",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A chunk-level retrieve function returns (item_id, chunk_no, full chunk text, score) \u2014 core/search.py semantic() today keeps only the best chunk per item and truncates text to 200 chars (search.py:196-226), and Hit (search.py:47-55) has no chunk id, so RAG contexts need a new shape",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "chunk_sha is sha256 of the exact stored chunk text, so a reference context matches a retrieved passage iff the text is identical",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/core/test_rag.py: passages() returns full chunk text + chunk_sha for a seeded item; private chunks excluded for a non-private caller",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "A new routes_rag.py exposes POST /api/rag/retrieve {query, k, mode: semantic|hybrid, kind?, item_ids?} returning ranked passages [{item_id, title, kind, chunk_no, chunk_sha, text, score, source}], auto-included by server/app.py:34-46, gated by check(principal, 'read') with the same include_private/owner visibility as /api/search (routes_search.py:115-120); 503 rag_unavailable when no embedder is configured",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "/api/rag/retrieve never returns a passage from an item /api/search would hide from the same principal",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/server/test_rag_route.py: retrieve returns passages; 503 rag_unavailable with no embedder; visibility parity with /api/search",
+      "revisions": [
+        {
+          "text": "A new routes_rag.py exposes RAG endpoints (retrieve contexts; optionally answer) auto-included by server/app.py:34-46, gated by check(principal, 'read') with the same visibility dict as /api/search (routes_search.py:115-120)",
+          "kind": "requirement",
+          "reason": "retrieval-only first cut (c24); concrete shape"
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "GET /api/search keeps its response shape (item_id, snippet, ...) \u2014 web/static/search.js:46 consumes only item_id and snippet and MCP's search tool returns the raw dict (mcp/client.py:202-206)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "No field of the /api/search hit is renamed or removed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "existing tests/server/test_status_search.py passes unchanged",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Eval sets (generated QA/benchmark samples) are stored in a new item-child table registered via register_schema with ON DELETE CASCADE and added to _ITEM_CHILDREN (store.py:67), so purging an item purges its evals",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Deleting or purging an item leaves no orphaned eval set, sample or sidecar row",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/core: eval tables created via register_schema; deleting an item cascades; _ITEM_CHILDREN updated and migration test passes",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "assumption",
+      "text": "Ground-truth contexts must be anchored by content (text hash / offsets), not by (item_id, chunk_no) \u2014 set_embeddings deletes and renumbers an item's chunks on every re-index, replace or requeue_all (search.py:141-148)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Eval framework is a pluggable adapter interface (generate testset, score run) with RAGAS as the only shipped adapter; the dataset format and run records are framework-neutral so DeepEval/TruLens/custom recall@k can plug in later",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "Nothing outside the RAGAS adapter module imports ragas",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "an EvalAdapter protocol (generate_testset, score) in culture_library/eval/; a fake adapter in tests proves a second adapter plugs in with no core change",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "ragas and its stack live in a new optional [eval] extra, imported lazily inside the eval CLI handler with a CliError 'install culture-library[eval]' hint, mirroring cli/_commands/server.py:51-61; tests/test_zero_deps.py:17 blocks the new modules",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "pyproject dependencies stays [] and the base CLI imports without ragas installed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "pyproject [eval] extra; eval CLI without the extra exits 2 with 'install culture-library[eval]' (tests/test_zero_deps.py)",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "The production Docker image keeps installing only .[server] (Dockerfile:125); eval runs host-side or in a separate image/target, never bloating the library container",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The production library image size and dependency set are unchanged by this work",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "deploy/Dockerfile still installs .[server] only (grep in a test or review)",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "core/ stays stdlib-only and network-free (enforced by tests/core/test_store.py::test_core_source_has_no_network_imports); any LLM/judge client lives beside gateway.py or in an eval package",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "No file under culture_library/core/ imports a network or LLM client",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/core/test_store.py::test_core_source_has_no_network_imports still passes",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A new 'eval' CLI noun (overview default, verbs e.g. generate / run / show), registered in cli/__init__.py, with explain catalog entries and learn.py mention so teken cli doctor --strict passes (tests.yml:77-78)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Every eval verb honours --json and the stdout/stderr split",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uv run teken cli doctor . --strict passes; explain eval / eval generate / eval run resolve",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Eval tests run in CI without network or ragas: adapters are tested with injected fake LLM/embedder (same app.state.embedder injection as tests/server/test_status_search.py), and real ragas runs are an opt-in group/marker like 'visual'",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Default CI makes zero network calls and does not install ragas",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "eval tests use injected fakes; real-ragas tests carry a marker and are skipped in default CI",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Book benchmarks are generated from the book's own extracted text (ingest.extract_text EPUB/PDF) into QA samples with reference contexts and reference answers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Every reference context in a book eval set is a verbatim span of that book's indexed text",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "eval generate on a book item builds samples whose reference contexts are verbatim chunks of that book (chunk_sha matches the embeddings table)",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Newspaper (kind=newspaper) evals are grounded in a sources sidecar pushed by culture-rules with each issue (article \u2192 source URL(s)); samples reference those sources and retrieval is scored on returning the passages derived from them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "Every newspaper sample traces to at least one source URL in that issue's sidecar",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Links are dropped at ingest today (Markdown keeps label only, ingest.py:236; EPUB handle_starttag ignores href attrs, ingest.py:181-185) and items have no source_url column \u2014 do we (a) extract links from the stored EPUB blob at eval time, (b) add a link table at ingest, or (c) have culture-rules push a sources sidecar?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User 2026-10-25: culture-rules pushes a sources sidecar (manifest of article\u2192source URLs) with each issue; library ingest is not changed to extract hrefs"
+        },
+        {
+          "id": "q2",
+          "text": "The user says 'newsletters' but KINDS (models.py:12-23) has no newsletter \u2014 is it the existing 'newspaper' kind (daily EPUB pushed by culture-rules, spec s5/s24), or a new kind for third-party newsletters?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User 2026-10-25: 'newsletters' = the existing newspaper kind (culture-rules daily EPUB); no new kind"
+        }
+      ],
+      "links": [],
+      "instruction": "eval generate on a newspaper with a sidecar builds samples whose reference contexts come from the sidecar's articles; without a sidecar it errors with a hint",
+      "revisions": [
+        {
+          "text": "Newspaper evals are grounded in the issue's sources and links: each sample references the source URL(s) an article came from, and retrieval is scored on returning the passage that cites that source",
+          "kind": "requirement",
+          "reason": "user decisions q1 (sidecar) + q2 (newspaper kind)"
+        }
+      ]
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The RAGAS judge/generator LLM (and embeddings) is a configurable OpenAI-compatible endpoint defaulting to the local lobes gateway (LOBES_GATEWAY_URL + GATEWAY_API_KEY); a non-local endpoint may only receive text from public items",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "With default config, no item text leaves the host",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "No chat/completions client exists in the repo and the gateway's chat model list wasn't verifiable from here (key absent) \u2014 which model judges/generates (local Qwen3.8-27B via lobes per CHANGELOG:287, or Claude via API), and is cost/quality of a local judge acceptable?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User 2026-10-25: configurable OpenAI-compatible judge endpoint, defaulting to the local lobes gateway; an external model may only be used for public items"
+        }
+      ],
+      "links": [],
+      "instruction": "config via env (e.g. CULTURE_LIBRARY_EVAL_LLM_URL / _MODEL, defaulting to LOBES_GATEWAY_URL); fake endpoint in tests",
+      "revisions": [
+        {
+          "text": "RAGAS needs a judge/generator LLM; it is reached through the OpenAI-compatible lobes gateway (LOBES_GATEWAY_URL + GATEWAY_API_KEY, gateway.py:18-45) with a new chat-model setting",
+          "kind": "requirement",
+          "reason": "user decision q3"
+        }
+      ]
+    },
+    {
+      "id": "c16",
+      "kind": "non_goal",
+      "text": "No answer-generation endpoint in the first cut: RAG endpoints return retrieved passages only; faithfulness/answer-relevancy metrics wait for a later adapter-compatible addition",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "Is the first cut retrieval-only (context precision/recall against our search) or also a generation endpoint (/api/rag/answer) \u2014 the user said 'we fetch what we want', which reads retrieval-first?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User 2026-10-25: retrieval only for the first cut \u2014 context precision/recall; answer generation + faithfulness come later via the same adapter seam"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The RAG answer path (retrieve + LLM-generated answer with citations) is in scope so RAGAS faithfulness/answer-relevancy can be scored, not just context precision/recall",
+          "kind": "requirement",
+          "reason": "user chose retrieval-only (q4)"
+        }
+      ]
+    },
+    {
+      "id": "c17",
+      "kind": "non_goal",
+      "text": "Indexing repo documents into search (#4) and switching the default embedding model (#7) are separate issues; the eval harness should make #7's comparison possible (run the same eval set against two embedders) but does not perform the switch",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "non_goal",
+      "text": "No ANN/vector-index rewrite: semantic() is brute-force pure-Python cosine (search.py:196-226); performance work is out unless evals show it blocks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Eval runs are recorded (dataset version, adapter+version, retriever config incl. embed model and mode, per-metric scores) so results compare across runs and frameworks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "Two runs are only reported as comparable when they share the same eval set id and version",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "Where do eval results live \u2014 in the library DB (new tables, viewable on the site/API) or as files/repo artifacts (e.g. docs/evidence JSON)? And who triggers runs: CLI on demand, a culture-rules schedule, or on ingest?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "User 2026-10-25: eval sets + run results live in the library DB (item-child tables, readable via /api/eval and MCP); runs are CLI on demand (eval generate / eval run) against the live server; no schedule, no on-ingest generation"
+        }
+      ],
+      "links": [],
+      "instruction": "each stored run carries dataset id+version, adapter name+version, retriever mode, embed model, k, per-sample and aggregate scores",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "A culture-rules change is needed to push the newspaper sources sidecar \u2014 filed as a sibling-repo issue via /communicate; the library side only accepts and stores it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The library side works (accepts and stores a sidecar) before culture-rules ships its change",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "a culture-rules issue is filed via /communicate and linked from the spec",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "Eval sets and run results live in the library DB (item-child tables, readable through /api/eval and MCP), not as repo files",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "Eval runs start on demand from the CLI (eval generate, eval run) against a library server; no culture-rules schedule and no on-ingest generation in the first cut",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "First cut success is a recorded baseline, not a quality gate: no score threshold blocks delivery",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "First cut is retrieval-only: RAG endpoints return passages; evals score context precision/recall",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "'Newsletters' means the existing newspaper kind; its source links arrive as a culture-rules sidecar; the judge LLM is a configurable OpenAI-compatible endpoint defaulting to local lobes, with non-local endpoints limited to public items",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "audience",
+      "text": "Two readers: (1) machine clients that need grounded context \u2014 MCP agents, Gwen, culture-rules \u2014 calling RAG retrieve with scoped keys; (2) the operator measuring whether library search fetches the right passages, per content kind and per embedder",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "Both audiences can reach their surface with existing auth: scoped API keys for machines, Access for people",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "check the spec names MCP/agent clients and the operator as the consumers of /api/rag and eval results",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "before_state",
+      "text": "Search returns item-level hits with a 200-char snippet (core/search.py Hit); nothing measures retrieval quality \u2014 t7 evidence explicitly did not evaluate it, and #7 (gemma2-embed vs Qwen3) has no way to be decided",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The before-state is cited from repo evidence (search.py Hit, t7 evidence, #7), not asserted",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "cite docs/evidence/t7-embedding-cost.md and issue #7 in the spec's before-state",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "why_it_matters",
+      "text": "Agents answering from the library need the passage, not the title; and without a measured baseline we can't choose an embedder, tune chunking, or notice search regressions",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The harness can drive #7's comparison without code changes, only config",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "the spec's why section links the measurement to #7 and to future chunker/mode changes",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "after_state",
+      "text": "An agent POSTs a query to /api/rag/retrieve (or the MCP rag_retrieve tool) and gets ranked passages it can cite; the operator runs `culture-library eval generate <item>` to build an eval set from a book's text or a newspaper's sources sidecar, then `culture-library eval run <set>` to score retrieval with RAGAS and store context precision/recall in the library, comparable across runs, modes and embedders",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The after-state walkthrough runs end to end in a test with fakes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "walk the after-state end to end against a test server with fake LLM/embedder in tests/eval/",
+      "revisions": [
+        {
+          "text": "An agent POSTs a query to /api/rag/retrieve (or the MCP rag_retrieve tool) and gets ranked passages it can cite; the operator runs 'culture-library eval generate <item>' to build an eval set from a book's text or a newspaper's sources sidecar, then 'culture-library eval run <set>' to score retrieval with RAGAS and store context precision/recall in the library, comparable across runs, modes and embedders",
+          "kind": "after_state",
+          "reason": "backtick angle-bracket placeholders (MD033 in export); wording unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c30",
+      "kind": "success_signal",
+      "text": "Baseline recorded on the live library: eval sets exist for >= 3 books and >= 3 newspaper issues, and each set has >= 1 stored run with RAGAS context precision and context recall",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "The 6 baseline sets are generated from real library items, not fixtures",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "GET /api/eval/runs on the live server lists >= 6 sets with >= 1 run each, each carrying both metric values",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "success_signal",
+      "text": "The same eval set run under two retriever configs (e.g. mode semantic vs hybrid, or two embed models) yields 2 stored runs whose metrics are directly comparable, sufficient to inform #7",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The runs differ only in retriever config",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "eval run twice on one set with different --mode; GET /api/eval/runs shows 2 runs with identical sample counts and differing config",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "success_signal",
+      "text": "CI stays green with ragas absent: 0 new required runtime deps (pyproject dependencies == []), test_zero_deps blocks ragas and passes, and eval tests run on fakes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "No CI job installs the [eval] extra by default",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uv run pytest -n auto on a plain uv sync; tests/test_zero_deps.py passes with ragas in the blocked set",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Newspaper sources sidecar: PUT /api/library/{id}/sources (write scope) stores a JSON manifest [{article_title, source_urls[], excerpt}] in an item_sources child table (cascade on item delete); GET returns it under the item's visibility rule",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "A sidecar for a private item is never visible to a principal that can't see the item",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/server: PUT then GET round-trips; a read key cannot PUT; deleting the item removes the sidecar; private-item sidecar invisible to non-owner public key",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "Eval API: POST /api/eval/sets and POST /api/eval/runs (write scope) store generated sets and scored runs; GET /api/eval/sets?item_id= and GET /api/eval/runs?set_id= (read scope) return them, filtered by the underlying item's visibility",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "Eval GET endpoints never expose sample text from items the caller can't see",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/server/test_eval_api.py covers store, list, visibility filtering and scope enforcement",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "MCP gains a rag_retrieve tool mirroring POST /api/rag/retrieve (one _spec + _handlers entry in mcp/tools.py), so agents get passages through the same key-scoped path",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "rag_retrieve inherits the caller's bearer key, so MCP visibility equals HTTP visibility",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/mcp: rag_retrieve listed in tool_specs() and returns the HTTP payload unchanged",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "eval generate refuses to send a non-public item's text to a non-local judge endpoint (host not 127.0.0.1/localhost/::1) and exits with a CliError + hint",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "The locality check runs before any item text is read into a request body",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "unit test: private item + judge URL https://api.example.com -> exit 1 with hint; same item + 127.0.0.1 -> proceeds",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Generated QA for private items: generating via an external LLM sends private book text off-box \u2014 need a rule on which visibility levels may be sent to which judge",
+      "kind": "unknown_blocking",
+      "claim_id": null,
+      "resolved": true,
+      "resolution": "User 2026-10-25 (q3): default judge is the local lobes gateway; a non-local endpoint may only receive public-item text",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Copyright/size: whole-book generation cost (tokens, time) on long books \u2014 sampling strategy (N chunks per book) undecided",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Keyword-only passage retrieval (no embedder): needs chunks stored independent of embeddings, e.g. a chunk FTS table \u2014 deferred",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Exact sidecar schema (fields per article; excerpt vs offsets) to be agreed with culture-rules in the c20 sibling issue",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_library/core/search.py",
+      "finding": "Hit is item-level with a 200-char snippet; chunk text is stored in embeddings.text, so passage retrieval is a new function over existing data, not a new index",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "culture_library/server/routes_search.py + app.py",
+      "finding": "routes_*.py auto-include means no app.py edit; reuse read scope + include_private/owner visibility so RAG never leaks private items",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "web/static/search.js + mcp/tools.py",
+      "finding": "existing search consumers depend on item_id/snippet; RAG is additive, a new MCP tool needs a _spec + _handlers entry (tools.py:249)",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture_library/core/store.py",
+      "finding": "schema grows by idempotent register_schema DDL; child tables cascade on items(id); _ITEM_CHILDREN feeds the migration integrity count",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_library/core/indexer.py + search.py set_embeddings",
+      "finding": "chunk ids are unstable across re-index/replace/chunker change, so stored eval references must survive renumbering",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "user request (RAGAS only, design for more)",
+      "finding": "no eval code exists anywhere in the repo (grep for ragas/benchmark/recall@ empty), so the adapter seam is greenfield",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "pyproject.toml + tests/test_zero_deps.py",
+      "finding": "dependencies = [] is enforced; extras are the sanctioned path; zero-deps test must learn the eval module names",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "deploy/Dockerfile + compose.yaml",
+      "finding": "image installs .[server] only; an eval job can hit http://127.0.0.1:8796 with an API key from the host",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_library/gateway.py + core network guard",
+      "finding": "gateway.py is the only HTTP client and calls /v1/embeddings only; no chat/completions code exists",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "culture_library/cli/__init__.py + explain/catalog.py + learn.py",
+      "finding": "nouns register via register(sub); every path needs an ENTRIES entry; nouns with actions need overview",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": ".github/workflows/tests.yml",
+      "finding": "CI does plain uv sync (dev group); visual is the precedent for an opt-in heavy group",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "culture_library/core/ingest.py (EPUB/PDF extraction)",
+      "finding": "EPUB members are read in filename order, not spine order, and chapter structure is flattened (ingest.py:215-230) \u2014 generation works over flat text; chapter-aware questions are out unless extraction changes",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "culture_library/core/ingest.py link handling",
+      "finding": "hrefs discarded in EPUB and Markdown extraction; no link/citation table or source_url column exists (models.py:28-38)",
+      "seeds": [
+        "c14",
+        "q1"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "culture_library/core/models.py KINDS",
+      "finding": "no newsletter kind; newspaper is the culture-rules daily web-sourced EPUB; adding a kind forces the items-table rebuild",
+      "seeds": [
+        "q2"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "lobes gateway :8001",
+      "finding": "gateway is reachable (returned invalid_api_key without a key); only /v1/embeddings is used in code; chat model availability unverified",
+      "seeds": [
+        "c15",
+        "q3"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "GitHub issues #4 and #7",
+      "finding": "#4 adds repodocs to FTS/embeddings; #7 asks for recall@5 on real queries to compare gemma2-embed vs Qwen3 \u2014 the harness is the natural tool for #7",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "core/search.py semantic() performance",
+      "finding": "brute-force cosine over all visible rows; acceptable for now, flagged not changed",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "culture_library/core/indexer.py _index_embeddings",
+      "finding": "chunks are only written when an embedder is configured (early return when self.embed is None), so passage retrieval depends on embeddings; keyword-only passage retrieval would need a separate chunk store",
+      "seeds": [
+        "c3"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
