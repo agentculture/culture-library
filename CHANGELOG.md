@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-10-25
+
+### Added
+
+- Item kind `discord-message` (#19): one saved Discord message as Markdown, for culture-rules' Discord → library flow. Keys can be minted for it, it has an OPDS feed and a WebDAV folder, and the site gives it a label and colour (the validated palette's eighth slot, red `#e34948` light / `#e66767` dark). An existing database rebuilds its `items` table once on first open (see "Upgrading across a schema change").
+- The reader keeps http(s) links in EPUB sections (#18). `GET /api/library/{id}/text` sections gain `links`, parallel to `paragraphs`; each link is `{text, href, start}`, where `start` locates the text in its paragraph. Only absolute http(s) hrefs are kept, and javascript:, data:, relative and protocol-relative links stay plain text. The reader builds the links with DOM APIs (new tab, `rel=noopener noreferrer`), so the daily newspaper's source links are clickable. Paragraphs, indexed text and search are unchanged.
+
 ## [0.16.3] - 2026-10-25
 
 ### Added
