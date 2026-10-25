@@ -218,8 +218,10 @@ def test_confirm_revokes_the_old_key(store):
     old = _rules_key(store)
     new, raw = keys.rotate(store, old.id, add_kinds=["todo"])
     gone, kept = keys.confirm_rotation(store, old.id, new.id)
-    assert gone.id == old.id and gone.revoked_at is not None
-    assert kept.id == new.id and kept.revoked_at is None
+    assert gone.id == old.id
+    assert gone.revoked_at is not None
+    assert kept.id == new.id
+    assert kept.revoked_at is None
     assert keys.authenticate(store, raw).id == new.id
 
 

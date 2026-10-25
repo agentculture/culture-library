@@ -46,6 +46,7 @@ SCOPES = ("read", "write", "admin")
 LAST_USED_INTERVAL_S = 60
 LAST_USED_BUSY_MS = 100
 _INVALID_KEY = "invalid key"
+_BY_ID = "SELECT * FROM api_keys WHERE id = ?"
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -219,7 +220,7 @@ def _mint(
             replaces,
         ),
     )
-    row = c.execute("SELECT * FROM api_keys WHERE id = ?", (cur.lastrowid,)).fetchone()
+    row = c.execute(_BY_ID, (cur.lastrowid,)).fetchone()
     return _row(row), raw
 
 
@@ -284,14 +285,14 @@ def revoke(store: Store, api_key_id: int) -> ApiKey:
             "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
             (now(), api_key_id),
         )
-        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (api_key_id,)).fetchone()
+        row = c.execute(_BY_ID, (api_key_id,)).fetchone()
     if row is None:
         raise NotFoundError(f"api key {api_key_id} not found")
     return _row(row)
 
 
 def _live(c: sqlite3.Connection, api_key_id: int, what: str) -> ApiKey:
-    row = c.execute("SELECT * FROM api_keys WHERE id = ?", (api_key_id,)).fetchone()
+    row = c.execute(_BY_ID, (api_key_id,)).fetchone()
     if row is None:
         raise NotFoundError(f"{what} key {api_key_id} not found")
     key = _row(row)
@@ -353,7 +354,7 @@ def confirm_rotation(store: Store, old_id: int, new_id: int) -> tuple[ApiKey, Ap
                 f"key {new_id} was not minted as key {old_id}'s replacement", "not_a_replacement"
             )
         c.execute("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (now(), old.id))
-        row = c.execute("SELECT * FROM api_keys WHERE id = ?", (old.id,)).fetchone()
+        row = c.execute(_BY_ID, (old.id,)).fetchone()
     return _row(row), new
 
 

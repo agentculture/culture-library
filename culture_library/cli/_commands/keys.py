@@ -15,6 +15,7 @@ from culture_library.cli._output import emit_diagnostic, emit_result
 from culture_library.core.store import DATA_DIR_ENV
 
 _JSON_HELP = "Emit structured JSON."
+_LIST_HINT = "run 'culture-library keys list'"
 
 
 def _json(args: argparse.Namespace) -> bool:
@@ -106,9 +107,7 @@ def cmd_revoke(args: argparse.Namespace) -> int:
     try:
         key = keys.revoke(_store(args), args.id)
     except NotFoundError:
-        raise CliError(
-            EXIT_USER_ERROR, f"no key with id {args.id}", "run 'culture-library keys list'"
-        ) from None
+        raise CliError(EXIT_USER_ERROR, f"no key with id {args.id}", _LIST_HINT) from None
     emit_result(
         {"api_key": key.to_dict()} if _json(args) else f"revoked {key.key_id}",
         json_mode=_json(args),
@@ -128,37 +127,35 @@ def _rotation(old_id: int, new) -> dict:
     }
 
 
-def cmd_rotate(args: argparse.Namespace) -> int:
+def _confirm_rotation(args: argparse.Namespace, store) -> int:
+    from culture_library.core import keys
+    from culture_library.core.errors import NotFoundError
+
+    if args.kind or args.drop_kind or args.scope or args.private is not None:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "--confirm takes no key settings (they were fixed when the key was minted)",
+            f"run 'culture-library keys rotate {args.id} --confirm {args.confirm}' alone",
+        )
+    try:
+        old, new = keys.confirm_rotation(store, args.id, args.confirm)
+    except NotFoundError as exc:
+        raise CliError(EXIT_USER_ERROR, str(exc), _LIST_HINT) from None
+    except keys.RotationError as exc:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"{exc.code}: {exc}; nothing was changed",
+            f"pass the new id printed by 'keys rotate ID'; {_LIST_HINT}",
+        ) from None
+    text = f"revoked key {old.id}; key {new.id} is live"
+    emit_result(_rotation(old.id, new) if _json(args) else text, json_mode=_json(args))
+    return 0
+
+
+def _mint_replacement(args: argparse.Namespace, store) -> int:
     from culture_library.core import keys
     from culture_library.core.errors import NotFoundError, ValidationError
 
-    store = _store(args)
-    if args.confirm is not None:
-        if args.kind or args.drop_kind or args.scope or args.private is not None:
-            raise CliError(
-                EXIT_USER_ERROR,
-                "--confirm takes no key settings (they were fixed when the key was minted)",
-                f"run 'culture-library keys rotate {args.id} --confirm {args.confirm}' alone",
-            )
-        try:
-            old, new = keys.confirm_rotation(store, args.id, args.confirm)
-        except NotFoundError as exc:
-            raise CliError(EXIT_USER_ERROR, str(exc), "run 'culture-library keys list'") from None
-        except keys.RotationError as exc:
-            raise CliError(
-                EXIT_USER_ERROR,
-                f"{exc.code}: {exc}; nothing was changed",
-                "pass the new id printed by 'keys rotate ID'; see 'culture-library keys list'",
-            ) from None
-        emit_result(
-            (
-                _rotation(old.id, new)
-                if _json(args)
-                else f"revoked key {old.id}; key {new.id} is live"
-            ),
-            json_mode=_json(args),
-        )
-        return 0
     try:
         new, raw = keys.rotate(
             store,
@@ -169,23 +166,30 @@ def cmd_rotate(args: argparse.Namespace) -> int:
             private=args.private,
         )
     except NotFoundError as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "run 'culture-library keys list'") from None
+        raise CliError(EXIT_USER_ERROR, str(exc), _LIST_HINT) from None
     except keys.RotationError as exc:
         raise CliError(
-            EXIT_USER_ERROR, f"{exc.code}: {exc}", "rotate a live key; see 'keys list'"
+            EXIT_USER_ERROR, f"{exc.code}: {exc}", f"rotate a live key; {_LIST_HINT}"
         ) from None
     except ValidationError as exc:
         raise CliError(EXIT_USER_ERROR, str(exc), "see 'culture-library keys overview'") from None
     if _json(args):
         emit_result({**_rotation(args.id, new), "key": raw}, json_mode=True)
-    else:
-        emit_result(raw, json_mode=False)  # stdout carries only the key, ready to pipe
-        emit_diagnostic(
-            f"(key {new.id} replaces key {args.id}; shown once. Key {args.id} stays valid: once "
-            f"the consumer uses the new key, run 'culture-library keys rotate {args.id} "
-            f"--confirm {new.id}')"
-        )
+        return 0
+    emit_result(raw, json_mode=False)  # stdout carries only the key, ready to pipe
+    emit_diagnostic(
+        f"(key {new.id} replaces key {args.id}; shown once. Key {args.id} stays valid: once "
+        f"the consumer uses the new key, run 'culture-library keys rotate {args.id} "
+        f"--confirm {new.id}')"
+    )
     return 0
+
+
+def cmd_rotate(args: argparse.Namespace) -> int:
+    store = _store(args)
+    if args.confirm is not None:
+        return _confirm_rotation(args, store)
+    return _mint_replacement(args, store)
 
 
 def register(sub: argparse._SubParsersAction) -> None:
