@@ -76,6 +76,10 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d5` — the t6 rehearsal on the restored snapshot, because the production recreate is
   blocked (d4). It gives execution-strength evidence on the real data without touching
   production. (approved 2026-10-25)
+- `d7` — the first production recreate carried a placeholder
+  `CULTURE_LIBRARY_SEND_TARGETS='[...]'` from the agent's abbreviated command, which broke
+  send targets. Restart is now documented with a host env file and was re-run with it.
+  (approved 2026-10-25)
 - t5 reply timing, asked again after PR #12 opened with green CI: the decider split
   0.52 `wait_for_merge` against 0.48 `post_now_marked_pending` (route stable P = 0.88).
   The near tie does not override t5's confirmed criterion, so the reply stays after
@@ -92,7 +96,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t4` (`d3`) | Found while following `docs/operations/deploy.md` for the live upgrade; the backup step failed on permissions until the host directory was made writable for uid 10001 (record approved 2026-10-25) | acceptable |
 | `t5` (`d2`, `d6`) | The reply was posted before the merge under the operator's goal (d6). Originally: the operator's goal orders /validate-delivery and /summarize-delivery before /cicd, so the PR does not exist yet. t5's own criterion requires the reply only after the PR is merged or approved (record approved 2026-10-25) | acceptable |
 | `t6` (`d4`) | Tool permission boundary; not worked around; the operator ran the recreate (record approved 2026-10-25) | acceptable |
-| `t6` (`d7`) | The pasted recreate carried a placeholder send-targets value; restart is now documented with a host env file and was re-run with it (record pending approval) | acceptable |
+| `t6` (`d7`) | The pasted recreate carried a placeholder send-targets value; restart is now documented with a host env file and was re-run with it (record approved 2026-10-25) | acceptable |
 | `t2` | The plan's instruction said to mirror the requeue helpers. The task called `indexer.enqueue` and then a direct `UPDATE index_queue`, with the same effect, which is tested (`test_replace_reindexes_body_and_requeues`). | acceptable |
 | `t3` | An archived item reaches the kind guard (`_writable` uses `include_archived=True`) and gets its 404 from `library.replace` after the body is read. The confirmed contract (404) holds; the 403 for a wrong kind still comes first. | acceptable |
 
@@ -149,7 +153,6 @@ Lapse ledger evidence:
 
 ## Remaining Work / Follow-up
 
-- Approve or reject deviation `d7` and evidence `e31`/`e32`.
 - Re-cite `tests/contract/culture_rules_wire.py` to culture-rules `8c4c3fb` (#91
   removed `KIND` and requires `upload_path`). This is a pre-existing drift that the
   plan risk records.

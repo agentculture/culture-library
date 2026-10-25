@@ -2,7 +2,7 @@
   "plan_slug": "replace-item-file-todo-kind-10",
   "schema_version": 2,
   "created": "2026-10-24T22:13:09Z",
-  "updated": "2026-10-25T05:14:03Z",
+  "updated": "2026-10-25T05:37:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -92,7 +92,7 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": null,
       "seq": 39
     }
@@ -683,7 +683,7 @@
         "commit": "dc420b6"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 37
     },
@@ -702,7 +702,7 @@
         "commit": "dc420b6"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 38
     }
