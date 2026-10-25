@@ -242,3 +242,19 @@ def test_sources_get_with_meta(cli):  # noqa: F811
         manifest, updated_at = sources.get_with_meta(conn, item.id)
     assert manifest == [{"x": 1}]
     assert updated_at
+
+
+# judge output limit (live run: reasoning model hit ragas's 1024-token default) ----------------
+
+
+def test_judge_max_tokens_default_and_env():
+    assert JudgeConfig(url="http://127.0.0.1:1").max_tokens == 8192
+    env = {"CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS": "16000"}
+    assert JudgeConfig.from_env(env).max_tokens == 16000
+
+
+def test_chat_sends_max_tokens(fake_judge_server):
+    judge = fake_judge_server.config()
+    chat = OpenAIChat(judge)
+    chat.complete([{"role": "user", "content": "hi"}])
+    assert fake_judge_server.payloads[-1]["max_tokens"] == judge.max_tokens

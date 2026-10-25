@@ -16,6 +16,7 @@ from .errors import EvalApiError, EvalPolicyError
 
 DEFAULT_JUDGE_MODEL = "cortex"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8001"
+DEFAULT_JUDGE_MAX_TOKENS = 8192
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "host.docker.internal"})
 
 
@@ -33,6 +34,8 @@ class JudgeConfig:
     url: str
     model: str = DEFAULT_JUDGE_MODEL
     api_key: str = field(default="", repr=False)
+    # Reasoning judges (e.g. cortex) overflow ragas's 1024-token default before the JSON.
+    max_tokens: int = DEFAULT_JUDGE_MAX_TOKENS
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> JudgeConfig:
@@ -49,6 +52,9 @@ class JudgeConfig:
             url=url,
             model=e.get("CULTURE_LIBRARY_EVAL_LLM_MODEL") or DEFAULT_JUDGE_MODEL,
             api_key=key,
+            max_tokens=int(
+                e.get("CULTURE_LIBRARY_EVAL_LLM_MAX_TOKENS") or DEFAULT_JUDGE_MAX_TOKENS
+            ),
         )
 
     @property
@@ -87,7 +93,12 @@ class OpenAIChat:
 
     def complete(self, messages: list[dict]) -> str:
         body = json.dumps(
-            {"model": self.judge.model, "messages": messages, "temperature": self.temperature}
+            {
+                "model": self.judge.model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": self.judge.max_tokens,
+            }
         ).encode()
         headers = {"Content-Type": "application/json"}
         if self.judge.api_key:

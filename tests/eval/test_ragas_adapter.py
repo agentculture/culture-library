@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from culture_library.eval.adapter import EvalAdapter
+from culture_library.eval.config import JudgeConfig
 from culture_library.eval.errors import EvalApiError, EvalError
 from culture_library.eval.models import Chunk, Passage, Sample
 
@@ -332,3 +333,23 @@ def test_ragas_generate_samples_via_openai_chat(fake_judge_server):
     out = RagasAdapter(judge).generate_samples(_chunks(), 2, OpenAIChat(judge))
     assert [s.reference_chunk_shas for s in out] == [["s1"], ["s2"]]
     assert out[0].question == "What colour is the lamp in chunk one?"
+
+
+@pytest.mark.ragas
+def test_real_backend_passes_the_judge_output_limit(monkeypatch):
+    pytest.importorskip("ragas")
+    import ragas.llms.base as base
+
+    from culture_library.eval.ragas_adapter import _Ragas043
+
+    seen = {}
+
+    def fake_factory(model, **kw):
+        seen.update(kw, model=model)
+        return object()
+
+    monkeypatch.setattr(base, "llm_factory", fake_factory)
+    judge = JudgeConfig(url="http://127.0.0.1:9", model="cortex", max_tokens=12345)
+    _Ragas043(judge).components()
+    assert seen["max_tokens"] == 12345
+    assert seen["model"] == "cortex"

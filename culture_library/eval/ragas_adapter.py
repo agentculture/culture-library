@@ -109,7 +109,12 @@ class _Ragas043:
         )
         return {
             "client": client,
-            "llm": llm_factory(self.judge.model, provider="openai", client=client),
+            "llm": llm_factory(
+                self.judge.model,
+                provider="openai",
+                client=client,
+                max_tokens=self.judge.max_tokens,
+            ),
             "embeddings": OpenAIEmbeddings(client=client, model=self.embedding_model),
         }
 

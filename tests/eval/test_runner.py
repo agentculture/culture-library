@@ -9,7 +9,7 @@ import pytest
 from culture_library.eval.client import LibraryClient
 from culture_library.eval.config import JudgeConfig, OpenAIChat
 from culture_library.eval.models import EvalSet, Sample, ScoreResult
-from culture_library.eval.runner import EvalStaleError, run_set
+from culture_library.eval.runner import PRECISION, RECALL, EvalStaleError, run_set
 
 from .conftest import FakeAdapter
 
@@ -257,17 +257,22 @@ def test_failure_on_first_sample_is_failed(lib):
     assert run.samples == []
 
 
-def test_adapter_failure_drops_aggregates(lib, fake_judge_server):
+def test_llm_scoring_failure_keeps_complete_id_metrics(lib, fake_judge_server):
+    """Every sample was retrieved and ID-scored: the run is complete with ID aggregates only,
+    and the LLM failure is recorded rather than turning the whole run partial."""
+
     class Boom(FakeAdapter):
         def score(self, samples, retrieved, llm):
             raise ValueError("judge said nonsense")
 
     judge = fake_judge_server.config()
-    run = run_set(
-        lib.client, _set(Sample(question="q")), Boom(), llm=OpenAIChat(judge), judge=judge
-    )
-    assert run.status == "partial"
-    assert run.aggregates is None
+    llm = OpenAIChat(judge)
+    eval_set = _set(Sample(question="q"))
+    run = run_set(lib.client, eval_set, Boom(), llm=llm, judge=judge)
+    assert run.status == "complete"
+    assert set(run.aggregates) == {PRECISION, RECALL}
+    assert "judge said nonsense" in run.config["llm_metrics_failed"]
+    assert all(set(s.scores) == {PRECISION, RECALL} for s in run.samples)
 
 
 # ---- config

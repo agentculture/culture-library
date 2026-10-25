@@ -158,7 +158,10 @@ def run_set(
                 client, run, eval_set.item_id, item, samples, retrieved, adapter, llm, judge
             )
         except (EvalError, KeyError, TypeError, ValueError) as exc:
-            return _fail(run, run.completed, exc, keep_samples=True)
+            # Retrieval and ID scoring covered every sample, so the run is still complete; only
+            # the LLM-judged metrics are missing, and the reason is recorded.
+            run.config["llm_metrics_failed"] = str(exc)
+            run.aggregates = None
 
     run.status = "complete"
     aggregates: dict[str, float | None] = {
