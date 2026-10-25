@@ -125,9 +125,7 @@ def _placeholder(source: str, what: str, value: str) -> CliError:
     )
 
 
-def check_settings(values: dict[str, str], source: str) -> None:
-    """Refuse a missing, empty or placeholder setting, send targets that do not parse, or a
-    secret written into the (secret-free) env file."""
+def _refuse_secrets(values: dict[str, str], source: str) -> None:
     for key in SECRET_SETTINGS:
         if values.get(key, "").strip():
             raise CliError(
@@ -135,6 +133,12 @@ def check_settings(values: dict[str, str], source: str) -> None:
                 f"{source}: {key} is a secret and must not be in the env file",
                 f"remove it; deploy restart injects it from grant ({DEFAULT_GATEWAY_SECRET})",
             )
+
+
+def check_settings(values: dict[str, str], source: str) -> None:
+    """Refuse a missing, empty or placeholder setting, send targets that do not parse, or a
+    secret written into the (secret-free) env file."""
+    _refuse_secrets(values, source)
     for key in REQUIRED_SETTINGS:
         value = values.get(key, "")
         if not value.strip():
