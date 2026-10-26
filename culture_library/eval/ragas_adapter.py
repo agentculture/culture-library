@@ -45,14 +45,18 @@ _GEN_SYSTEM = (
     "people, places and things it is about instead. "
     'Reply with strict JSON only, exactly: {"question": "...", "answer": "..."}'
 )
-_GEN_RETRY = (
-    'Reply with only {"question": "...", "answer": "..."}, and make the question stand alone '
-    'without mentioning "the passage" or "the text".'
+_GEN_RETRY_JSON = 'That was not valid JSON. Reply with only {"question": "...", "answer": "..."}.'
+_GEN_RETRY_SELF = (
+    "That question points at its source, which a search engine cannot see. Rewrite it to stand "
+    'alone, naming what it is about, and reply with only {"question": "...", "answer": "..."}.'
 )
-# A question that points at its own source cannot be asked of a search engine.
+# A question that points at its own source ("the passage", "the author", "this chapter") cannot
+# be asked of a search engine. "The text of the Magna Carta" or "the section on tariffs" names
+# its subject, so the noun followed by of/on/about/... passes.
 _SELF_REFERENCE = re.compile(
-    r"\b(?:according to|in|from|based on|per)\s+(?:the|this|that)\s+"
-    r"(?:passage|text|excerpt|extract|paragraph|section|chapter)\b",
+    r"\b(?:the|this|that)\s+"
+    r"(?:passage|excerpt|extract|text|paragraph|section|chapter|article|story|author|narrator)\b"
+    r"(?!\s+(?:of|on|about|in|by|titled|called|named)\b)",
     re.IGNORECASE,
 )
 
@@ -192,18 +196,19 @@ def _unfence(text: str) -> str:
     return body.strip()
 
 
-def _parse_generation(text: str) -> tuple[str, str] | None:
+def _parse_generation(text: str) -> tuple[str, str] | str:
+    """``(question, answer)``, or the retry message that says what was wrong."""
     try:
         data = json.loads(_unfence(text))
     except (TypeError, ValueError):
-        return None
+        return _GEN_RETRY_JSON
     if not isinstance(data, dict):
-        return None
+        return _GEN_RETRY_JSON
     q, a = data.get("question"), data.get("answer")
     if not (isinstance(q, str) and q.strip() and isinstance(a, str) and a.strip()):
-        return None
+        return _GEN_RETRY_JSON
     if _SELF_REFERENCE.search(q):
-        return None
+        return _GEN_RETRY_SELF
     return q.strip(), a.strip()
 
 
@@ -237,13 +242,13 @@ class RagasAdapter:
             ]
             reply = llm.complete(messages)
             parsed = _parse_generation(reply)
-            if parsed is None:
+            if isinstance(parsed, str):
                 retry = messages + [
                     {"role": "assistant", "content": reply},
-                    {"role": "user", "content": _GEN_RETRY},
+                    {"role": "user", "content": parsed},
                 ]
                 parsed = _parse_generation(llm.complete(retry))
-            if parsed is None:
+            if isinstance(parsed, str):
                 continue
             question, answer = parsed
             out.append(

@@ -106,20 +106,53 @@ def test_bad_adapter_refs_are_dropped_and_contexts_made_verbatim(library):
     assert s.generator["dropped"] == 1
 
 
-def test_gutenberg_licence_chunks_are_never_sampled(library):
-    licence = "The Project Gutenberg License applies to this eBook. " + "Terms of use. " * 30
-    item = _index_item(library, [_para(i) for i in range(4)] + [licence.strip()])
-    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=10)
-    assert len(s.samples) == 4
-    assert not any("Gutenberg" in c for x in s.samples for c in x.reference_contexts)
-    assert s.generator["skipped_boilerplate"] == 1
+def _block(text: str) -> str:
+    # pad to ~600 chars so each block is its own chunk, like _para
+    return text + " " + ("more of the same block. " * 24).strip()
 
 
-def test_all_boilerplate_book_still_generates(library):
-    item = _index_item(library, ["Project Gutenberg " + _para(i) for i in range(3)])
-    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=3)
+PG_HEAD = _block(
+    "The Project Gutenberg eBook of Youth. *** START OF THE PROJECT GUTENBERG EBOOK ***"
+)
+PG_END = _block(
+    "Updated editions. *** END OF THE PROJECT\nGUTENBERG EBOOK YOUTH *** Licence terms."
+)
+PG_MID = _block("1.F.4. This work is provided to you AS-IS, WITH NO OTHER WARRANTIES.")
+PG_LAST = _block("Subscribe to our email newsletter to hear about\nnew eBooks.")
+OWN_PG = _block("Book text: Michael Hart founded Project Gutenberg in 1971.")
+
+
+def test_gutenberg_header_and_mid_item_licence_are_never_sampled(library):
+    # EPUB section order: header, book, licence, then more of the book after it
+    body = [PG_HEAD, _para(0), _para(1), PG_END, PG_MID, PG_LAST, _para(2), _para(3), OWN_PG]
+    item = _index_item(library, body)
+    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=20)
+    texts = [c for x in s.samples for c in x.reference_contexts]
+    assert len(texts) == 5
+    assert not any(m in t for t in texts for m in ("START OF", "END OF", "AS-IS", "new eBooks"))
+    assert any("Michael Hart" in t for t in texts)  # the book's own mention is kept
+    assert s.generator["skipped_boilerplate"] == 4
+
+
+def test_plain_text_licence_runs_to_the_end_without_its_closing_line(library):
+    item = _index_item(library, [PG_HEAD, _para(0), _para(1), PG_END, PG_MID])
+    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=20)
+    texts = [c for x in s.samples for c in x.reference_contexts]
+    assert len(texts) == 2 and all("Paragraph number" in t for t in texts)
+    assert s.generator["skipped_boilerplate"] == 3
+
+
+def test_book_without_gutenberg_markers_is_kept_whole(library):
+    item = _index_item(library, [_para(0), OWN_PG, _para(1)])
+    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=20)
     assert len(s.samples) == 3
     assert s.generator["skipped_boilerplate"] == 0
+
+
+def test_licence_only_item_is_refused(library):
+    item = _index_item(library, [PG_HEAD, PG_END, PG_MID, PG_LAST])
+    with pytest.raises(GenerateError, match="Project Gutenberg"):
+        generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
 
 
 def test_egress_guard_runs_before_chunks_fetched(library, monkeypatch):

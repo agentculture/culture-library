@@ -13,8 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Book eval sets no longer sample Project Gutenberg licence chunks. The set's `generator.skipped_boilerplate` records how many were skipped; if every chunk matches, none is skipped.
-- Generated eval questions stand alone. The prompt forbids "the passage" and "the text"; a question that still says "according to the passage" (or "in the excerpt", …) is retried once and then skipped, because a search engine cannot answer it. Existing sets are unchanged.
+- Book eval sets no longer sample Project Gutenberg boilerplate. The generator drops the header (through the `*** START OF THE PROJECT GUTENBERG EBOOK` marker) and the licence (from the `*** END` marker to its closing "hear about new eBooks" line, or to the item's end when that line is missing). It finds them by these markers rather than by the phrase, so a book that mentions Project Gutenberg keeps that text, and an EPUB whose licence sits mid-item keeps the chapters after it. `generator.skipped_boilerplate` records the count; an item with no text outside the boilerplate is refused. On the live books 63, 66 and 68 it skips 26 chunks each; 70 and 71 have no markers and are unchanged.
+- Generated eval questions stand alone. The prompt forbids pointing at the source, and a question that still does ("the passage", "this excerpt", "the author", "according to the article", …; but not "the text of the Magna Carta" or "the section on tariffs") is retried once with a message that says so, then skipped. A reply that is not valid JSON still gets its own retry message. Existing sets are unchanged.
 
 ## [0.17.0] - 2026-10-25
 

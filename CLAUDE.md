@@ -82,9 +82,11 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
     `CULTURE_LIBRARY_EVAL_LLM_*` env vars) point it elsewhere. If LLM scoring
     fails, the run is still stored `complete` with its ID aggregates, and
     `config.llm_metrics_failed` records the failure. Book sets never sample
-    Project Gutenberg licence chunks. A generated question that points at "the
-    passage" is retried once, then skipped, because a search engine can't
-    answer it.
+    the Project Gutenberg header or licence, which the generator finds by
+    their `*** START`/`*** END` markers, not the phrase. The licence is still
+    indexed and retrievable (planned: #27, strip it at index time). A generated
+    question that points at its source ("the passage", "the author") is
+    retried once, then skipped, because a search engine can't answer it.
   - `web/static/`: the site. A `todo` item opens as a read-only checklist
     (`checklist.js`).
   - `render/`: the devague renderer.
