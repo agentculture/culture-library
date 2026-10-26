@@ -34,7 +34,7 @@ update this section so the docs keep matching what's actually on disk.
 `culture-library` is the AgentCulture mesh agent for Culture's library of
 your own content and media (recordings, books, newspapers, articles, EPUBs,
 PDFs, docs), aiming at one catalog to ingest, index, search and serve it all
-at library.culture.dev. The library is built but not yet deployed. It also serves
+at library.culture.dev. The library is built and live there. It also serves
 RAG passages (`/api/rag/retrieve`) and has an `eval` CLI noun (optional
 `[eval]` extra). `culture_library/` holds the
 core, the HTTP server, the MCP server and the site; read `CLAUDE.md`'s status

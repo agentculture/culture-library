@@ -14,7 +14,8 @@ your own content and media**: recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more. The goal is one catalog to ingest, index, search and
 serve it all, published at library.culture.dev.
 
-**Status: built, not yet deployed.** The library lives in `culture_library/`:
+**Status: built and live** at library.culture.dev (behind Cloudflare Access)
+since 2026-10-24. The library lives in `culture_library/`:
 
 - `core/`: storage, ingest, keys, feed, search, repo documents, send, backup;
 - `server/`: the HTTP API, OPDS, WebDAV and the site;
@@ -122,8 +123,10 @@ culture.yaml              mesh identity (suffix + backend)
 
 ## Roadmap
 
-Planned, not built: ingest your own media into one catalog, index and search
-it, and serve it at library.culture.dev. No design is settled yet.
+Built and live: one catalog to ingest, index, search and serve your own
+media at library.culture.dev, with RAG passages and retrieval evals. The open
+work (repo-document search, faster retrieval, in-progress items, the
+newspaper half of the eval baseline) is tracked in `CLAUDE.md`'s roadmap.
 
 This file describes the repository **as it exists on disk today**. When you
 edit, keep claims grounded in checked-in reality; if a section drifts ahead of

@@ -19,6 +19,12 @@ from .models import Chunk, EvalSet, Sample
 
 MATCH_CHARS = 120
 _WS = re.compile(r"\s+")
+# Project Gutenberg's header and licence are not the book's own text, so never a question
+# source. They are found by their canonical markers, not by the phrase "Project Gutenberg",
+# which a book may use itself. ``\s+`` because chunks keep the source's hard line wraps.
+_PG_START = re.compile(r"\*\*\*\s*START\s+OF\s+(?:THE|THIS)\s+PROJECT\s+GUTENBERG", re.IGNORECASE)
+_PG_END = re.compile(r"\*\*\*\s*END\s+OF\s+(?:THE|THIS)\s+PROJECT\s+GUTENBERG", re.IGNORECASE)
+_PG_LICENCE_LAST = re.compile(r"hear\s+about\s+new\s+eBooks", re.IGNORECASE)
 
 
 class GenerateError(EvalError):
@@ -72,6 +78,36 @@ def _body_chunks(client: LibraryClient, item_id: int) -> list[Chunk]:
     return chunks
 
 
+def _first(pattern: re.Pattern, chunks: list[Chunk], start: int = 0) -> int | None:
+    return next((i for i in range(start, len(chunks)) if pattern.search(chunks[i].text)), None)
+
+
+def _book_chunks(chunks: list[Chunk], item_id: int) -> tuple[list[Chunk], int]:
+    """Drop the Project Gutenberg header and licence; ``(kept, skipped)``.
+
+    The header is every chunk up to and including the START marker. The licence runs from the
+    END marker's chunk to the chunk with its closing line ("... hear about new eBooks"), or to
+    the last chunk when that line is missing (the plain-text layout). An EPUB's section order
+    can put the licence mid-item, so chunks after it are kept. A chunk that straddles a marker
+    is dropped with the boilerplate. A book without the markers is kept whole.
+    """
+    drop: set[int] = set()
+    start = _first(_PG_START, chunks)
+    if start is not None:
+        drop.update(range(start + 1))
+    end = _first(_PG_END, chunks, start or 0)
+    if end is not None:
+        last = _first(_PG_LICENCE_LAST, chunks, end)
+        drop.update(range(end, len(chunks) if last is None else last + 1))
+    kept = [c for i, c in enumerate(chunks) if i not in drop]
+    if not kept:
+        raise GenerateError(
+            f"item {item_id} has no text outside the Project Gutenberg header and licence",
+            "check that the item is the book itself, then retry",
+        )
+    return kept, len(drop)
+
+
 def _item_sha(item: dict) -> str:
     return str(item.get("sha256") or item.get("item_sha256") or "")
 
@@ -97,7 +133,7 @@ def generate_book_set(
     seed: int = 0,
 ) -> EvalSet:
     item = _prepare(client, judge, item_id)
-    chunks = _body_chunks(client, item_id)
+    chunks, boilerplate = _book_chunks(_body_chunks(client, item_id), item_id)
     by_sha = {c.chunk_sha: c for c in chunks}
     chosen = _pick(chunks, samples, seed)
     out: list[Sample] = []
@@ -117,7 +153,9 @@ def generate_book_set(
         adapter=adapter.name,
         adapter_version=adapter.version,
         chunker=_chunker(client),
-        generator=_generator(adapter, judge, samples, seed, dropped=dropped),
+        generator=_generator(
+            adapter, judge, samples, seed, dropped=dropped, skipped_boilerplate=boilerplate
+        ),
         samples=out,
     )
 

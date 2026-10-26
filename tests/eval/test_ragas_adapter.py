@@ -206,6 +206,50 @@ def test_generate_samples_retries_bad_json_once_then_skips():
     assert len(llm.calls) == 5
 
 
+def test_generate_samples_retries_a_question_that_points_at_its_source():
+    from culture_library.eval.ragas_adapter import RagasAdapter
+
+    llm = ScriptedLLM(
+        [
+            '{"question": "According to the passage, who wins?", "answer": "A1"}',
+            '{"question": "Who wins the race in Kent?", "answer": "A1"}',  # retry -> ok
+            '{"question": "Which door is red?", "answer": "A2"}',
+            '{"question": "Why does the author mention the cat?", "answer": "A3"}',
+            '{"question": "What is the main point of this excerpt?", "answer": "A3"}',  # skip
+        ]
+    )
+    out = RagasAdapter(backend=StubBackend()).generate_samples(_chunks(), 3, llm)
+    assert [s.question for s in out] == ["Who wins the race in Kent?", "Which door is red?"]
+    assert "stand alone" in llm.calls[1][-1]["content"]
+
+
+def test_retry_message_names_the_problem():
+    from culture_library.eval.ragas_adapter import RagasAdapter
+
+    llm = ScriptedLLM(["not json", '{"question": "Q1?", "answer": "A1"}'])
+    RagasAdapter(backend=StubBackend()).generate_samples(_chunks(), 1, llm)
+    assert "not valid JSON" in llm.calls[1][-1]["content"]
+
+
+@pytest.mark.parametrize(
+    "question, bad",
+    [
+        ("What does the passage say about lamps?", True),
+        ("According to the article, who resigned?", True),
+        ("In this chapter, who arrives?", True),
+        ("What is the moral of the story?", True),
+        ("What right is guaranteed in the text of the Magna Carta?", False),
+        ("What does Article 5 say in the section on tariffs?", False),
+        ("Who is the author of Erewhon?", False),
+        ("Which door at the back of the hall is red?", False),
+    ],
+)
+def test_self_reference_check(question, bad):
+    from culture_library.eval.ragas_adapter import _SELF_REFERENCE
+
+    assert bool(_SELF_REFERENCE.search(question)) is bad
+
+
 def test_generate_samples_propagates_judge_errors():
     from culture_library.eval.ragas_adapter import RagasAdapter
 

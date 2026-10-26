@@ -21,6 +21,7 @@ import asyncio
 import json
 import math
 import os
+import re
 from typing import Any, Protocol, Sequence
 
 from .config import JudgeConfig
@@ -39,9 +40,25 @@ METRICS = (ID_PRECISION, ID_RECALL, LLM_PRECISION, LLM_RECALL)
 _GEN_SYSTEM = (
     "You write retrieval-evaluation questions. Given one passage, write ONE question that "
     "can be answered only from that passage, and a short reference answer taken from it. "
+    "The question goes to a search engine over a whole library, so it must stand alone: "
+    'never refer to "the passage", "the text", "the excerpt" or "the author"; name the '
+    "people, places and things it is about instead. "
     'Reply with strict JSON only, exactly: {"question": "...", "answer": "..."}'
 )
-_GEN_RETRY = 'That was not valid JSON. Reply with only {"question": "...", "answer": "..."}.'
+_GEN_RETRY_JSON = 'That was not valid JSON. Reply with only {"question": "...", "answer": "..."}.'
+_GEN_RETRY_SELF = (
+    "That question points at its source, which a search engine cannot see. Rewrite it to stand "
+    'alone, naming what it is about, and reply with only {"question": "...", "answer": "..."}.'
+)
+# A question that points at its own source ("the passage", "the author", "this chapter") cannot
+# be asked of a search engine. "The text of the Magna Carta" or "the section on tariffs" names
+# its subject, so the noun followed by of/on/about/... passes.
+_SELF_REFERENCE = re.compile(
+    r"\b(?:the|this|that)\s+"
+    r"(?:passage|excerpt|extract|text|paragraph|section|chapter|article|story|author|narrator)\b"
+    r"(?!\s+(?:of|on|about|in|by|titled|called|named)\b)",
+    re.IGNORECASE,
+)
 
 
 class _Backend(Protocol):
@@ -179,16 +196,19 @@ def _unfence(text: str) -> str:
     return body.strip()
 
 
-def _parse_generation(text: str) -> tuple[str, str] | None:
+def _parse_generation(text: str) -> tuple[str, str] | str:
+    """``(question, answer)``, or the retry message that says what was wrong."""
     try:
         data = json.loads(_unfence(text))
     except (TypeError, ValueError):
-        return None
+        return _GEN_RETRY_JSON
     if not isinstance(data, dict):
-        return None
+        return _GEN_RETRY_JSON
     q, a = data.get("question"), data.get("answer")
     if not (isinstance(q, str) and q.strip() and isinstance(a, str) and a.strip()):
-        return None
+        return _GEN_RETRY_JSON
+    if _SELF_REFERENCE.search(q):
+        return _GEN_RETRY_SELF
     return q.strip(), a.strip()
 
 
@@ -212,7 +232,8 @@ class RagasAdapter:
 
     def generate_samples(self, chunks: Sequence[Chunk], n: int, llm) -> list[Sample]:
         """One question + short reference answer per chunk, for the first ``n`` non-header
-        chunks. A bad JSON reply is retried once; a second bad reply skips that chunk."""
+        chunks. A bad reply (not JSON, or a question that points at "the passage") is retried
+        once; a second bad reply skips that chunk."""
         out: list[Sample] = []
         for chunk in [c for c in chunks if not c.is_header][: max(n, 0)]:
             messages = [
@@ -221,13 +242,13 @@ class RagasAdapter:
             ]
             reply = llm.complete(messages)
             parsed = _parse_generation(reply)
-            if parsed is None:
+            if isinstance(parsed, str):
                 retry = messages + [
                     {"role": "assistant", "content": reply},
-                    {"role": "user", "content": _GEN_RETRY},
+                    {"role": "user", "content": parsed},
                 ]
                 parsed = _parse_generation(llm.complete(retry))
-            if parsed is None:
+            if isinstance(parsed, str):
                 continue
             question, answer = parsed
             out.append(
