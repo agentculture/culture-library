@@ -138,7 +138,8 @@ def test_plain_text_licence_runs_to_the_end_without_its_closing_line(library):
     item = _index_item(library, [PG_HEAD, _para(0), _para(1), PG_END, PG_MID])
     s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=20)
     texts = [c for x in s.samples for c in x.reference_contexts]
-    assert len(texts) == 2 and all("Paragraph number" in t for t in texts)
+    assert len(texts) == 2
+    assert all("Paragraph number" in t for t in texts)
     assert s.generator["skipped_boilerplate"] == 3
 
 
@@ -151,8 +152,9 @@ def test_book_without_gutenberg_markers_is_kept_whole(library):
 
 def test_licence_only_item_is_refused(library):
     item = _index_item(library, [PG_HEAD, PG_END, PG_MID, PG_LAST])
+    adapter, judge = FakeAdapter(), FakeJudge()
     with pytest.raises(GenerateError, match="Project Gutenberg"):
-        generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id)
+        generate_book_set(library.client, adapter, judge, LOCAL, item.id)
 
 
 def test_egress_guard_runs_before_chunks_fetched(library, monkeypatch):
