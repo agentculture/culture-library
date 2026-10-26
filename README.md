@@ -8,7 +8,8 @@ canonical skill kit.
 
 ## Status
 
-**Built, not yet deployed.** The library is in `culture_library/`. It has:
+**Built and live** at library.culture.dev, behind Cloudflare Access. The
+library is in `culture_library/`. It has:
 
 - a storage and ingest core;
 - an HTTP API compatible with xteink's;
@@ -17,12 +18,13 @@ canonical skill kit.
 - send to device;
 - OPDS and WebDAV;
 - an MCP server for agents;
+- RAG passage retrieval and retrieval evals;
 - the site.
 
 It was specified and built with devague: spec in `docs/specs/`, plan in
 `docs/plans/`, the run's record in `docs/deliveries/`. Deploy files are in
-`deploy/`, and runbooks in `docs/operations/`. Deploying and provisioning
-library.culture.dev are still to do (see [Roadmap](#roadmap)).
+`deploy/`, and runbooks in `docs/operations/`. What is still open is in the
+[Roadmap](#roadmap).
 
 ## What's here today
 
@@ -63,9 +65,11 @@ non-public items is never sent to a non-local judge. Install
 `culture-library[eval]` to use it; the base package and the server image do
 not include it.
 
-Planned, not done: embeddings are not yet enabled on the live library (see
-"Enable embeddings" in `docs/operations/deploy.md`), and the baseline eval runs
-have not been recorded.
+Embeddings are on in the live library (see "Enable embeddings" in
+`docs/operations/deploy.md`). The book half of the eval baseline is recorded
+there: five books, 20 questions each, with ID recall@5 of 0.89 with rerank and
+0.78 without. The newspaper half is planned. It waits on culture-rules
+pushing a sources sidecar with each issue.
 
 ## Quickstart
 
@@ -96,13 +100,15 @@ new noun groups on the same contract.
 
 ## Roadmap
 
-- **Ingest**: bring your own recordings, books, newspapers, articles, EPUBs,
-  PDFs and docs into one catalog.
-- **Index & search** across everything in the catalog.
-- **Serve** the catalog, published at library.culture.dev.
+The library ingests, indexes, searches and serves the catalog at
+library.culture.dev today. These are still open:
 
-The design is not settled yet. This list restates the project's goal; it does
-not describe a committed design.
+- search over repo documents (#4);
+- faster passage retrieval, so Gwen can recall from the library on a live
+  turn (#25);
+- in-progress items that grow as culture-rules writes them (#22);
+- the newspaper half of the eval baseline, and an embedding model comparison
+  (#7).
 
 ## Prompt files by harness
 

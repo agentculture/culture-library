@@ -65,6 +65,7 @@ def test_book_samples_reference_item_chunks(library):
         "adapter": "fake",
         "judge_model": "m",
         "dropped": 0,
+        "skipped_boilerplate": 0,
     }
 
 
@@ -103,6 +104,22 @@ def test_bad_adapter_refs_are_dropped_and_contexts_made_verbatim(library):
     assert [x.question for x in s.samples] == ["q2"]
     assert s.samples[0].reference_contexts[0] in texts
     assert s.generator["dropped"] == 1
+
+
+def test_gutenberg_licence_chunks_are_never_sampled(library):
+    licence = "The Project Gutenberg License applies to this eBook. " + "Terms of use. " * 30
+    item = _index_item(library, [_para(i) for i in range(4)] + [licence.strip()])
+    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=10)
+    assert len(s.samples) == 4
+    assert not any("Gutenberg" in c for x in s.samples for c in x.reference_contexts)
+    assert s.generator["skipped_boilerplate"] == 1
+
+
+def test_all_boilerplate_book_still_generates(library):
+    item = _index_item(library, ["Project Gutenberg " + _para(i) for i in range(3)])
+    s = generate_book_set(library.client, FakeAdapter(), FakeJudge(), LOCAL, item.id, samples=3)
+    assert len(s.samples) == 3
+    assert s.generator["skipped_boilerplate"] == 0
 
 
 def test_egress_guard_runs_before_chunks_fetched(library, monkeypatch):

@@ -19,6 +19,8 @@ from .models import Chunk, EvalSet, Sample
 
 MATCH_CHARS = 120
 _WS = re.compile(r"\s+")
+# Project Gutenberg's licence header/footer: not the book's own text, so never a question source.
+_BOILERPLATE = re.compile(r"project gutenberg", re.IGNORECASE)
 
 
 class GenerateError(EvalError):
@@ -72,6 +74,14 @@ def _body_chunks(client: LibraryClient, item_id: int) -> list[Chunk]:
     return chunks
 
 
+def _book_chunks(chunks: list[Chunk]) -> tuple[list[Chunk], int]:
+    """Drop licence boilerplate chunks; ``(kept, skipped)``. Keeps everything if all match."""
+    kept = [c for c in chunks if not _BOILERPLATE.search(c.text)]
+    if not kept:
+        return chunks, 0
+    return kept, len(chunks) - len(kept)
+
+
 def _item_sha(item: dict) -> str:
     return str(item.get("sha256") or item.get("item_sha256") or "")
 
@@ -97,7 +107,7 @@ def generate_book_set(
     seed: int = 0,
 ) -> EvalSet:
     item = _prepare(client, judge, item_id)
-    chunks = _body_chunks(client, item_id)
+    chunks, boilerplate = _book_chunks(_body_chunks(client, item_id))
     by_sha = {c.chunk_sha: c for c in chunks}
     chosen = _pick(chunks, samples, seed)
     out: list[Sample] = []
@@ -117,7 +127,9 @@ def generate_book_set(
         adapter=adapter.name,
         adapter_version=adapter.version,
         chunker=_chunker(client),
-        generator=_generator(adapter, judge, samples, seed, dropped=dropped),
+        generator=_generator(
+            adapter, judge, samples, seed, dropped=dropped, skipped_boilerplate=boilerplate
+        ),
         samples=out,
     )
 

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-10-26
+
+### Changed
+
+- CLAUDE.md, README.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md describe the library as live at library.culture.dev, with embeddings on and the book half of the eval baseline recorded (sets 1–5, ID recall@5 0.89 with rerank and 0.78 without). The open work is listed: the newspaper baseline (after culture-rules#97), #4, #22, #25, embodiment#107.
+
+### Fixed
+
+- Book eval sets no longer sample Project Gutenberg licence chunks. The set's `generator.skipped_boilerplate` records how many were skipped; if every chunk matches, none is skipped.
+- Generated eval questions stand alone. The prompt forbids "the passage" and "the text"; a question that still says "according to the passage" (or "in the excerpt", …) is retried once and then skipped, because a search engine cannot answer it. Existing sets are unchanged.
+
 ## [0.17.0] - 2026-10-25
 
 ### Added

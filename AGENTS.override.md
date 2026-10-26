@@ -25,11 +25,11 @@ your own content and media — recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more — aiming at one catalog to ingest, index, search and serve
 it all, published at library.culture.dev.
 
-**The library is built but not yet deployed.** `culture_library/` holds the
-core, the HTTP API, the MCP server and the site. It also serves RAG passages
-(`/api/rag/retrieve`) and stores retrieval evals (`/api/eval`). Deploy files
-are in `deploy/`. If asked what the library can do, describe what is on disk, and
-say that deploying it at library.culture.dev is still to do. It is a sibling to
+**The library is built and live** at library.culture.dev (behind Cloudflare
+Access). `culture_library/` holds the core, the HTTP API, the MCP server and
+the site. It also serves RAG passages (`/api/rag/retrieve`) and stores
+retrieval evals (`/api/eval`). Deploy files are in `deploy/`. If asked what
+the library can do, describe what is on disk. It is a sibling to
 [`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
 supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
 and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this

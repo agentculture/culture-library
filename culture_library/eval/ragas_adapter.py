@@ -21,6 +21,7 @@ import asyncio
 import json
 import math
 import os
+import re
 from typing import Any, Protocol, Sequence
 
 from .config import JudgeConfig
@@ -39,9 +40,21 @@ METRICS = (ID_PRECISION, ID_RECALL, LLM_PRECISION, LLM_RECALL)
 _GEN_SYSTEM = (
     "You write retrieval-evaluation questions. Given one passage, write ONE question that "
     "can be answered only from that passage, and a short reference answer taken from it. "
+    "The question goes to a search engine over a whole library, so it must stand alone: "
+    'never refer to "the passage", "the text", "the excerpt" or "the author"; name the '
+    "people, places and things it is about instead. "
     'Reply with strict JSON only, exactly: {"question": "...", "answer": "..."}'
 )
-_GEN_RETRY = 'That was not valid JSON. Reply with only {"question": "...", "answer": "..."}.'
+_GEN_RETRY = (
+    'Reply with only {"question": "...", "answer": "..."}, and make the question stand alone '
+    'without mentioning "the passage" or "the text".'
+)
+# A question that points at its own source cannot be asked of a search engine.
+_SELF_REFERENCE = re.compile(
+    r"\b(?:according to|in|from|based on|per)\s+(?:the|this|that)\s+"
+    r"(?:passage|text|excerpt|extract|paragraph|section|chapter)\b",
+    re.IGNORECASE,
+)
 
 
 class _Backend(Protocol):
@@ -189,6 +202,8 @@ def _parse_generation(text: str) -> tuple[str, str] | None:
     q, a = data.get("question"), data.get("answer")
     if not (isinstance(q, str) and q.strip() and isinstance(a, str) and a.strip()):
         return None
+    if _SELF_REFERENCE.search(q):
+        return None
     return q.strip(), a.strip()
 
 
@@ -212,7 +227,8 @@ class RagasAdapter:
 
     def generate_samples(self, chunks: Sequence[Chunk], n: int, llm) -> list[Sample]:
         """One question + short reference answer per chunk, for the first ``n`` non-header
-        chunks. A bad JSON reply is retried once; a second bad reply skips that chunk."""
+        chunks. A bad reply (not JSON, or a question that points at "the passage") is retried
+        once; a second bad reply skips that chunk."""
         out: list[Sample] = []
         for chunk in [c for c in chunks if not c.is_header][: max(n, 0)]:
             messages = [

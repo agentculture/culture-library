@@ -206,6 +206,23 @@ def test_generate_samples_retries_bad_json_once_then_skips():
     assert len(llm.calls) == 5
 
 
+def test_generate_samples_retries_a_question_that_points_at_the_passage():
+    from culture_library.eval.ragas_adapter import RagasAdapter
+
+    llm = ScriptedLLM(
+        [
+            '{"question": "According to the passage, who wins?", "answer": "A1"}',
+            '{"question": "Who wins the race in Kent?", "answer": "A1"}',  # retry -> ok
+            '{"question": "Which door is red?", "answer": "A2"}',
+            '{"question": "In the excerpt, what burns?", "answer": "A3"}',
+            '{"question": "Based on this passage, what burns?", "answer": "A3"}',  # skip
+        ]
+    )
+    out = RagasAdapter(backend=StubBackend()).generate_samples(_chunks(), 3, llm)
+    assert [s.question for s in out] == ["Who wins the race in Kent?", "Which door is red?"]
+    assert "stand alone" in llm.calls[1][-1]["content"]
+
+
 def test_generate_samples_propagates_judge_errors():
     from culture_library.eval.ragas_adapter import RagasAdapter
 

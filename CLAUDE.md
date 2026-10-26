@@ -9,7 +9,11 @@ your own content and media** — recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more. The goal is one catalog to ingest, index, search and serve
 it all, published at **library.culture.dev**.
 
-**Status: library built, not yet deployed.**
+**Status: built and live.** library.culture.dev has served the library
+behind Cloudflare Access since 2026-10-24, from the compose stack on spark
+(`deploy/compose.yaml`). Spark runs 0.17.0 as of 2026-10-25, with
+embeddings and the reranker on. Machine clients reach it on spark's loopback
+(`127.0.0.1:8796` for the API and site, `:8797` for MCP).
 
 - **Spec, plan and evidence.** The library was specified with devague:
   - spec: `docs/specs/2026-10-23-library-culture-dev.md`;
@@ -73,7 +77,14 @@ it all, published at **library.culture.dev**.
     `--no-llm` (ID metrics only), so two runs differ only in retriever
     config. `LOBES_EMBED_PROMPTS` and `LOBES_RERANK_MODEL` configure the
     gateway prompts and reranker (see `docs/operations/deploy.md`, "Enable
-    embeddings").
+    embeddings"). The judge defaults to the gateway's `cortex` role;
+    `--judge-url`, `--judge-model` and `--judge-max-tokens` (or the
+    `CULTURE_LIBRARY_EVAL_LLM_*` env vars) point it elsewhere. If LLM scoring
+    fails, the run is still stored `complete` with its ID aggregates, and
+    `config.llm_metrics_failed` records the failure. Book sets never sample
+    Project Gutenberg licence chunks. A generated question that points at "the
+    passage" is retried once, then skipped, because a search engine can't
+    answer it.
   - `web/static/`: the site. A `todo` item opens as a read-only checklist
     (`checklist.js`).
   - `render/`: the devague renderer.
@@ -86,16 +97,27 @@ it all, published at **library.culture.dev**.
   operator-approved screenshots in `docs/design/reference/` back it, and the
   opt-in visual tests check against them.
 - **Deploy.** The files are in `deploy/`, with runbooks in `docs/operations/`.
+- **Embeddings and the eval baseline (live).** Embeddings were enabled on
+  2026-10-25 with the "Enable embeddings" runbook step in
+  `docs/operations/deploy.md`: `gemma2-embed` with the `Retrieval-document`
+  and `Retrieval-query` prompts, plus the gateway's `reranker` role.
+  `deploy restart` injects `GATEWAY_API_KEY` from grant, so `live.env` stays
+  secret-free (deviation d2). The book half of the baseline is stored on live:
+  - eval sets 1–5, one each for books 68, 66, 63, 71 and 70;
+  - 20 samples per set, k=5;
+  - ID recall@5 averages 0.89 with rerank and 0.78 without.
 - **Not done yet:**
-  - the stack has not been built or provisioned (#6);
+  - the newspaper half of the eval baseline, which waits on culture-rules#97
+    (the sources sidecar and its backfill). After it, the
+    `rag-endpoints-ragas-evals` plan still needs `/validate-delivery` and
+    `/summarize-delivery`;
   - search does not cover repo documents (#4);
-  - the RAG and eval code is built, but embeddings are not yet enabled on the
-    live library (planned: the "Enable embeddings" runbook step in
-    `docs/operations/deploy.md`) and the baseline eval runs (sets for at least
-    three books and three newspaper issues, each with a stored run) have not
-    been done (planned);
+  - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
+    (#25);
+  - in-progress items (#22);
   - the sibling repos must adopt the library (culture-rules#86,
-    embodiment#97, xteink#3).
+    embodiment#97, embodiment#107, xteink#3);
+  - #6 is still open for what is left of the deploy check.
 
 **Before-state evidence for RAG and evals.** Before this work,
 `core/search.py`'s `Hit` was item-level with a 200-char snippet, so it could
@@ -312,12 +334,14 @@ Pass `--visibility private` to keep a record in `$HOME/.eidetic/memory`.
 Built in the `library-culture-dev` run (see the delivery summary). Still
 open:
 
-- deploy and provision library.culture.dev (#6);
 - search over repo documents (#4);
 - map recording EPUBs to `transcript` on migration (#5);
-- an embedding model comparison (#7); the eval harness can run it from config
-  alone, but it needs embeddings enabled on live and the baseline run first
-  (planned);
+- an embedding model comparison (#7). The eval harness can run it from config
+  alone: rerun eval sets 1–5 under each embed config;
+- faster passage retrieval, a multi-kind filter, and transcript timestamps in
+  chunks (#25);
+- in-progress items that culture-rules grows (#22);
+- the newspaper half of the eval baseline (after culture-rules#97);
 - the ebooks.culture.dev teardown, gated by
   `docs/operations/teardown-ebooks.md`.
 
