@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T09:24:00Z",
-  "updated": "2026-10-25T19:51:55Z",
+  "updated": "2026-10-28T19:23:54Z",
   "claims": [
     {
       "id": "c1",
@@ -1429,5 +1429,204 @@
       "status": "approved"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "core/search.py passages()",
+      "behavior": "chunk-level retrieval returns full-text passages with chunk_sha = sha256(chunk text), visibility parity with /api/search, kind/item_ids filters before the cutoff; core stays network-free",
+      "source_text": "A chunk-level retrieve function returns (item_id, chunk_no, full chunk text, score) \u2014 core/search.py semantic() today keeps only the best chunk per item and truncates text to 200 chars (search.py:196-226), and Hit (search.py:47-55) has no chunk id, so RAG contexts need a new shape",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c5",
+      "seam": "core eval_store / sources tables",
+      "behavior": "eval sets, samples, runs and item_sources are item-child tables with ON DELETE CASCADE, registered in _ITEM_CHILDREN and preserved by the kinds rebuild",
+      "source_text": "Eval sets (generated QA/benchmark samples) are stored in a new item-child table registered via register_schema with ON DELETE CASCADE and added to _ITEM_CHILDREN (store.py:67), so purging an item purges its evals",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c50",
+      "seam": "gateway.py embedder + reranker",
+      "behavior": "gemma2-embed uses Retrieval-document for chunks and Retrieval-query for queries; GatewayReranker POSTs {model, query, documents} to /v1/rerank; neither follows redirects",
+      "source_text": "Asymmetric prompts for gemma2-embed: chunks are embedded with prompt_name Retrieval-document and queries with Retrieval-query (the lane accepts these and refuses Query, per embodiment/vectors.py:20-23, PROMPT_NAMES); the prompt pair is part of the recorded embed config. Live has 0 embeddings today, so adopting it before the first re-embed costs nothing extra",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c7",
+      "seam": "culture_library/eval adapter + judge config",
+      "behavior": "framework-neutral adapter protocol and models; judge config defaults to the gateway; guard_text_egress refuses non-public text to a non-local judge; only ragas_adapter imports ragas",
+      "source_text": "Eval framework is a pluggable adapter interface (generate testset, score run) with RAGAS as the only shipped adapter; the dataset format and run records are framework-neutral so DeepEval/TruLens/custom recall@k can plug in later",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c8",
+      "seam": "packaging: [eval] extra",
+      "behavior": "ragas, openai and langchain-community live only in the optional [eval] extra; base dependencies stay []; the zero-deps guard blocks them",
+      "source_text": "ragas and its stack live in a new optional [eval] extra, imported lazily inside the eval CLI handler with a CliError 'install culture-library[eval]' hint, mirroring cli/_commands/server.py:51-61; tests/test_zero_deps.py:17 blocks the new modules",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c45",
+      "seam": "deploy files + enable-embeddings runbook",
+      "behavior": "compose gives library and mcp host.docker.internal:host-gateway; deploy.md has the Enable embeddings section; the image still installs .[server] only",
+      "source_text": "Live enablement is a runbook step: docs/operations/deploy.md gains an 'enable embeddings' section \u2014 set GATEWAY_API_KEY, LOBES_GATEWAY_URL=http://host.docker.internal:8001 (with the compose extra_hosts), LOBES_EMBED_MODEL=gemma2-embed and the reranker role in live.env, deploy restart, requeue_all, wait for index_queue all done and embeddings > 0; rollback = unset the vars and restart (search degrades to full-text, per the routes_search.py hybrid fallback)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c40",
+      "seam": "/api/status retrieval block",
+      "behavior": "/api/status reports embed model and prompts, chunker max_chars, reranker model and chunk count",
+      "source_text": "The server reports its retrieval config \u2014 embed model, chunker max_chars, chunk count \u2014 via /api/status (or each retrieve response), and eval run records those server-reported values, not client-side guesses (routes_status.py exposes no embed model today)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c3",
+      "seam": "POST /api/rag/retrieve + GET item chunks",
+      "behavior": "ranked passages with rerank and candidates; 503 rag_unavailable without an embedder; reranker failure degrades to reranked:false; visibility parity with /api/search; /api/search unchanged",
+      "source_text": "A new routes_rag.py exposes POST /api/rag/retrieve {query, k, mode: semantic|hybrid, kind?, item_ids?} returning ranked passages [{item_id, title, kind, chunk_no, chunk_sha, text, score, source}], auto-included by server/app.py:34-46, gated by check(principal, 'read') with the same include_private/owner visibility as /api/search (routes_search.py:115-120); 503 rag_unavailable when no embedder is configured",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c33",
+      "seam": "newspaper sources sidecar API",
+      "behavior": "PUT validates and stores [{article_title, source_urls[], excerpt}] with write scope; GET returns it with read scope and item visibility",
+      "source_text": "Newspaper sources sidecar: PUT /api/library/{id}/sources (write scope) stores a JSON manifest [{article_title, source_urls[], excerpt}] in an item_sources child table (cascade on item delete); GET returns it under the item's visibility rule",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c34",
+      "seam": "eval API: sets and runs",
+      "behavior": "POST sets/runs with write scope for the item's kind; GET filtered by item visibility; aggregates refused unless status == complete",
+      "source_text": "Eval API: POST /api/eval/sets and POST /api/eval/runs (write scope) store generated sets and scored runs; GET /api/eval/sets?item_id= and GET /api/eval/runs?set_id= (read scope) return them, filtered by the underlying item's visibility",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c13",
+      "seam": "eval/generate.py book + newspaper sets",
+      "behavior": "book sets sample the item's own chunks deterministically and anchor by chunk_sha; newspaper sets need the sidecar and carry each article's source_urls; egress guard runs before any text fetch",
+      "source_text": "Book benchmarks are generated from the book's own extracted text (ingest.extract_text EPUB/PDF) into QA samples with reference contexts and reference answers",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c41",
+      "seam": "eval/runner.py",
+      "behavior": "stale-item pre-check, ID metrics always, LLM metrics only when allowed, no non-public text to a non-local judge, partial/failed runs carry no aggregates, run config records server retrieval config",
+      "source_text": "A run that fails midway (judge timeout, gateway down, 503) is stored with status=partial or failed and the completed sample count, or not stored \u2014 never as complete with aggregates over a subset",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c44",
+      "seam": "eval/ragas_adapter.py (RAGAS 0.4.3)",
+      "behavior": "ID-based context precision/recall over chunk_sha always; LLM context precision/recall via ragas when a judge is configured; standalone generated questions",
+      "source_text": "Every eval run scores ID-based context precision/recall over chunk_sha; LLM-judged context precision/recall are added when a judge endpoint is configured, subject to c39",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c35",
+      "seam": "MCP rag_retrieve tool",
+      "behavior": "rag_retrieve mirrors POST /api/rag/retrieve through the caller's key",
+      "source_text": "MCP gains a rag_retrieve tool mirroring POST /api/rag/retrieve (one _spec + _handlers entry in mcp/tools.py), so agents get passages through the same key-scoped path",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c11",
+      "seam": "eval CLI noun",
+      "behavior": "eval overview/generate/run/show with --json; missing extra exits 2 with an install hint; explain and learn cover it",
+      "source_text": "A new 'eval' CLI noun (overview default, verbs e.g. generate / run / show), registered in cli/__init__.py, with explain catalog entries and learn.py mention so teken cli doctor --strict passes (tests.yml:77-78)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c27",
+      "seam": "docs: RAG and eval surface",
+      "behavior": "CLAUDE.md, README and the harness files describe /api/rag, /api/eval, the sidecar, the eval CLI and the [eval] extra",
+      "source_text": "Search returns item-level hits with a 200-char snippet (core/search.py Hit); nothing measures retrieval quality \u2014 t7 evidence explicitly did not evaluate it, and #7 (gemma2-embed vs Qwen3) has no way to be decided",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c46",
+      "seam": "live library.culture.dev retrieval config",
+      "behavior": "live /api/status reports gemma2-embed with Retrieval-document/Retrieval-query prompts and the reranker; every item is embedded with that model",
+      "source_text": "The embedder is gemma2-embed (google/embeddinggemma-2, served from orin), reached through the lobes gateway by role name \u2014 the same path embodiment uses (embodiment/vectors.py EMBED_ROLE)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c20",
+      "seam": "culture-rules sidecar (sibling)",
+      "behavior": "culture-rules pushes a sources manifest with each newspaper issue and backfilled the existing ones",
+      "source_text": "A culture-rules change is needed to push the newspaper sources sidecar \u2014 filed as a sibling-repo issue via /communicate; the library side only accepts and stores it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c32",
+      "seam": "CI without ragas",
+      "behavior": "CI stays green with ragas absent: dependencies == [], test_zero_deps blocks ragas, eval tests run on fakes",
+      "source_text": "CI stays green with ragas absent: 0 new required runtime deps (pyproject dependencies == []), test_zero_deps blocks ragas and passes, and eval tests run on fakes",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c31",
+      "seam": "live eval runs under two retriever configs",
+      "behavior": "one eval set run under two retriever configs yields two stored, directly comparable runs",
+      "source_text": "The same eval set run under two retriever configs (e.g. mode semantic vs hybrid, or two embed models) yields 2 stored runs whose metrics are directly comparable, sufficient to inform #7",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c30",
+      "seam": "live eval baseline",
+      "behavior": "eval sets exist for >= 3 books and >= 3 newspaper issues, each with >= 1 complete stored run carrying RAGAS context precision and recall",
+      "source_text": "Baseline recorded on the live library: eval sets exist for >= 3 books and >= 3 newspaper issues, and each set has >= 1 stored run with RAGAS context precision and context recall",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o22",
+      "claim_id": "c29",
+      "seam": "agent retrieve + operator eval flow",
+      "behavior": "an agent POSTs a query to /api/rag/retrieve and gets citable ranked passages; the operator runs eval generate <item> then eval run <set> and reads stored results",
+      "source_text": "An agent POSTs a query to /api/rag/retrieve (or the MCP rag_retrieve tool) and gets ranked passages it can cite; the operator runs `culture-library eval generate <item>` to build an eval set from a book's text or a newspaper's sources sidecar, then `culture-library eval run <set>` to score retrieval with RAGAS and store context precision/recall in the library, comparable across runs, modes and embedders",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }

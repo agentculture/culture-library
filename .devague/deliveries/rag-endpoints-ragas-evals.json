@@ -2,7 +2,7 @@
   "plan_slug": "rag-endpoints-ragas-evals",
   "schema_version": 2,
   "created": "2026-10-25T14:39:42Z",
-  "updated": "2026-10-25T18:25:56Z",
+  "updated": "2026-10-28T19:23:54Z",
   "deviations": [
     {
       "id": "d1",
@@ -33,7 +33,445 @@
       "seq": 2
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/core/test_passages.py (14 tests) + tests/core/test_store.py::test_core_source_has_no_network_imports",
+      "behavior_text": "asserts Passage fields, chunk_sha == sha256 of stored text and stable across re-index, private/archived items never yield passages, filters apply before ranking; core imports no network modules",
+      "contract_text": "A chunk-level retrieve function returns (item_id, chunk_no, full chunk text, score)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed) at bb981c0",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 3
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/core/test_eval_store.py (7) + tests/core/test_store_migration.py (13)",
+      "behavior_text": "asserts the tables register, cascade on item delete/purge, survive a forced kinds rebuild with counts intact, and comparable() matches only same set+version",
+      "contract_text": "Eval sets (generated QA/benchmark samples) are stored in a new item-child table registered via register_schema with ON DELETE CASCADE and added to _ITEM_CHILDREN (store.py:67), so purging an item purges its evals",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_gateway.py (19) + tests/server/test_search_gateway_wiring.py (8)",
+      "behavior_text": "asserts prompt_name is sent per role, the rerank payload/parse, 302 redirects are refused, and the lifespan wires document vs query embedders and the reranker",
+      "contract_text": "Asymmetric prompts for gemma2-embed: chunks are embedded with prompt_name Retrieval-document and queries with Retrieval-query (the lane accepts these and refuses Query, per embodiment/vectors.py:20-23, PROMPT_NAMES); the prompt pair is part of the recorded embed config. Live has 0 embeddings today, ",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/eval/test_eval_foundation.py (20)",
+      "behavior_text": "asserts the protocol shape, JudgeConfig env/default resolution, is_local, the egress guard raising before text is read, and the ragas import confinement",
+      "contract_text": "Eval framework is a pluggable adapter interface (generate testset, score run) with RAGAS as the only shipped adapter; the dataset format and run records are framework-neutral so DeepEval/TruLens/custom recall@k can plug in later",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/test_zero_deps.py (6)",
+      "behavior_text": "asserts dependencies == [], the [eval] extra contents, and that importing the CLI pulls in none of ragas/langchain/openai/datasets/instructor",
+      "contract_text": "ragas and its stack live in a new optional [eval] extra, imported lazily inside the eval CLI handler with a CliError 'install culture-library[eval]' hint, mirroring cli/_commands/server.py:51-61; tests/test_zero_deps.py:17 blocks the new modules",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/test_deploy_files.py (14)",
+      "behavior_text": "asserts compose extra_hosts and LOBES_* pass-through, the runbook section, and the Dockerfile .[server]-only install",
+      "contract_text": "Live enablement is a runbook step: docs/operations/deploy.md gains an 'enable embeddings' section \u2014 set GATEWAY_API_KEY, LOBES_GATEWAY_URL=http://host.docker.internal:8001 (with the compose extra_hosts), LOBES_EMBED_MODEL=gemma2-embed and the reranker role in live.env, deploy restart, requeue_all, w",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/server/test_status_retrieval.py (6)",
+      "behavior_text": "asserts the retrieval block equals the configured embedder, prompts, chunker and reranker, and the stored chunk count",
+      "contract_text": "The server reports its retrieval config \u2014 embed model, chunker max_chars, chunk count \u2014 via /api/status (or each retrieve response), and eval run records those server-reported values, not client-side guesses (routes_status.py exposes no embed model today)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "tests/server/test_routes_rag.py (20)",
+      "behavior_text": "asserts the request/response shape, k and candidates bounds, 503 without embedder, reranker-down fallback, private/owner/public parity, and the chunks route",
+      "contract_text": "A new routes_rag.py exposes POST /api/rag/retrieve {query, k, mode: semantic|hybrid, kind?, item_ids?} returning ranked passages [{item_id, title, kind, chunk_no, chunk_sha, text, score, source}], auto-included by server/app.py:34-46, gated by check(principal, 'read') with the same include_private/o",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_routes_sources.py (21)",
+      "behavior_text": "asserts manifest validation, 403 for read-only keys on PUT, private-item visibility, cascade on delete",
+      "contract_text": "Newspaper sources sidecar: PUT /api/library/{id}/sources (write scope) stores a JSON manifest [{article_title, source_urls[], excerpt}] in an item_sources child table (cascade on item delete); GET returns it under the item's visibility rule",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/eval/test_routes_eval.py (9)",
+      "behavior_text": "asserts write scope per kind, visibility filtering, and the aggregates-only-when-complete rule",
+      "contract_text": "Eval API: POST /api/eval/sets and POST /api/eval/runs (write scope) store generated sets and scored runs; GET /api/eval/sets?item_id= and GET /api/eval/runs?set_id= (read scope) return them, filtered by the underlying item's visibility",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/eval/test_generate.py (12)",
+      "behavior_text": "asserts deterministic sampling, chunk_sha anchoring with verbatim contexts, sidecar matching and unmatched counts, Gutenberg header/licence skipping, and the guard ordering",
+      "contract_text": "Book benchmarks are generated from the book's own extracted text (ingest.extract_text EPUB/PDF) into QA samples with reference contexts and reference answers",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/eval/test_runner.py (13) + tests/eval/test_review_fixes.py (19)",
+      "behavior_text": "asserts sha mismatch/archived refusal, ID-metric math, the non-local judge payload filter, partial/failed storage, llm_metrics_failed keeping ID aggregates, and the recorded server config",
+      "contract_text": "A run that fails midway (judge timeout, gateway down, 503) is stored with status=partial or failed and the completed sample count, or not stored \u2014 never as complete with aggregates over a subset",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "tests/eval/test_ragas_adapter.py (22, ragas-marked tests ran with ragas installed)",
+      "behavior_text": "asserts ID metrics match the runner's, LLM metrics against a fake OpenAI-compatible judge, JSON retry, and self-referential question rejection",
+      "contract_text": "Every eval run scores ID-based context precision/recall over chunk_sha; LLM-judged context precision/recall are added when a judge endpoint is configured, subject to c39",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "tests/mcp/test_rag_retrieve.py (7)",
+      "behavior_text": "asserts the tool spec arguments, that the handler calls /api/rag/retrieve with the caller's key, and error passthrough",
+      "contract_text": "MCP gains a rag_retrieve tool mirroring POST /api/rag/retrieve (one _spec + _handlers entry in mcp/tools.py), so agents get passages through the same key-scoped path",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "tests/eval/test_cli_eval.py (13)",
+      "behavior_text": "asserts the verbs, JSON output, generate->run->show round-trip, the missing-extra error, and the explain entries",
+      "contract_text": "A new 'eval' CLI noun (overview default, verbs e.g. generate / run / show), registered in cli/__init__.py, with explain catalog entries and learn.py mention so teken cli doctor --strict passes (tests.yml:77-78)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "tests/test_docs_rag_eval.py (4)",
+      "behavior_text": "asserts CLAUDE.md and README name the RAG/eval surface, the harness files stay in step, and CLAUDE.md states the live status",
+      "contract_text": "Search returns item-level hits with a 200-char snippet (core/search.py Hit); nothing measures retrieval quality \u2014 t7 evidence explicitly did not evaluate it, and #7 (gemma2-embed vs Qwen3) has no way to be decided",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "full suite ran green (1122 passed, 0 failed, 3 unrelated skips) at bb981c0, eval extra installed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:21:03Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o17",
+      "test_ref": "live /api/status + read-only index_queue/embeddings query on spark, 2026-10-28",
+      "behavior_text": "observed /api/status retrieval={embed_model: gemma2-embed, prompts Retrieval-document/Retrieval-query, chunker 1000, reranker_model: reranker}; embeddings table holds 7812 rows, all model gemma2-embed+Retrieval-document",
+      "contract_text": "The embedder is gemma2-embed (google/embeddinggemma-2, served from orin), reached through the lobes gateway by role name \u2014 the same path embodiment uses (embodiment/vectors.py EMBED_ROLE)",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on the running live stack (0.17.0) rather than in a test",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:30:00Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "culture-rules#97 comment (culture-rules 0.36.0, #115) + live item_sources rows + eval generate unmatched counts",
+      "behavior_text": "observed all 18 live newspaper items have an item_sources row (incl. today's 05:00 issue 98); eval generate on 81, 98, 73 matched every entry (unmatched 0)",
+      "contract_text": "A culture-rules change is needed to push the newspaper sources sidecar \u2014 filed as a sibling-repo issue via /communicate; the library side only accepts and stores it",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "checked on the live library after the backfill and the first daily push",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:30:00Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o19",
+      "test_ref": "GitHub Actions tests.yml run 40376829208 on main bb981c0",
+      "behavior_text": "the tests workflow concluded success at bb981c0; its default test job installs no [eval] extra and the separate ragas job ran the opt-in tests",
+      "contract_text": "CI stays green with ragas absent: 0 new required runtime deps (pyproject dependencies == []), test_zero_deps blocks ragas and passes, and eval tests run on fakes",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "CI run concluded success on the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-26T18:20:14Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o20",
+      "test_ref": "live GET /api/eval/runs: book sets 1-5 runs 1-10, newspaper sets 6-8 runs 12-17",
+      "behavior_text": "observed every one of the 8 sets has a rerank-on and a rerank-off run at k=5, hybrid, same set version, recording the same server retrieval config; e.g. set 6 ID recall@5 1.00 vs 0.50, book mean 0.89 vs 0.78",
+      "contract_text": "The same eval set run under two retriever configs (e.g. mode semantic vs hybrid, or two embed models) yields 2 stored runs whose metrics are directly comparable, sufficient to inform #7",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "stored runs read back from the live library DB",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:30:00Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "rejected",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o20",
+      "test_ref": "live GET /api/eval/runs: rerank on/off pairs per set \u2014 set 1 runs 11/19, set 2 runs 3/4, set 3 5/6, set 4 9/10, set 5 7/8, set 6 12/13, set 7 14/15, set 8 16/17",
+      "behavior_text": "observed all 8 sets have a complete rerank-on and a complete rerank-off run at k=5, hybrid, same set version, recording the same server retrieval config; set 1's off run (19) replaces partial runs 1-2; book mean ID recall@5 0.89 vs 0.78, set 6 1.00 vs 0.50",
+      "contract_text": "The same eval set run under two retriever configs (e.g. mode semantic vs hybrid, or two embed models) yields 2 stored runs whose metrics are directly comparable",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "stored complete runs read back from the live library DB after run 19 completed; supersedes rejected e20, which overclaimed set 1",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T16:45:00Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o21",
+      "test_ref": "live GET /api/eval/sets + /api/eval/runs: sets 1-5 (books 68, 66, 63, 71, 70) and 6-8 (newspapers 81, 98, 73); LLM-scored complete runs 11, 18, 20, 21, 22, 12, 14, 16",
+      "behavior_text": "observed 5 book sets (20 samples) and 3 newspaper sets (4 samples, unmatched 0), each with a complete run carrying ID-based and LLM (cortex) context precision/recall; with rerank, ID recall@5 0.85/0.90/1.00/0.95/0.75 (books) and 1.00/1.00/1.00 (newspapers); LLM context recall 0.80-1.00",
+      "contract_text": "Baseline recorded on the live library: eval sets exist for >= 3 books and >= 3 newspaper issues, and each set has >= 1 stored run with RAGAS context precision and context recall",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "stored complete runs read back from the live library DB after the last run (22) finished",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T18:35:00Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o22",
+      "test_ref": "live end-to-end: culture-library eval generate 81/98/73 then eval run (sets 1-8) against library.culture.dev's loopback API",
+      "behavior_text": "observed eval generate store sets 6-8 and eval run store 22 runs whose per-sample retrieval went through POST /api/rag/retrieve on live, each passage carrying item_id and chunk_sha; results read back via GET /api/eval/runs",
+      "contract_text": "An agent POSTs a query to /api/rag/retrieve (or the MCP rag_retrieve tool) and gets ranked passages it can cite; the operator runs `culture-library eval generate <item>` to build an eval set from a book's text or a newspaper's sources sidecar, then `culture-library eval run <set>` to score retrieval",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "stored complete runs read back from the live library DB after the last run (22) finished",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-28T18:35:00Z",
+        "commit": "bb981c0"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    }
+  ],
   "deltas": [],
   "supersessions": []
 }
