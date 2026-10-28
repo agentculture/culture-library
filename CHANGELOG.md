@@ -10,7 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Delivery summary for the `rag-endpoints-ragas-evals` run (`docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`): all 19 tasks delivered, two approved deviations, 11 approved lapses, and delivery claims graded against the validation evidence.
-- Validation records in `.devague/`: obligations o1–o22 and evidence e1–e23 (e20 rejected for overclaiming, replaced by e21; e22 and e23 await the operator's confirmation).
+- Validation records in `.devague/`: obligations o1–o22 and evidence e1–e23 (all approved by the operator except e20, rejected for overclaiming and replaced by e21).
 
 ### Changed
 

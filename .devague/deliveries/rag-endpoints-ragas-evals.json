@@ -2,7 +2,7 @@
   "plan_slug": "rag-endpoints-ragas-evals",
   "schema_version": 2,
   "created": "2026-10-25T14:39:42Z",
-  "updated": "2026-10-28T18:34:31Z",
+  "updated": "2026-10-28T19:23:54Z",
   "deviations": [
     {
       "id": "d1",
@@ -448,7 +448,7 @@
         "commit": "bb981c0"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -467,7 +467,7 @@
         "commit": "bb981c0"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     }

@@ -86,7 +86,7 @@ live tasks ran on spark after later follow-up PRs, listed per task.
 - commits: `37903fe..bb981c0` (PRs #17, #20, #21, #23, #24, #26; #24 is the unrelated #18/#19 work in the same window)
 - live: `/api/status` retrieval block; eval sets 1–8 and runs 1–22 in the live DB (read-only queries, 2026-10-28)
 - PRs / issues: #17, #20, #21, #23, #26; culture-rules#97 (and its unmatched-0 comment), #7 (baseline numbers), #27
-- validation records: obligations `o1`–`o22`, evidence `e1`–`e23` in `.devague/` (`e20` rejected; `e22`, `e23` proposed)
+- validation records: obligations `o1`–`o22`, evidence `e1`–`e23` in `.devague/` (all approved except `e20`, rejected)
 
 ## Delivery Claims
 
@@ -116,8 +116,8 @@ phase or a merge-gate breach on the claim's task (`l2`, `l4`, `l6`, `l7`,
 | `c45` — Live enablement is a runbook step: docs/operations/deploy.md gains an 'enable embeddings' section — set `GATEWAY_API_KEY`, `LOBES_GATEWAY_URL`=<http://host.docker.internal:8001> (with the compose `extra_hosts`), `LOBES_EMBED_MODEL`=gemma2-embed and the reranker role in live.env, deploy restart, `requeue_all`, wait for `index_queue` all done and embeddings > 0; rollback = unset the vars and restart (search degrades to full-text, per the `routes_search.py` hybrid fallback) | high | `tests/test_deploy_files.py (14)` (run 2026-10-28) |
 | `c46` — The embedder is gemma2-embed (google/embeddinggemma-2, served from orin), reached through the lobes gateway by role name — the same path embodiment uses (embodiment/vectors.py `EMBED_ROLE`) | high | `live /api/status + read-only index_queue/embeddings query on spark, 2026-10-28` (run 2026-10-28) |
 | `c50` — Asymmetric prompts for gemma2-embed: chunks are embedded with `prompt_name` Retrieval-document and queries with Retrieval-query (the lane accepts these and refuses Query, per embodiment/vectors.py:20-23, `PROMPT_NAMES`); the prompt pair is part of the recorded embed config. Live has 0 embeddings today, so adopting it before the first re-embed costs nothing extra | high | `tests/test_gateway.py (19) + tests/server/test_search_gateway_wiring.py (8)` (run 2026-10-28) |
-| `c30` — Baseline recorded on the live library: eval sets for >= 3 books and >= 3 newspaper issues, each with >= 1 stored run with RAGAS context precision and recall | unverified (evidence `e22` filed, awaiting confirmation) | live sets 1–8, LLM-scored runs 11, 18, 20, 21, 22, 12, 14, 16 |
-| `c29` — An agent gets citable passages from `/api/rag/retrieve`; the operator generates and runs eval sets and reads stored results | unverified (evidence `e23` filed, awaiting confirmation) | `eval generate` on 81, 98, 73; 22 stored runs |
+| `c30` — Baseline recorded on the live library: eval sets for >= 3 books and >= 3 newspaper issues, each with >= 1 stored run with RAGAS context precision and recall | high | evidence `e22` · live sets 1–8, LLM-scored runs 11, 18, 20, 21, 22, 12, 14, 16 · numbers on #7 (`l1`'s unchecked corpus assumption is resolved by this direct measurement) |
+| `c29` — An agent gets citable passages from `/api/rag/retrieve`; the operator generates and runs eval sets and reads stored results | high | evidence `e23` · `eval generate` on 81, 98, 73; 22 stored runs |
 
 Lapse ledger evidence:
 
@@ -137,7 +137,6 @@ Lapse ledger evidence:
 
 ## Remaining Work / Follow-up
 
-- Confirm `e22` (c30) and `e23` (c29); then their rows can be re-rated — operator.
 - #27: strip the Project Gutenberg header and licence at index time, re-index, re-run sets 1–5 — operator decision (re-index on live).
 - #7: compare gemma2-embed with Qwen3-Embedding-0.6B by re-running sets 1–8 under the other embed config; the baseline is posted on the issue.
 - #25: faster retrieval for Gwen's turn path (about 0.7 s without rerank), multi-kind filter, transcript timestamps — for embodiment#107.

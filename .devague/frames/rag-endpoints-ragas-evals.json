@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-25T09:24:00Z",
-  "updated": "2026-10-28T18:34:31Z",
+  "updated": "2026-10-28T19:23:54Z",
   "claims": [
     {
       "id": "c1",
@@ -1617,7 +1617,7 @@
       "behavior": "eval sets exist for >= 3 books and >= 3 newspaper issues, each with >= 1 complete stored run carrying RAGAS context precision and recall",
       "source_text": "Baseline recorded on the live library: eval sets exist for >= 3 books and >= 3 newspaper issues, and each set has >= 1 stored run with RAGAS context precision and context recall",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o22",
@@ -1626,7 +1626,7 @@
       "behavior": "an agent POSTs a query to /api/rag/retrieve and gets citable ranked passages; the operator runs eval generate <item> then eval run <set> and reads stored results",
       "source_text": "An agent POSTs a query to /api/rag/retrieve (or the MCP rag_retrieve tool) and gets ranked passages it can cite; the operator runs `culture-library eval generate <item>` to build an eval set from a book's text or a newspaper's sources sidecar, then `culture-library eval run <set>` to score retrieval with RAGAS and store context precision/recall in the library, comparable across runs, modes and embedders",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
