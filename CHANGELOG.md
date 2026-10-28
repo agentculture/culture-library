@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-10-28
+
+### Added
+
+- Delivery summary for the `rag-endpoints-ragas-evals` run (`docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`): all 19 tasks delivered, two approved deviations, 11 approved lapses, and delivery claims graded against the validation evidence.
+- Validation records in `.devague/`: obligations o1–o22 and evidence e1–e23 (e20 rejected for overclaiming, replaced by e21; e22 and e23 await the operator's confirmation).
+
+### Changed
+
+- CLAUDE.md, README.md and QWEN.md record the finished eval baseline on live: book sets 1–5 and newspaper sets 6–8 (issues 81, 98, 73; built from the culture-rules sources sidecar, unmatched 0), each with a rerank on/off pair and an LLM-scored run. ID recall@5 is 0.89 vs 0.78 on books and 1.00 with rerank on newspapers; numbers are on #7. #27 (Gutenberg boilerplate in the index) is listed as open work.
+
 ## [0.17.1] - 2026-10-26
 
 ### Changed

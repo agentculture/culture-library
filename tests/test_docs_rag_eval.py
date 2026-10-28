@@ -31,11 +31,12 @@ def test_claude_md_documents_rag_and_eval() -> None:
         assert needle in text, needle
 
 
-def test_claude_md_states_live_rag_status_and_open_baseline() -> None:
+def test_claude_md_states_live_rag_status_and_baseline() -> None:
     text = _read("CLAUDE.md").lower()
     assert "embeddings are not yet enabled" not in text
     assert "embeddings were enabled on" in text
-    assert "newspaper half of the eval baseline" in text
+    assert "sets 6–8 for newspapers" in text
+    assert "docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md" in text
 
 
 def test_readme_has_rag_eval_section() -> None:

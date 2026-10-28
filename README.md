@@ -66,10 +66,10 @@ non-public items is never sent to a non-local judge. Install
 not include it.
 
 Embeddings are on in the live library (see "Enable embeddings" in
-`docs/operations/deploy.md`). The book half of the eval baseline is recorded
-there: five books, 20 questions each, with ID recall@5 of 0.89 with rerank and
-0.78 without. The newspaper half is planned. It waits on culture-rules
-pushing a sources sidecar with each issue.
+`docs/operations/deploy.md`). The eval baseline is recorded there: five books
+(20 questions each) and three newspaper issues (4 questions each, built from
+the sources culture-rules pushes with each issue). ID recall@5 is 0.89 with
+rerank and 0.78 without on books, and 1.00 with rerank on newspapers.
 
 ## Quickstart
 
@@ -107,8 +107,8 @@ library.culture.dev today. These are still open:
 - faster passage retrieval, so Gwen can recall from the library on a live
   turn (#25);
 - in-progress items that grow as culture-rules writes them (#22);
-- the newspaper half of the eval baseline, and an embedding model comparison
-  (#7).
+- an embedding model comparison (#7), which reruns the stored eval sets;
+- stripping Project Gutenberg boilerplate from the search index (#27).
 
 ## Prompt files by harness
 

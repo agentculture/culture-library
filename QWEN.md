@@ -126,7 +126,7 @@ culture.yaml              mesh identity (suffix + backend)
 Built and live: one catalog to ingest, index, search and serve your own
 media at library.culture.dev, with RAG passages and retrieval evals. The open
 work (repo-document search, faster retrieval, in-progress items, the
-newspaper half of the eval baseline) is tracked in `CLAUDE.md`'s roadmap.
+embedder comparison) is tracked in `CLAUDE.md`'s roadmap.
 
 This file describes the repository **as it exists on disk today**. When you
 edit, keep claims grounded in checked-in reality; if a section drifts ahead of

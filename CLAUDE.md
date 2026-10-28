@@ -104,19 +104,24 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
   `docs/operations/deploy.md`: `gemma2-embed` with the `Retrieval-document`
   and `Retrieval-query` prompts, plus the gateway's `reranker` role.
   `deploy restart` injects `GATEWAY_API_KEY` from grant, so `live.env` stays
-  secret-free (deviation d2). The book half of the baseline is stored on live:
-  - eval sets 1–5, one each for books 68, 66, 63, 71 and 70;
-  - 20 samples per set, k=5;
-  - ID recall@5 averages 0.89 with rerank and 0.78 without.
+  secret-free (deviation d2). The baseline is stored on live (numbers on #7):
+  - eval sets 1–5 for books 68, 66, 63, 71 and 70 (20 samples each), and
+    sets 6–8 for newspapers 81, 98 and 73 (4 samples each, from the
+    culture-rules sources sidecar);
+  - every set has a complete run with rerank on and off at k=5, and an
+    LLM-scored run (cortex judge);
+  - ID recall@5 averages 0.89 with rerank and 0.78 without on books, and
+    1.00 with rerank on newspapers.
+
+  The run's delivery summary is
+  `docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`.
 - **Not done yet:**
-  - the newspaper half of the eval baseline, which waits on culture-rules#97
-    (the sources sidecar and its backfill). After it, the
-    `rag-endpoints-ragas-evals` plan still needs `/validate-delivery` and
-    `/summarize-delivery`;
   - search does not cover repo documents (#4);
   - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
     (#25);
   - in-progress items (#22);
+  - the Project Gutenberg header and licence are still indexed and
+    retrievable (#27);
   - the sibling repos must adopt the library (culture-rules#86,
     embodiment#97, embodiment#107, xteink#3);
   - #6 is still open for what is left of the deploy check.
@@ -343,7 +348,6 @@ open:
 - faster passage retrieval, a multi-kind filter, and transcript timestamps in
   chunks (#25);
 - in-progress items that culture-rules grows (#22);
-- the newspaper half of the eval baseline (after culture-rules#97);
 - the ebooks.culture.dev teardown, gated by
   `docs/operations/teardown-ebooks.md`.
 
