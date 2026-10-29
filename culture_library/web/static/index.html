@@ -7,6 +7,7 @@
 <meta name="description" content="Culture's library of your own content and media.">
 <meta name="referrer" content="no-referrer">
 <link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/evals.css">
 <script type="module" src="/static/app.js"></script>
 </head>
 <body>
@@ -21,6 +22,7 @@
     <nav class="tabs" role="tablist" aria-label="Views">
       <button role="tab" aria-selected="true" data-view="home">Library</button>
       <button role="tab" aria-selected="false" data-view="state">Site state</button>
+      <button role="tab" aria-selected="false" data-view="evals">Evals</button>
     </nav>
     <label class="search" for="q" aria-label="Search the library">
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--muted)" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -102,6 +104,46 @@
     <div class="tiles" id="tiles"></div>
     <div class="status" id="status"></div>
     <div class="charts" id="charts"></div>
+  </section>
+  <section id="view-evals" class="wrap evals" hidden>
+    <!-- Evals (plan task t16; design canvas "Evals overview"). Routes: #evals, #evals/radar,
+         #evals/compare (hashroute.js). evals.js fills the overview from the eval API. -->
+    <div id="evals-overview" class="ev-page">
+      <section class="ev-intro">
+        <div>
+          <h1 class="ev-title">Evals</h1>
+          <p id="ev-lede">Does search hand an agent the passage its question needs? Each number is a scored run against question sets made from the library's own books and newspapers.</p>
+        </div>
+        <div class="ev-actions">
+          <a class="btn" href="#evals/radar">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 3v18M3 12h18"/></g></svg>
+            Radar
+          </a>
+          <a class="btn primary" href="#evals/compare">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16M17 4v16M3 8h8M13 16h8" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Compare runs
+          </a>
+        </div>
+      </section>
+      <div class="ev-tiles" id="ev-tiles" aria-label="Headline numbers"></div>
+      <div class="ev-grid2">
+        <section class="ev-card ev-wide" id="ev-rerank" aria-labelledby="ev-rerank-h"></section>
+        <section class="ev-card ev-side" id="ev-weak" aria-labelledby="ev-weak-h"></section>
+      </div>
+      <section class="ev-card" id="ev-suites" aria-labelledby="ev-suites-h"></section>
+      <section class="ev-card" id="ev-runs" aria-labelledby="ev-runs-h"></section>
+      <p class="ev-foot">Times in UTC. Numbers come from this library's eval API and include only runs whose items this key can see.</p>
+    </div>
+    <div id="evals-radar" class="ev-page" hidden>
+      <div class="ev-crumb"><a href="#evals">Evals</a> / Radar</div>
+      <section class="ev-intro"><div><h1 class="ev-title">Radar</h1></div></section>
+      <div id="ev-radar-body"></div>
+    </div>
+    <div id="evals-compare" class="ev-page" hidden>
+      <div class="ev-crumb"><a href="#evals">Evals</a> / Compare</div>
+      <section class="ev-intro"><div><h1 class="ev-title">Compare runs</h1></div></section>
+      <div id="ev-compare-body"></div>
+    </div>
   </section>
 </main>
 <div class="wrap foot" id="foot">Items marked "Only me" are private to you. Agents add items with the MCP tool push_file and send them with send_to_device.</div>

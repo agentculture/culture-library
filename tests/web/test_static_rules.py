@@ -17,6 +17,8 @@ STATIC = Path(__file__).resolve().parents[2] / "culture_library" / "web" / "stat
 JS = sorted(STATIC.glob("*.js"))
 HTML = sorted(STATIC.glob("*.html"))
 CSS = STATIC / "styles.css"
+CSS_FILES = sorted(STATIC.glob("*.css"))
+EVALS_JS = [STATIC / n for n in ("evals.js", "evals-model.js", "hashroute.js")]
 
 _HANDLER = re.compile(r"\bon[a-z]+\s*=", re.I)
 _PHYSICAL = [
@@ -35,11 +37,11 @@ def _strip_css_comments(css: str) -> str:
 
 def test_files_exist() -> None:
     names = {p.name for p in JS}
-    assert {f"{m}.js" for m in ("app", "home", "reader", "search", "upload", "send", "state")} <= (
-        names
-    )
+    want = ("app", "home", "reader", "search", "upload", "send", "state", "evals", "evals-model")
+    assert {f"{m}.js" for m in (*want, "hashroute")} <= names
     assert HTML
     assert CSS.is_file()
+    assert (STATIC / "evals.css").is_file()
 
 
 def test_no_inline_event_handlers() -> None:
@@ -58,10 +60,47 @@ def test_no_inline_style_attributes_in_markup() -> None:
 
 
 def test_stylesheet_has_no_physical_left_right() -> None:
-    css = _strip_css_comments(CSS.read_text(encoding="utf-8"))
-    for pat in _PHYSICAL:
-        hits = [css[max(0, m.start() - 40) : m.end() + 10] for m in pat.finditer(css)]
-        assert not hits, (pat.pattern, hits)
+    assert CSS in CSS_FILES and len(CSS_FILES) >= 2
+    for path in CSS_FILES:
+        css = _strip_css_comments(path.read_text(encoding="utf-8"))
+        for pat in _PHYSICAL:
+            hits = [css[max(0, m.start() - 40) : m.end() + 10] for m in pat.finditer(css)]
+            assert not hits, (path.name, pat.pattern, hits)
+
+
+def test_js_positions_with_logical_properties() -> None:
+    """Inline positions set through CSSOM (h()'s style map) are logical too."""
+    for path in JS:
+        text = path.read_text(encoding="utf-8")
+        hits = re.findall(r"""['"](?:left|right|margin-left|margin-right|width)['"]\s*:""", text)
+        hits += re.findall(r"""style:\s*\{[^}]*\b(?:left|right)\s*:""", text)
+        if path in EVALS_JS:
+            assert not hits, (path.name, hits)
+            assert not re.search(r"""style:\s*\{[^}]*\bwidth\s*:""", text), path.name
+
+
+def test_evals_text_goes_through_text_nodes() -> None:
+    """Titles, URLs and reasons from the API are text nodes with dir=auto, never markup."""
+    for path in EVALS_JS:
+        text = path.read_text(encoding="utf-8")
+        for bad in (
+            "innerHTML",
+            "outerHTML",
+            "insertAdjacentHTML",
+            "DOMParser",
+            "createContextualFragment",
+        ):
+            assert bad not in text, (path.name, bad)
+    js = (STATIC / "evals.js").read_text(encoding="utf-8")
+    assert "h('b', { class: 't', dir: 'auto' }, r.title)" in js  # dumbbell row titles
+    assert "h('b', { class: cls, dir: 'auto' }, nameOf(r))" in js  # weakest items and URLs
+    assert "h('span', { class: 't', dir: 'auto' }, it.title)" in js  # runs table source
+    assert "data-tip" in js and "data-evtog" in js and "ev-src" in js  # tips, Table, Source
+    # The pure modules stay pure: no DOM and no imports, so Node can test them.
+    for name in ("evals-model.js", "hashroute.js"):
+        text = (STATIC / name).read_text(encoding="utf-8")
+        assert not re.search(r"\b(?:document|window|localStorage|fetch)\s*[.(]", text), name
+        assert not re.search(r"^import\b", text, re.M), name
 
 
 def test_stylesheet_uses_logical_properties() -> None:
@@ -115,3 +154,28 @@ def test_send_menu_shows_type_and_status_like_the_prototype() -> None:
     assert "`${t.type}. ${status}`" in js
     assert "'Enabled' : 'Not enabled yet'" in js
     assert "h('span', { class: 'ms' }, targetNote(t))" in js
+
+
+def test_evals_module_reads_no_app_export_while_it_is_evaluated() -> None:
+    """app.js imports evals.js, so evals.js runs before app.js's constants exist: a top-level
+    ``const X = SVG...`` would throw (temporal dead zone) and stop the whole site."""
+    js = (STATIC / "evals.js").read_text(encoding="utf-8")
+    names = re.search(r"import \{([^}]*)\} from './app.js'", js).group(1)
+    imported = [n.strip() for n in names.split(",") if n.strip()]
+    lines = js.splitlines()
+    for n, line in enumerate(lines):
+        m = re.match(r"(?:export )?(?:const|let) \w+ = (.*)", line)
+        if not m or "=>" in m.group(1):
+            continue
+        body = [m.group(1)]
+        if m.group(1).rstrip().endswith(("{", "[")):  # a multi-line literal, up to its close
+            for nxt in lines[n + 1 :]:
+                body.append(nxt)
+                if re.match(r"[}\]]", nxt):
+                    break
+        code = "\n".join(body)
+        if "=>" in code:
+            continue
+        code = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "''", code)  # drop string literals
+        for name in imported:
+            assert not re.search(rf"(?<![\w.]){re.escape(name)}\b", code), (name, line)
