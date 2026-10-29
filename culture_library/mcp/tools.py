@@ -23,6 +23,8 @@ _TEXT_FORMATS = {"md", "txt", "json"}
 _KIND = {"type": "string", "enum": list(KINDS)}
 _VIS = {"type": "string", "enum": list(VISIBILITIES)}
 _ID = {"type": "integer", "minimum": 1}
+# Run ids for the eval views: one id, or a list (sent comma-joined, as the routes expect).
+_RUN_IDS = {"anyOf": [_ID, {"type": "array", "items": _ID, "minItems": 1}]}
 
 
 def _spec(name: str, description: str, props: dict, required: list[str] | None = None) -> dict:
@@ -123,7 +125,137 @@ _SPECS: list[dict[str, Any]] = [
         {"entry_id": _ID},
         ["entry_id"],
     ),
+    _spec(
+        "eval_suites",
+        "List the eval suites and their metric definitions. Start here: suite names are what "
+        "eval_start_run accepts.",
+        {},
+    ),
+    _spec(
+        "eval_sets",
+        "List eval sets (question sets generated from an item), optionally for one item.",
+        {"item_id": _ID},
+    ),
+    _spec(
+        "eval_set",
+        "Read one eval set with its questions (samples) and their reference chunk anchors.",
+        {"set_id": _ID},
+        ["set_id"],
+    ),
+    _spec(
+        "eval_create_set",
+        "Store an eval set from questions you generated. Needs write scope. `item_sha256` must "
+        "match the item's current bytes (409 item_changed otherwise).",
+        {
+            "item_id": _ID,
+            "item_sha256": {"type": "string"},
+            "adapter": {"type": "string"},
+            "adapter_version": {"type": "string"},
+            "chunker": {"type": "object"},
+            "generator": {"type": "object"},
+            "samples": {"type": "array", "items": {"type": "object"}},
+        },
+        ["item_id", "item_sha256", "adapter"],
+    ),
+    _spec(
+        "eval_runs",
+        "List scored eval runs, optionally for one set. Each has an id, status and aggregates.",
+        {"set_id": _ID},
+    ),
+    _spec(
+        "eval_run",
+        "Run status and results: status (running, complete, partial, failed), aggregates and "
+        "per-question results. Poll this after eval_start_run.",
+        {"run_id": _ID},
+        ["run_id"],
+    ),
+    _spec(
+        "eval_post_run",
+        "Store a run you scored yourself (client-scored). Needs write scope. Body fields are the "
+        "route's: set_id, status, config, total, completed, aggregates, suites, samples.",
+        {
+            "set_id": _ID,
+            "status": {"type": "string"},
+            "config": {"type": "object"},
+            "total": {"type": "integer", "minimum": 0},
+            "completed": {"type": "integer", "minimum": 0},
+            "aggregates": {"type": "object"},
+            "partial_aggregates": {"type": "object"},
+            "error_rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "suites": {"type": "array", "items": {}},
+            "samples": {"type": "array", "items": {"type": "object"}},
+        },
+        ["set_id"],
+    ),
+    _spec(
+        "eval_start_run",
+        "Start a server-side eval run of a set (needs write scope). Returns 202 with a run_id; "
+        "then poll eval_run. 409 means a run is already running or stale; 422 needs_judge "
+        "carries a hint for configuring the judge.",
+        {
+            "set_id": _ID,
+            "suites": {"type": "array", "items": {"type": "string"}},
+            "mode": {"type": "string", "enum": ["semantic", "hybrid"]},
+            "k": {"type": "integer", "minimum": 1, "maximum": 50},
+            "rerank": {"type": "boolean"},
+            "candidates": {"type": "integer", "minimum": 1, "maximum": 200},
+            "warmup": {"type": "boolean"},
+        },
+        ["set_id"],
+    ),
+    _spec(
+        "eval_radar",
+        "Shape of retrieval quality: per-axis scores for a run (or a group of runs), optionally "
+        "against another run (`vs`). Give `run` or `runs`.",
+        {
+            "run": _RUN_IDS,
+            "runs": _RUN_IDS,
+            "vs": _RUN_IDS,
+            "budget_s": {"type": "number"},
+        },
+    ),
+    _spec(
+        "eval_compare",
+        "Did a change help? Compare two runs (or groups): checks first, then per-axis deltas and "
+        "the questions that changed.",
+        {"before": _RUN_IDS, "after": _RUN_IDS, "budget_s": {"type": "number"}},
+        ["before", "after"],
+    ),
+    _spec(
+        "eval_weakest",
+        "The weakest sources and questions in a run (or group): where retrieval fails most. "
+        "Give `run` or `runs`.",
+        {
+            "run": _RUN_IDS,
+            "runs": _RUN_IDS,
+            "limit": {"type": "integer", "minimum": 1},
+            "budget_s": {"type": "number"},
+        },
+    ),
+    _spec(
+        "eval_reanchor",
+        "Re-anchor a set's questions to the item's current chunks after re-indexing. Needs write "
+        "scope.",
+        {"set_id": _ID},
+        ["set_id"],
+    ),
 ]
+
+# Each eval tool wraps exactly one API route: name -> (method, route path).
+EVAL_ROUTES: dict[str, tuple[str, str]] = {
+    "eval_suites": ("GET", "/api/eval/suites"),
+    "eval_sets": ("GET", "/api/eval/sets"),
+    "eval_set": ("GET", "/api/eval/sets/{set_id}"),
+    "eval_create_set": ("POST", "/api/eval/sets"),
+    "eval_runs": ("GET", "/api/eval/runs"),
+    "eval_run": ("GET", "/api/eval/runs/{run_id}"),
+    "eval_post_run": ("POST", "/api/eval/runs"),
+    "eval_start_run": ("POST", "/api/eval/runs/start"),
+    "eval_radar": ("GET", "/api/eval/radar"),
+    "eval_compare": ("GET", "/api/eval/compare"),
+    "eval_weakest": ("GET", "/api/eval/weakest"),
+    "eval_reanchor": ("POST", "/api/eval/sets/{set_id}/reanchor"),
+}
 
 
 class ToolError(Exception):
@@ -262,8 +394,71 @@ def _diary_delete(client: Client, a: dict) -> dict:
     return {"archived": entry_id, "restorable_days": ARCHIVE_DAYS}
 
 
+def _ids_param(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(int(v)) for v in value)
+    return str(int(value))
+
+
+def _body(a: dict, keys: tuple[str, ...]) -> dict:
+    return {k: a[k] for k in keys if a.get(k) is not None}
+
+
+_SET_KEYS = (
+    "item_id",
+    "item_sha256",
+    "adapter",
+    "adapter_version",
+    "chunker",
+    "generator",
+    "samples",
+)
+_RUN_KEYS = (
+    "set_id", "status", "config", "total", "completed", "aggregates", "partial_aggregates",
+    "error_rate", "suites", "samples",
+)  # fmt: skip
+_START_KEYS = ("set_id", "suites", "mode", "k", "rerank", "candidates", "warmup")
+
+
+def _eval_view(name: str, params: tuple[str, ...], required: tuple[str, ...] = ()):
+    def handler(c: Client, a: dict) -> dict:
+        for r in required:
+            _need(a, r)
+        query: dict[str, Any] = {}
+        for p in params:
+            if p == "budget_s":
+                query[p] = a.get(p)
+            elif p == "limit":
+                query[p] = a.get(p)
+            else:
+                query[p] = _ids_param(a.get(p))
+        return c.eval_view(name, query)
+
+    return handler
+
+
+def _eval_handlers() -> dict[str, Any]:
+    return {
+        "eval_suites": lambda c, a: c.eval_suites(),
+        "eval_sets": lambda c, a: c.eval_sets(a.get("item_id")),
+        "eval_set": lambda c, a: c.eval_set(_need(a, "set_id")),
+        "eval_create_set": lambda c, a: c.eval_create_set(_body(a, _SET_KEYS)),
+        "eval_runs": lambda c, a: c.eval_runs(a.get("set_id")),
+        "eval_run": lambda c, a: c.eval_run(_need(a, "run_id")),
+        "eval_post_run": lambda c, a: c.eval_post_run(_body(a, _RUN_KEYS)),
+        "eval_start_run": lambda c, a: c.eval_start_run(_body(a, _START_KEYS)),
+        "eval_radar": _eval_view("radar", ("run", "runs", "vs", "budget_s")),
+        "eval_compare": _eval_view("compare", ("before", "after", "budget_s"), ("before", "after")),
+        "eval_weakest": _eval_view("weakest", ("run", "runs", "limit", "budget_s")),
+        "eval_reanchor": lambda c, a: c.eval_reanchor(_need(a, "set_id")),
+    }
+
+
 def _handlers() -> dict[str, Any]:
     return {
+        **_eval_handlers(),
         "push_file": _push_file,
         "list_library": lambda c, a: {
             "items": [

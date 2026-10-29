@@ -231,6 +231,39 @@ class Client:
             json_body={k_: v for k_, v in body.items() if v is not None},
         )
 
+    # -- eval (one method per eval route; the API enforces scope and visibility) ----------
+
+    def eval_suites(self) -> dict:
+        return self._request("GET", "/api/eval/suites")
+
+    def eval_sets(self, item_id: int | None = None) -> dict:
+        return self._request("GET", "/api/eval/sets", query={"item_id": item_id})
+
+    def eval_set(self, set_id: int) -> dict:
+        return self._request("GET", f"/api/eval/sets/{int(set_id)}")
+
+    def eval_create_set(self, body: Mapping[str, object]) -> dict:
+        return self._request("POST", "/api/eval/sets", json_body=dict(body))
+
+    def eval_runs(self, set_id: int | None = None) -> dict:
+        return self._request("GET", "/api/eval/runs", query={"set_id": set_id})
+
+    def eval_run(self, run_id: int) -> dict:
+        return self._request("GET", f"/api/eval/runs/{int(run_id)}")
+
+    def eval_post_run(self, body: Mapping[str, object]) -> dict:
+        return self._request("POST", "/api/eval/runs", json_body=dict(body))
+
+    def eval_start_run(self, body: Mapping[str, object]) -> dict:
+        return self._request("POST", "/api/eval/runs/start", json_body=dict(body))
+
+    def eval_view(self, name: str, query: Mapping[str, object]) -> dict:
+        """``GET /api/eval/{radar,compare,weakest}`` with the given query."""
+        return self._request("GET", f"/api/eval/{name}", query=query)
+
+    def eval_reanchor(self, set_id: int) -> dict:
+        return self._request("POST", f"/api/eval/sets/{int(set_id)}/reanchor")
+
     def send(self, item_id: int, target: str) -> dict:
         return self._request(
             "POST", f"/api/library/{int(item_id)}/send", json_body={"target": target}
