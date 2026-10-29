@@ -48,6 +48,14 @@ class SuiteContext:
     judge: Any = None  # JudgeConfig | None
     llm: Any = None  # ChatLLM | None
     is_public: Callable[[int], bool] | None = None  # per-item visibility lookup
+    # Per-question retrieval outcome, aligned with ``samples`` (filled by the runner):
+    # wall-clock latency of the retrieve call, and an error string when it failed (the
+    # matching ``retrieved`` entry is then empty).
+    latencies_ms: Sequence[float | None] = ()
+    errors: Sequence[str | None] = ()
+    # Current chunk shas of an item: raises LookupError when the item is gone, returns
+    # None when the chunk listing could not be reached.
+    current_chunks: Callable[[int], Sequence[str] | None] | None = None
 
 
 @dataclass
