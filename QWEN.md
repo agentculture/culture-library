@@ -22,7 +22,11 @@ since 2026-10-24. The library lives in `culture_library/`:
 - `mcp/`: the agents' MCP server;
 - `web/static/`: the site's files;
 - `eval/` and the `eval` CLI verbs: RAG evals over `/api/rag/retrieve` (needs
-  the optional `[eval]` extra).
+  the optional `[eval]` extra). Metric suites live in `eval/suites/`
+  (id_retrieval, judged, result_quality, speed, freshness); `eval radar`
+  folds a run onto 0-1 shape axes; the eval API is `/api/eval/*` (contract
+  `docs/api/eval.md`) with twelve `eval_*` MCP tools. The Evals tab's radar
+  and compare pages are planned.
 
 `CLAUDE.md` describes the layout. Deploying and provisioning
 library.culture.dev are still open (see [Roadmap](#roadmap)). Some inherited prose (CLI help/`explain` text, a few

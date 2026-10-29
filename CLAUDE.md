@@ -59,19 +59,57 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
       sha256 and anchor references by `chunk_sha`, not `(item_id, chunk_no)`,
       because re-indexing renumbers chunks. A run records the server-reported
       retrieval config, and is stored `complete`, `partial` or `failed`;
-      aggregates exist only on `complete`.
+      aggregates exist only on `complete` (a `partial` run keeps
+      `partial_aggregates` and an `error_rate`).
+    - Eval suites, shape and API (contract: `docs/api/eval.md`, with contract
+      tests in `tests/contract/test_eval_contract.py`;
+      `scripts/gen-eval-api-doc.py` regenerates its examples).
+      `GET /api/eval/suites` lists the suites; `POST /api/eval/runs/start`
+      starts a server-side, judge-free run (409 while one runs; a restart
+      closes out a run left running); `GET /api/eval/radar`, `/api/eval/compare`
+      and `/api/eval/weakest` return the shape, a before/after comparison (checks first)
+      and the weakest questions; `POST /api/eval/sets/{id}/reanchor` re-anchors
+      a set's samples to the item's current text. The sets and runs routes
+      carry the new fields.
     - `/api/status` carries a `retrieval` block (embed model and prompts,
       chunker `max_chars`, reranker model, stored chunk count).
   - `mcp/`: the agents' MCP server; its `rag_retrieve` tool mirrors
-    `POST /api/rag/retrieve`.
+    `POST /api/rag/retrieve`. Twelve `eval_*` tools in `mcp/tools.py`
+    (`eval_suites`, `eval_sets`, `eval_set`, `eval_create_set`, `eval_runs`,
+    `eval_run`, `eval_post_run`, `eval_start_run`, `eval_radar`,
+    `eval_compare`, `eval_weakest`, `eval_reanchor`) mirror the eval routes
+    one to one (`EVAL_ROUTES` keeps the parity).
   - `eval/`: the RAG evaluation package, outside `core/` so `core/` stays
     network-free. It holds a framework-neutral adapter interface and models,
     a `LibraryClient` over the HTTP API, the OpenAI-compatible judge config
     (`config.py`; defaults to the lobes gateway, and refuses to send text from
     a non-public item to a non-local judge), the set generator, the runner,
     and the one shipped adapter, RAGAS (`ragas_adapter.py`).
+  - `eval/suites/`: the suites registry, auto-discovered like the route
+    modules (a new suite is one file with a module-level `SUITE`):
+    - `id_retrieval`: `found_at_1/3/5/10`, `precision_at_k`, `mrr` and `ndcg`
+      over the top `min(10, k)` ranks, with the depth stated explicitly;
+    - `judged`: RAGAS context precision and recall; it needs a judge, and the
+      privacy rule above is unchanged;
+    - `result_quality`: `duplicate_rate`, `distinct_sources`;
+    - `speed`: p50/p95 latency, `within_budget` (default 1.0 s),
+      `timeout_rate`, `error_rate`;
+    - `freshness`: per question fresh, stale, unknown or not applicable, and
+      `fresh_share`.
+
+    `run_set` runs the requested suites, keeps scoring after a failed
+    retrieval, times each retrieval and snapshots every question; a changed
+    item still runs, and freshness reports it. The pieces under `core/`:
+    `eval_metrics.py` (ID metrics, item-aware matching), `eval_radar.py`
+    (shape axes scaled 0-1, higher is better, group mean over documents,
+    compare with checks first, per-item and per-source breakdown; the axes
+    follow the registry), `eval_reanchor.py` and `eval_store.py` (columns
+    added by `ALTER TABLE ADD COLUMN`, per-question snapshots,
+    `backfill_snapshots`; see `docs/operations/deploy.md` for the migration
+    note).
   - `cli/_commands/eval.py`: `culture-library eval {overview,generate,run,
-    show}`. `generate <item_id>` builds a set from a book's own text or a
+    show,suites,radar,compare,reanchor}`; `run` also takes `--suites` and
+    `--warmup`. `generate <item_id>` builds a set from a book's own text or a
     newspaper's sources sidecar; `run <set_id>` scores retrieval (context
     precision/recall) under a chosen `--mode`, `--k`, rerank setting and
     `--no-llm` (ID metrics only), so two runs differ only in retriever
@@ -88,7 +126,9 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
     question that points at its source ("the passage", "the author") is
     retried once, then skipped, because a search engine can't answer it.
   - `web/static/`: the site. A `todo` item opens as a read-only checklist
-    (`checklist.js`).
+    (`checklist.js`). An Evals tab (`evals.js`, `evals-model.js`,
+    `evals.css`; `#evals`) shows the eval overview. The `#evals/radar`
+    shape view and `#evals/compare` are routed but still stubs (planned).
   - `render/`: the devague renderer.
   - `migrate/`: the xteink migration.
   - `cli/_commands/deploy.py`: `culture-library deploy restart` recreates the live
@@ -116,6 +156,12 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
   The run's delivery summary is
   `docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`.
 - **Not done yet:**
+  - the question review queue (#30);
+  - the Evals tab's radar and compare pages are stubs (planned);
+  - the live deploy of the eval suites work and the re-approved visual
+    references are pending;
+  - the after-#27 signal is deferred until #27 ships;
+  - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - search does not cover repo documents (#4);
   - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
     (#25);
@@ -344,7 +390,10 @@ open:
 - search over repo documents (#4);
 - map recording EPUBs to `transcript` on migration (#5);
 - an embedding model comparison (#7). The eval harness can run it from config
-  alone: rerun eval sets 1–5 under each embed config;
+  alone: rerun eval sets 1–5 under each embed config, then read the shape
+  with `eval radar` and `eval compare`;
+- the eval question review queue (#30), the radar and compare pages of the
+  Evals tab, and the live deploy of the eval suites work;
 - faster passage retrieval, a multi-kind filter, and transcript timestamps in
   chunks (#25);
 - in-progress items that culture-rules grows (#22);
