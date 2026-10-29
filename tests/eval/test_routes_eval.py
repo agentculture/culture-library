@@ -161,3 +161,134 @@ def test_scopes_and_kind_restriction(library):
         == 403
     )
     assert library.http.get(f"/api/eval/sets/{s['id']}").status_code == 200
+
+
+# --- eval suites: new run fields, snapshots, old body, catalog (plan t8) ---------------------
+
+
+def _two(library):
+    s = _make_set(library, library.add_item(b"x"))
+    return s, [x["id"] for x in s["samples"]]
+
+
+def test_post_run_old_body_still_accepted_with_empty_new_fields(library):
+    s, ids = _two(library)
+    body = {
+        "set_id": s["id"],
+        "status": "complete",
+        "config": {"mode": "hybrid"},
+        "total": 2,
+        "completed": 2,
+        "aggregates": {"hit": 0.5},
+        "samples": [
+            {"sample_id": i, "retrieved_chunk_shas": ["sha0"], "scores": {"hit": 1.0}} for i in ids
+        ],
+    }
+    r = library.http.post("/api/eval/runs", json=body)
+    assert r.status_code == 201, r.text
+    got = r.json()
+    assert got["status"] == "complete" and got["aggregates"] == {"hit": 0.5}
+    assert got["partial_aggregates"] == {} and got["error_rate"] is None
+    assert got["suites"] == []
+    assert got["samples"][0]["question"] is None and got["samples"][0]["latency_ms"] is None
+
+
+def test_post_run_new_fields_roundtrip(library):
+    s, ids = _two(library)
+    body = {
+        "set_id": s["id"],
+        "status": "partial",
+        "total": 2,
+        "completed": 1,
+        "partial_aggregates": {"recall": 0.75},
+        "error_rate": 0.5,
+        "suites": [{"name": "id_retrieval", "version": 2}, "judged"],
+        "samples": [
+            {
+                "sample_id": ids[0],
+                "retrieved_chunk_shas": ["a"],
+                "scores": {"recall": 0.75},
+                "question": "q0?",
+                "reference_chunk_shas": ["sha0"],
+                "set_version": 1,
+                "retrieved_item_ids": [7, 8],
+                "latency_ms": 12.5,
+                "freshness": {"stale": False},
+            }
+        ],
+    }
+    r = library.http.post("/api/eval/runs", json=body)
+    assert r.status_code == 201, r.text
+    got = library.http.get(f"/api/eval/runs/{r.json()['id']}").json()
+    assert got["status"] == "partial" and got["aggregates"] == {}
+    assert got["partial_aggregates"] == {"recall": 0.75}
+    assert got["error_rate"] == 0.5
+    assert got["suites"] == [
+        {"name": "id_retrieval", "version": 2},
+        {"name": "judged", "version": None},
+    ]
+    smp = got["samples"][0]
+    assert smp["question"] == "q0?" and smp["reference_chunk_shas"] == ["sha0"]
+    assert smp["retrieved_item_ids"] == [7, 8] and smp["latency_ms"] == 12.5
+    assert smp["freshness"] == {"stale": False} and smp["set_version"] == 1
+
+
+def test_partial_aggregates_do_not_trip_aggregate_rule(library):
+    s, _ = _two(library)
+    r = library.http.post(
+        "/api/eval/runs",
+        json={"set_id": s["id"], "status": "failed", "partial_aggregates": {"x": 1.0}},
+    )
+    assert r.status_code == 201 and r.json()["aggregates"] == {}
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"error_rate": "lots"},
+        {"error_rate": 1.5},
+        {"suites": [3]},
+        {"suites": "id_retrieval"},
+        {"partial_aggregates": {"x": "high"}},
+        {"samples": [{"sample_id": 1, "latency_ms": "slow"}]},
+        {"samples": [{"sample_id": 1, "retrieved_item_ids": ["a"]}]},
+        {"samples": [{"sample_id": 1, "question": 5}]},
+    ],
+)
+def test_bad_new_field_types_rejected(library, patch):
+    s, _ = _two(library)
+    r = library.http.post("/api/eval/runs", json={"set_id": s["id"], **patch})
+    assert r.status_code == 422, r.text
+
+
+def test_running_flag_reports_status_running_with_progress(library):
+    from culture_library.core import eval_store
+
+    s, _ = _two(library)
+    with library.store.connect() as conn:
+        rid = eval_store.create_run(
+            conn, s["id"], status="partial", config={}, total=4, completed=1, running=True
+        )
+    got = library.http.get(f"/api/eval/runs/{rid}").json()
+    assert got["status"] == "running"
+    assert (got["completed"], got["total"]) == (1, 4)
+    listed = library.http.get("/api/eval/runs").json()["runs"]
+    assert listed[0]["status"] == "running"
+
+
+def test_suite_catalog(library):
+    from culture_library.eval import suites
+
+    r = library.http.get("/api/eval/suites")
+    assert r.status_code == 200
+    assert r.json() == {"suites": suites.catalog()}
+    names = {x["name"] for x in r.json()["suites"]}
+    assert names
+    first = r.json()["suites"][0]
+    assert {"name", "version", "needs_judge", "metrics"} <= set(first)
+    assert {"name", "definition", "range", "direction"} <= set(first["metrics"][0])
+
+
+def test_suite_catalog_needs_read_scope(library):
+    _as(library, scopes={"write"})
+    assert library.http.get("/api/eval/suites").status_code == 403
