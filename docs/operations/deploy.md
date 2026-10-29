@@ -379,6 +379,42 @@ unsupported. The old `feed.append` rejects unknown kinds, so events for those it
 A snapshot restore discards every item created since the upgrade, including `todo` and
 `discord-message` items culture-rules pushed in the meantime; export what you need first.
 
+### Eval columns (additive, no rebuild)
+
+The eval-suites release adds nullable columns in place. On first open the store runs
+`ALTER TABLE ADD COLUMN` for each one that is missing; it does not rebuild a table and
+the steps above still apply (take the pre-deploy snapshot in step 1 first, because a
+restore is the only rollback). After the upgrade, check that the columns exist:
+
+- `eval_runs`: `partial_aggregates_json`, `error_rate`, `suites_json`, and `running`
+  (`INTEGER NOT NULL DEFAULT 0`).
+- `eval_run_samples`: `question`, `reference_chunk_shas`, `set_version`,
+  `retrieved_item_ids`, `latency_ms`, `freshness`.
+
+```bash
+docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
+  "import sqlite3; c = sqlite3.connect('file:/data/library.db?mode=ro', uri=True); \
+print([r[1] for r in c.execute('PRAGMA table_info(eval_runs)')], \
+[r[1] for r in c.execute('PRAGMA table_info(eval_run_samples)')])"
+```
+
+**Snapshot backfill.** Runs stored before this release have no question or reference
+shas in their results. `culture_library.core.eval_store.backfill_snapshots(conn)` copies
+them from `eval_samples` into those results. It is idempotent, and a result whose sample
+was deleted by `replace_samples` (a regenerated set) cannot be filled. No CLI verb runs it,
+so run it once after the upgrade:
+
+```bash
+docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 - <<'PY'
+from culture_library.core import Store, eval_store
+
+with Store("/data").connect() as conn:
+    print(eval_store.backfill_snapshots(conn))
+PY
+```
+
+The command prints how many results it filled; running it again prints `0`.
+
 ## Rollback
 
 ```bash

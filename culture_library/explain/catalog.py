@@ -152,9 +152,21 @@ without it `generate` and `run` exit 2 with a hint to install `culture-library[e
 - `culture-library eval generate ITEM_ID [--samples N] [--seed S] [--kind book|newspaper]` —
   build a set from the item's chunks (newspapers: from the sources sidecar) and store it.
 - `culture-library eval run SET_ID [--mode semantic|hybrid] [--k N] [--rerank|--no-rerank]
-  [--candidates N] [--no-llm]` — retrieve every question, score it, store the run. Run the
-  same set twice with different flags to compare two configurations.
+  [--candidates N] [--no-llm] [--suites a,b] [--warmup]` — retrieve every question, score it,
+  store the run. Run the same set twice with different flags to compare two configurations.
 - `culture-library eval show [--set ID | --run ID | --item ID]` — list or show.
+- `culture-library eval suites` — list the metric suites (name, version, whether they need the
+  judge) and each metric's definition, range and direction. `run --suites a,b` scores with only
+  those suites; an unknown name exits 1 before any retrieval. `--warmup` does one untimed
+  retrieval first.
+- `culture-library eval radar (--run ID | --runs IDS) [--vs IDS] [--budget-s N]` — the ten-axis
+  shape (found at 1/3/5, MRR, judge precision/recall, no errors, latency in budget, no
+  duplicates, fresh) of a run or a group of runs; `--vs` pairs two.
+- `culture-library eval compare --before IDS --after IDS` — before/after axes, deltas and the
+  questions that changed. The comparability checks print first; when the groups are not
+  comparable only the checks and what was left out are shown.
+- `culture-library eval reanchor SET_ID` — re-anchor a set's samples after the item's text
+  changed; reports which were re-anchored and which could not be, and bumps the set version.
 - `culture-library eval overview` — describe this noun.
 
 Every verb accepts `--json`. Library/API failures exit 2; bad input, stale sets and policy
@@ -290,6 +302,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("eval", "generate"): _EVAL,
     ("eval", "run"): _EVAL,
     ("eval", "show"): _EVAL,
+    ("eval", "suites"): _EVAL,
+    ("eval", "radar"): _EVAL,
+    ("eval", "compare"): _EVAL,
+    ("eval", "reanchor"): _EVAL,
     ("eval", "overview"): _EVAL,
     ("keys",): _KEYS,
     ("keys", "mint"): _KEYS,
