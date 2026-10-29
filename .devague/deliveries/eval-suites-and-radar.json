@@ -1,0 +1,56 @@
+{
+  "plan_slug": "eval-suites-and-radar",
+  "schema_version": 2,
+  "created": "2026-10-29T23:08:52Z",
+  "updated": "2026-10-29T23:28:26Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1 adds a generic register_migration hook to core/store.py (MIGRATIONS list, run after the DDL on every open) so eval_store.py can run its ensure-columns step; the items-kinds rebuild is untouched",
+      "task_ref": "t1",
+      "reason": "store.register_schema only executes plain DDL, and a conditional ALTER TABLE ADD COLUMN for a missing column cannot be written in SQL, so the instruction's 'only eval_store.py' could not be met without a hack",
+      "affects": [
+        "c2",
+        "c41"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t2's id_metrics reports MRR and nDCG as mrr and ndcg with an explicit depth field = min(10, k_run) instead of mrr_at_10/ndcg_at_10; found_at_10 stays None for k below 10",
+      "task_ref": "t2",
+      "reason": "a k=5 run cannot measure depth 10; naming top-5 values '@10' would mislead a compare view (decider via /assess: depth_field 0.92 vs 0.04/0.03), while criterion 3 still needs MRR from k=5 runs",
+      "affects": [
+        "c42",
+        "t3",
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "radar axes follow the suite registry: core/eval_radar gains set_axis_source/axis_names/HANDLED_METRICS, eval/suites installs the source, routes_eval_views uses axis_names(); t15's xfail removed",
+      "task_ref": "t15",
+      "reason": "t15 found the radar axes hard-coded (AXES tuple), so a newly registered suite never reached the radar, against c35/h27; fixing it needs edits to eval_radar, the suites package and the views route, which t15's criterion ('no edits to runner, routes or site') excluded",
+      "affects": [
+        "c35",
+        "h27",
+        "t3",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

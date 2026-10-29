@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-29T05:19:06Z",
-  "updated": "2026-10-29T05:23:14Z",
+  "updated": "2026-10-29T23:24:30Z",
   "targets": [
     {
       "id": "c1",
@@ -1023,16 +1023,16 @@
       "text": "Whether a k=10 retrieval cut to the top 5 gives the same top 5 as a k=5 retrieval when rerank is on (frame park v1); if not, depth-10 metrics need their own run",
       "kind": "unknown_nonblocking",
       "task_id": "t7",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Read from code at t7 (core/search.py passages, routes_rag.py): without rerank the full ranking is sorted then sliced, so a k=10 run's top 5 equals a k=5 run's; with rerank the reranker sees the same candidates window (default 50, independent of k), so the top 5 match for equal candidates. Caveat: a per-call reranker failure falls back to unreranked order and the runner does not record the per-response reranked flag (follow-up). Runs record k in config.k."
     },
     {
       "id": "r4",
       "text": "Client-side latency is noisy (cold first query, shared gateway; frame park v4): the speed suite may need a warm-up query and to report spread",
       "kind": "unknown_nonblocking",
       "task_id": "t5",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "t7 adds an opt-in warmup (one untimed retrieve, config.warmup=true), off by default; p50/p95 are over successful retrievals and their definitions note the noise; the CLI does not expose warmup yet (t12 may)."
     },
     {
       "id": "r5",
