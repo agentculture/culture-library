@@ -203,3 +203,21 @@ def test_breakdown_per_item_and_per_source_url():
     assert urls["http://u/1"]["axes"]["found_at_1"] == 0.5
     assert out["sources"][0]["url"] == "http://u/1"  # weakest first
     assert er.breakdown(run, samples)["sources"] == []
+
+
+def test_axes_item_aware_when_retrieved_item_ids_snapshotted():
+    """A shared sha from another book is not credited once item ids are stored (c42)."""
+    from culture_library.core.eval_radar import axes
+
+    run = {"id": 1, "item_id": 68, "config_json": {"k": 5}, "error_rate": 0.0}
+    other_book = {
+        "sample_id": 1,
+        "retrieved_chunk_shas": ["shared", "b", "c", "d", "e"],
+        "retrieved_item_ids": [70, 68, 68, 68, 68],
+        "reference_chunk_shas": ["shared"],
+    }
+    own_book = dict(other_book, sample_id=2, retrieved_item_ids=[68, 68, 68, 68, 68])
+    assert axes(run, [other_book])["found_at_1"] == 0.0
+    assert axes(run, [own_book])["found_at_1"] == 1.0
+    legacy = {k: v for k, v in other_book.items() if k != "retrieved_item_ids"}
+    assert axes(run, [legacy])["found_at_1"] == 1.0  # sha-only fallback for old runs

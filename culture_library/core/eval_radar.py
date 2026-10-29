@@ -49,9 +49,20 @@ def _k(run: Run, samples: Sequence[Result]) -> int:
     return max((len(s.get("retrieved_chunk_shas") or []) for s in samples), default=0) or _DEFAULT_K
 
 
-def _question_metrics(sample: Result, k: int) -> dict[str, Any]:
+def _question_metrics(sample: Result, k: int, item_id: Any = None) -> dict[str, Any]:
+    """ID metrics for one result, item-aware when the snapshot allows it.
+
+    Every reference belongs to the set's own item, so when the result stored the
+    retrieved item ids (one per rank) a passage only counts when item and sha both
+    match; identical text in another book shares a sha and must not be credited.
+    """
     refs = list(sample.get("reference_chunk_shas") or [])
-    return id_metrics(list(sample.get("retrieved_chunk_shas") or []), refs, k)
+    retrieved = list(sample.get("retrieved_chunk_shas") or [])
+    item = sample.get("item_id", item_id)
+    ids = sample.get("retrieved_item_ids")
+    if item is not None and isinstance(ids, list) and len(ids) == len(retrieved):
+        return id_metrics(list(zip(ids, retrieved)), [(item, r) for r in refs], k)
+    return id_metrics(retrieved, refs, k)
 
 
 def _judge(run: Run, samples: Sequence[Result], key: str, whole_run: bool) -> float | None:
@@ -67,7 +78,7 @@ def _axes(
     run: Run, samples: Sequence[Result], budget_s: float, whole_run: bool
 ) -> dict[str, float | None]:
     k = _k(run, samples)
-    rows = [_question_metrics(s, k) for s in samples]
+    rows = [_question_metrics(s, k, run.get("item_id")) for s in samples]
     out: dict[str, float | None] = {a: _mean(r[a] for r in rows) for a in _ID_AXES}
     for axis, key in _JUDGE.items():
         out[axis] = _judge(run, samples, key, whole_run)
