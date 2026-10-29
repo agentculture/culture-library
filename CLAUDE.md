@@ -66,8 +66,8 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
       `scripts/gen-eval-api-doc.py` regenerates its examples).
       `GET /api/eval/suites` lists the suites; `POST /api/eval/runs/start`
       starts a server-side, judge-free run (409 while one runs; a restart
-      closes out a run left running); `GET /api/eval/radar`, `/compare` and
-      `/weakest` return the shape, a before/after comparison (checks first)
+      closes out a run left running); `GET /api/eval/radar`, `/api/eval/compare`
+      and `/api/eval/weakest` return the shape, a before/after comparison (checks first)
       and the weakest questions; `POST /api/eval/sets/{id}/reanchor` re-anchors
       a set's samples to the item's current text. The sets and runs routes
       carry the new fields.
