@@ -26,6 +26,7 @@ def test_specs_cover_every_tool():
         "diary_write",
         "diary_edit",
         "diary_delete",
+        *tools.EVAL_ROUTES,
     }
     for s in tools.tool_specs():
         assert s["inputSchema"]["type"] == "object"
