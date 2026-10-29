@@ -20,7 +20,7 @@ from typing import Any
 
 from . import uploaders
 from .errors import NotFoundError, ValidationError
-from .store import now, register_schema
+from .store import now, register_migration, register_schema
 
 RUN_STATUSES = ("complete", "partial", "failed")
 
@@ -69,15 +69,58 @@ CREATE TABLE IF NOT EXISTS eval_run_samples (
 )
 """)
 
+# Columns added after 0.17.2, per table. Existing databases get them with ALTER TABLE ADD COLUMN
+# (never a table rebuild), so ids, rows and sqlite_sequence are untouched.
+_ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "eval_runs": (
+        ("partial_aggregates_json", "TEXT"),
+        ("error_rate", "REAL"),
+        ("suites_json", "TEXT"),
+        ("running", "INTEGER NOT NULL DEFAULT 0"),
+    ),
+    "eval_run_samples": (
+        ("question", "TEXT"),
+        ("reference_chunk_shas", "TEXT"),
+        ("set_version", "INTEGER"),
+        ("retrieved_item_ids", "TEXT"),
+        ("latency_ms", "REAL"),
+        ("freshness", "TEXT"),
+    ),
+}
+
+
+def ensure_columns(conn: sqlite3.Connection) -> None:
+    """Add any missing column from :data:`_ADDED_COLUMNS` (idempotent)."""
+    for table, columns in _ADDED_COLUMNS.items():
+        have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}  # nosec B608
+        for name, decl in columns:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")  # nosec B608
+
+
+register_migration(ensure_columns)
+
 _SET_COLS = (
     "id, item_id, item_sha256, chunker_json, adapter, adapter_version, generator_json, "
     "version, created_at"
 )
 _RUN_COLS = (
-    "id, set_id, set_version, status, config_json, total, completed, aggregates_json, created_at"
+    "id, set_id, set_version, status, config_json, total, completed, aggregates_json, created_at, "
+    "partial_aggregates_json, error_rate, suites_json, running"
+)
+_RUN_SAMPLE_COLS = (
+    "run_id, sample_id, retrieved_chunk_shas, scores_json, question, reference_chunk_shas, "
+    "set_version, retrieved_item_ids, latency_ms, freshness"
+)
+_JSON_RUN_SAMPLE = (
+    "retrieved_chunk_shas",
+    "scores_json",
+    "reference_chunk_shas",
+    "retrieved_item_ids",
+    "freshness",
 )
 _JSON_SET = ("chunker_json", "generator_json")
-_JSON_RUN = ("config_json", "aggregates_json")
+_JSON_RUN = ("config_json", "aggregates_json", "partial_aggregates_json", "suites_json")
 
 
 def _dumps(value: Any) -> str:
@@ -213,10 +256,15 @@ def create_run(
     total: int,
     completed: int,
     aggregates: Any = None,
+    partial_aggregates: Any = None,
+    error_rate: float | None = None,
+    suites: Sequence[str] | None = None,
+    running: bool = False,
 ) -> int:
     """Record a run of a set at the set's current version; return the run id.
 
-    ``aggregates`` is only accepted for a ``complete`` run.
+    ``aggregates`` is only accepted for a ``complete`` run; a partial run keeps what it scored
+    in ``partial_aggregates`` (with ``error_rate``).
     """
     if status not in RUN_STATUSES:
         raise ValidationError(f"run status must be one of {', '.join(RUN_STATUSES)}")
@@ -225,7 +273,8 @@ def create_run(
     version = get_set(conn, set_id)["version"]
     cur = conn.execute(
         "INSERT INTO eval_runs (set_id, set_version, status, config_json, total, completed, "
-        "aggregates_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "aggregates_json, created_at, partial_aggregates_json, error_rate, suites_json, running) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             set_id,
             version,
@@ -235,6 +284,10 @@ def create_run(
             completed,
             None if aggregates is None else _dumps(aggregates),
             now(),
+            None if partial_aggregates is None else _dumps(partial_aggregates),
+            error_rate,
+            None if suites is None else _dumps(list(suites)),
+            1 if running else 0,
         ),
     )
     return int(cur.lastrowid)
@@ -247,12 +300,48 @@ def add_run_sample(
     *,
     retrieved_chunk_shas: Sequence[str],
     scores: Mapping[str, Any],
+    question: str | None = None,
+    reference_chunk_shas: Sequence[str] | None = None,
+    set_version: int | None = None,
+    retrieved_item_ids: Sequence[int] | None = None,
+    latency_ms: float | None = None,
+    freshness: Any = None,
 ) -> None:
+    """Store one sample's result; the optional fields are the run's per-question snapshot."""
     conn.execute(
         "INSERT OR REPLACE INTO eval_run_samples (run_id, sample_id, retrieved_chunk_shas, "
-        "scores_json) VALUES (?, ?, ?, ?)",
-        (run_id, sample_id, _dumps(list(retrieved_chunk_shas)), _dumps(dict(scores))),
+        "scores_json, question, reference_chunk_shas, set_version, retrieved_item_ids, "
+        "latency_ms, freshness) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id,
+            sample_id,
+            _dumps(list(retrieved_chunk_shas)),
+            _dumps(dict(scores)),
+            question,
+            None if reference_chunk_shas is None else _dumps(list(reference_chunk_shas)),
+            set_version,
+            None if retrieved_item_ids is None else _dumps(list(retrieved_item_ids)),
+            latency_ms,
+            None if freshness is None else _dumps(freshness),
+        ),
     )
+
+
+def backfill_snapshots(conn: sqlite3.Connection) -> int:
+    """Copy question and reference shas from ``eval_samples`` into run results lacking them.
+
+    Idempotent: a result that already has a question is left alone. A result whose sample was
+    deleted (a regenerated set) cannot be filled. Returns how many results were filled.
+    """
+    cur = conn.execute(
+        "UPDATE eval_run_samples SET "
+        "question = (SELECT question FROM eval_samples WHERE id = eval_run_samples.sample_id), "
+        "reference_chunk_shas = (SELECT reference_chunk_shas FROM eval_samples "
+        "WHERE id = eval_run_samples.sample_id) "
+        "WHERE question IS NULL AND EXISTS "
+        "(SELECT 1 FROM eval_samples WHERE id = eval_run_samples.sample_id)"
+    )
+    return int(cur.rowcount)
 
 
 def get_run(conn: sqlite3.Connection, run_id: int) -> dict[str, Any]:
@@ -287,10 +376,12 @@ def list_runs(
 
 
 def list_run_samples(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
-    cols = "run_id, sample_id, retrieved_chunk_shas, scores_json"
-    sql = f"SELECT {cols} FROM eval_run_samples WHERE run_id = ? ORDER BY sample_id"  # nosec B608
+    sql = (
+        f"SELECT {_RUN_SAMPLE_COLS} FROM eval_run_samples "  # nosec B608
+        "WHERE run_id = ? ORDER BY sample_id"
+    )
     rows = conn.execute(sql, (run_id,)).fetchall()
-    return [_decode(r, cols, ("retrieved_chunk_shas", "scores_json")) for r in rows]
+    return [_decode(r, _RUN_SAMPLE_COLS, _JSON_RUN_SAMPLE) for r in rows]
 
 
 def comparable(run_a: Mapping[str, Any], run_b: Mapping[str, Any]) -> bool:
@@ -302,9 +393,11 @@ __all__ = [
     "RUN_STATUSES",
     "add_run_sample",
     "add_samples",
+    "backfill_snapshots",
     "comparable",
     "create_run",
     "create_set",
+    "ensure_columns",
     "get_run",
     "get_set",
     "list_run_samples",
