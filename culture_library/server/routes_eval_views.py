@@ -35,6 +35,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+import culture_library.eval.suites  # noqa: F401  # installs the registry-driven radar axes
 from culture_library.core import NotFoundError, Store, eval_radar, eval_store
 from culture_library.server.auth import Principal, check, current_principal, get_store
 from culture_library.server.routes_eval import _flat, _visible_set
@@ -182,7 +183,7 @@ def _group_compare(before: list[_Scored], after: list[_Scored], budget_s: float)
     ax_b = eval_radar.group([(r, s) for r, s, _ in after], budget_s=budget_s)["axes"]
     deltas = {
         a: None if ax_a[a] is None or ax_b[a] is None else ax_b[a] - ax_a[a]
-        for a in eval_radar.AXES
+        for a in eval_radar.axis_names()
     }
     changed.sort(key=lambda c: c["delta"])
     return {

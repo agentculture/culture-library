@@ -239,3 +239,22 @@ def test_axes_result_quality_and_freshness_from_suite_scores():
     assert ax["no_duplicates"] == 0.8
     assert ax["fresh"] == 0.5  # unknown / not applicable questions are left out
     assert axes({"id": 2, "config_json": {"k": 5}}, [])["fresh"] is None
+
+
+def test_extra_axes_come_from_the_axis_source_and_turn_lower_around():
+    """A registered suite's 0-1 metrics become axes after the canvas ones (d3, c35)."""
+    from culture_library.core import eval_radar as er
+
+    run = {"id": 1, "config_json": {"k": 5}, "aggregates_json": {"x_good": 0.7, "x_bad": 0.2}}
+    previous = er._axis_source
+    try:
+        er.set_axis_source(lambda: [("x_good", "higher"), ("x_bad", "lower"), ("mrr", "higher")])
+        ax = er.axes(run, [])
+        assert er.axis_names()[: len(er.AXES)] == er.AXES
+        assert er.axis_names()[len(er.AXES) :] == ("x_good", "x_bad")  # mapped names skipped
+        assert ax["x_good"] == 0.7 and abs(ax["x_bad"] - 0.8) < 1e-9
+        assert set(er.group([(run, [])])["axes"]) == set(er.axis_names())
+        er.set_axis_source(None)
+        assert er.axis_names() == er.AXES
+    finally:
+        er.set_axis_source(previous)

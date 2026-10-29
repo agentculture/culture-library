@@ -13,6 +13,8 @@ import importlib
 import pkgutil
 from typing import Iterator
 
+from culture_library.core import eval_radar as _eval_radar
+
 from .base import HIGHER, LOWER, Metric, Suite, SuiteContext, SuiteScore, describe
 
 _REGISTRY: dict[str, Suite] = {}
@@ -77,6 +79,19 @@ def _discover() -> None:
 
 
 _discover()
+
+
+def _radar_axes() -> list[tuple[str, str]]:
+    """Every registered 0-1 metric as ``(name, direction)``; the radar keeps the ones it lacks."""
+    return [
+        (m.name, m.direction)
+        for s in all_suites()
+        for m in s.metrics
+        if tuple(m.range) == (0, 1) or tuple(m.range) == (0.0, 1.0)
+    ]
+
+
+_eval_radar.set_axis_source(_radar_axes)
 
 __all__ = [
     "HIGHER",

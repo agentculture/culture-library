@@ -83,10 +83,6 @@ def test_unregistered_after_the_block(posted):
     assert "t15_fake" not in suites.names()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="core/eval_radar.py AXES is a fixed tuple; a registered suite's metric is not an axis",
-)
 def test_radar_route_returns_the_fake_suite_axis(posted):
     _, _, _, radar = posted
     assert radar.status_code == 200

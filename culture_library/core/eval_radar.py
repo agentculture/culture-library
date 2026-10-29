@@ -12,7 +12,7 @@ is 1/k for single-reference questions).
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from culture_library.core.eval_metrics import id_metrics
@@ -31,6 +31,56 @@ AXES = (
     "fresh",
 )
 _ID_AXES = ("found_at_1", "found_at_3", "found_at_5", "mrr")
+# Metrics of the built-in suites: each is mapped to an axis above or kept off the radar on
+# purpose (precision at k, depth 10 and nDCG beyond the canvas, raw latencies, counts).
+HANDLED_METRICS = frozenset(
+    {
+        "found_at_1",
+        "found_at_3",
+        "found_at_5",
+        "found_at_10",
+        "precision_at_k",
+        "mrr",
+        "ndcg",
+        "context_precision",
+        "context_recall",
+        "duplicate_rate",
+        "distinct_sources",
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "within_budget",
+        "timeout_rate",
+        "error_rate",
+        "fresh_count",
+        "stale_count",
+        "fresh_unknown_count",
+        "fresh_na_count",
+        "fresh_share",
+    }
+)
+# Extra axes from suites registered after the built-ins: ``[(metric, direction), ...]`` of
+# 0-1 metrics, supplied by the eval package (core never imports it). A new suite then reaches
+# the radar with no edit here: "higher" metrics as they are, "lower" ones as 1 - value.
+_axis_source: Callable[[], Sequence[tuple[str, str]]] | None = None
+
+
+def set_axis_source(source: Callable[[], Sequence[tuple[str, str]]] | None) -> None:
+    """Install the callable that lists extra (registered-suite) axes; ``None`` removes it."""
+    global _axis_source
+    _axis_source = source
+
+
+def _extra_axes() -> list[tuple[str, str]]:
+    if _axis_source is None:
+        return []
+    return [(m, d) for m, d in _axis_source() if m not in HANDLED_METRICS and m not in AXES]
+
+
+def axis_names() -> tuple[str, ...]:
+    """The canvas axes followed by any registered extra-suite axes, in that order."""
+    return AXES + tuple(m for m, _ in _extra_axes())
+
+
 _JUDGE = {"judge_precision": "context_precision", "judge_recall": "context_recall"}
 _DEFAULT_K = 5
 
@@ -93,7 +143,10 @@ def _axes(
     dup = _judge(run, samples, "duplicate_rate", whole_run)
     out["no_duplicates"] = None if dup is None else 1.0 - dup
     out["fresh"] = _judge(run, samples, "fresh_share", whole_run)
-    return {a: out[a] for a in AXES}
+    for metric, direction in _extra_axes():
+        v = _judge(run, samples, metric, whole_run)
+        out[metric] = v if v is None or direction != "lower" else 1.0 - v
+    return {a: out[a] for a in axis_names()}
 
 
 def axes(
@@ -126,7 +179,7 @@ def group(runs: Sequence[Scored], *, budget_s: float = DEFAULT_BUDGET_S) -> dict
                 "axes": axes(run, samples, budget_s=budget_s),
             }
         )
-    mean = {a: _mean(d["axes"][a] for d in docs) for a in AXES}
+    mean = {a: _mean(d["axes"].get(a) for d in docs) for a in axis_names()}
     return {"axes": mean, "documents": docs}
 
 
@@ -207,7 +260,9 @@ def compare(before: Scored, after: Scored, *, budget_s: float = DEFAULT_BUDGET_S
         return {"checks": checks}
     ax_a = axes(run_a, rows_a, budget_s=budget_s)
     ax_b = axes(run_b, rows_b, budget_s=budget_s)
-    deltas = {a: None if ax_a[a] is None or ax_b[a] is None else ax_b[a] - ax_a[a] for a in AXES}
+    deltas = {
+        a: None if ax_a[a] is None or ax_b[a] is None else ax_b[a] - ax_a[a] for a in axis_names()
+    }
     k_a, k_b = _k(run_a, rows_a), _k(run_b, rows_b)
     prior = {_qkey(s): s for s in rows_a}
     changed = []
@@ -267,4 +322,14 @@ def breakdown(
     }
 
 
-__all__ = ["AXES", "DEFAULT_BUDGET_S", "axes", "breakdown", "compare", "group"]
+__all__ = [
+    "AXES",
+    "DEFAULT_BUDGET_S",
+    "HANDLED_METRICS",
+    "axes",
+    "axis_names",
+    "breakdown",
+    "compare",
+    "group",
+    "set_axis_source",
+]
