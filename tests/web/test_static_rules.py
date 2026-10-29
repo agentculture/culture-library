@@ -13,12 +13,27 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 STATIC = Path(__file__).resolve().parents[2] / "culture_library" / "web" / "static"
 JS = sorted(STATIC.glob("*.js"))
 HTML = sorted(STATIC.glob("*.html"))
 CSS = STATIC / "styles.css"
 CSS_FILES = sorted(STATIC.glob("*.css"))
-EVALS_JS = [STATIC / n for n in ("evals.js", "evals-model.js", "hashroute.js")]
+EVALS_JS = [
+    STATIC / n
+    for n in (
+        "evals.js",
+        "evals-model.js",
+        "hashroute.js",
+        "evals-geom.js",
+        "evals-shape.js",
+        "evals-radar.js",
+    )
+]
+PURE_JS = ("evals-model.js", "hashroute.js", "evals-geom.js")
+# Modules in the app.js import cycle: app.js -> evals.js -> evals-radar.js -> evals-shape.js.
+CYCLE_JS = ("evals.js", "evals-radar.js", "evals-shape.js")
 
 _HANDLER = re.compile(r"\bon[a-z]+\s*=", re.I)
 _PHYSICAL = [
@@ -97,7 +112,7 @@ def test_evals_text_goes_through_text_nodes() -> None:
     assert "h('span', { class: 't', dir: 'auto' }, it.title)" in js  # runs table source
     assert "data-tip" in js and "data-evtog" in js and "ev-src" in js  # tips, Table, Source
     # The pure modules stay pure: no DOM and no imports, so Node can test them.
-    for name in ("evals-model.js", "hashroute.js"):
+    for name in PURE_JS:
         text = (STATIC / name).read_text(encoding="utf-8")
         assert not re.search(r"\b(?:document|window|localStorage|fetch)\s*[.(]", text), name
         assert not re.search(r"^import\b", text, re.M), name
@@ -156,10 +171,12 @@ def test_send_menu_shows_type_and_status_like_the_prototype() -> None:
     assert "h('span', { class: 'ms' }, targetNote(t))" in js
 
 
-def test_evals_module_reads_no_app_export_while_it_is_evaluated() -> None:
-    """app.js imports evals.js, so evals.js runs before app.js's constants exist: a top-level
-    ``const X = SVG...`` would throw (temporal dead zone) and stop the whole site."""
-    js = (STATIC / "evals.js").read_text(encoding="utf-8")
+@pytest.mark.parametrize("module", CYCLE_JS)
+def test_evals_module_reads_no_app_export_while_it_is_evaluated(module: str) -> None:
+    """app.js imports evals.js (which imports the radar modules), so they run before app.js's
+    constants exist: a top-level ``const X = SVG...`` would throw (temporal dead zone) and stop
+    the whole site."""
+    js = (STATIC / module).read_text(encoding="utf-8")
     names = re.search(r"import \{([^}]*)\} from './app.js'", js).group(1)
     imported = [n.strip() for n in names.split(",") if n.strip()]
     lines = js.splitlines()
@@ -179,3 +196,21 @@ def test_evals_module_reads_no_app_export_while_it_is_evaluated() -> None:
         code = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "''", code)  # drop string literals
         for name in imported:
             assert not re.search(rf"(?<![\w.]){re.escape(name)}\b", code), (name, line)
+
+
+def test_shape_chart_draws_gaps_tips_and_a_table() -> None:
+    """Plan task t17: the shape chart (evals-shape.js) is SVG built with createElementNS, has
+    the dotted perfect outline, labelled gaps for unscored axes, hover tips and a Table toggle;
+    the radar page has a Source line and links back from the overview."""
+    shape = (STATIC / "evals-shape.js").read_text(encoding="utf-8")
+    assert "createElementNS" in shape and "'perfect'" in shape
+    assert "'not scored'" in shape and "ax gap" in shape and "al gap" in shape
+    assert "'data-tip'" in shape and "data-evtog" in shape
+    radar = (STATIC / "evals-radar.js").read_text(encoding="utf-8")
+    assert "ev-src" in radar and "ev-tbl" in radar and "shapeToggle(" in radar
+    assert "/api/eval/compare?before=" in radar and "checks.comparable" in radar
+    evals = (STATIC / "evals.js").read_text(encoding="utf-8")
+    assert "radarHash({ runs: [r.id] })" in evals  # runs table
+    assert "radarHash({ runs: [r.on.run], vs: [r.off.run] })" in evals  # dumbbell rows
+    css = (STATIC / "evals.css").read_text(encoding="utf-8")
+    assert ".ev-star .perfect" in css and "stroke-dasharray: 2 4" in css

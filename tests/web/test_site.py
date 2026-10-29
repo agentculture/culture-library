@@ -28,6 +28,9 @@ MODULES = (
     "hashroute",
     "evals",
     "evals-model",
+    "evals-geom",
+    "evals-shape",
+    "evals-radar",
 )
 STYLESHEETS = ("styles", "evals")
 CSP_PARTS = (

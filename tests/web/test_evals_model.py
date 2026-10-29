@@ -189,3 +189,155 @@ def test_labels_missed_and_order() -> None:
     assert _model("m.runSearch(runs[6])") == "mode ?, k ?, rerank on"
     assert _model("[m.missed(20, 0.75), m.missed(4, 1), m.missed(4, null)]") == [5, 0, None]
     assert _model("m.newestFirst(runs).map(r => r.id)") == [8, 7, 6, 5, 4, 3, 2, 1]
+
+
+# ---------- radar (plan task t17) ----------
+
+
+@pytest.mark.parametrize(
+    "params,want",
+    [
+        ("", {"runs": [], "vs": None}),
+        ("runs=11", {"runs": [11], "vs": None}),
+        ("runs=11,18,20&vs=19", {"runs": [11, 18, 20], "vs": [19]}),
+        ("runs=3,3,x,-1,0,4&vs=none", {"runs": [3, 4], "vs": "none"}),
+        ("vs=2,5&runs=1", {"runs": [1], "vs": [2, 5]}),
+        ("runs=1&vs=", {"runs": [1], "vs": None}),
+    ],
+)
+def test_radar_params(params: str, want: dict) -> None:
+    assert _js("hashroute.js", f"m.radarParams({json.dumps(params)})") == want
+
+
+def test_radar_hash_round_trips_through_parse_hash() -> None:
+    got = _js(
+        "hashroute.js",
+        "[m.radarHash({runs: [11, 18], vs: [19]}), m.radarHash({runs: [4], vs: 'none'}),"
+        " m.radarHash({runs: [4]}), m.radarHash({})]",
+    )
+    assert got == [
+        "#evals/radar?runs=11,18&vs=19",
+        "#evals/radar?runs=4&vs=none",
+        "#evals/radar?runs=4",
+        "#evals/radar",
+    ]
+    back = _js(
+        "hashroute.js",
+        "m.radarParams(m.parseHash(m.radarHash({runs: [7, 8], vs: [2]}), () => false).params)",
+    )
+    assert back == {"runs": [7, 8], "vs": [2]}
+
+
+def _suites(*names: str) -> list[dict]:
+    return [{"name": n, "version": "1"} for n in names]
+
+
+RADAR_RUNS = [
+    # set 1 (book): an id-only pair, then a judged rerank-on run
+    _run(1, 1, "complete", False, 20, suites=_suites("id_retrieval")),
+    _run(2, 1, "complete", True, 20, suites=_suites("id_retrieval")),
+    _run(
+        9,
+        1,
+        "complete",
+        True,
+        20,
+        suites=_suites("id_retrieval", "judged"),
+        config={"judge_model": "cortex"},
+    ),
+    # set 2 (book): rerank on twice with the same suites, and a later failed run
+    _run(3, 2, "complete", True, 20, suites=_suites("id_retrieval")),
+    _run(10, 2, "complete", True, 20, suites=_suites("id_retrieval")),
+    _run(12, 2, "failed", True, 20, suites=_suites("id_retrieval")),
+    # set 3 (newspaper): rerank on only
+    _run(4, 3, "complete", True, 4, suites=_suites("id_retrieval")),
+    _run(11, 3, "complete", True, 4, suites=_suites("id_retrieval")),
+]
+RADAR_SETS = [{"id": 1, "item_id": 10}, {"id": 2, "item_id": 20}, {"id": 3, "item_id": 30}]
+RADAR_SETUP = (
+    f"const runs = {json.dumps(RADAR_RUNS)}, sets = {json.dumps(RADAR_SETS)};"
+    "const info = id => ({10: {title: 'Book A', kind: 'book'}, 20: {title: 'Book B', kind: 'book'},"
+    " 30: {title: 'Paper C', kind: 'newspaper'}})[id];"
+    "const byId = ids => ids.map(i => runs.find(r => r.id === i));"
+)
+
+
+def _radar(expr: str):
+    uri = json.dumps((STATIC / "evals-model.js").as_uri())
+    script = f"import({uri}).then(m => {{ {RADAR_SETUP} console.log(JSON.stringify({expr})); }})"
+    out = subprocess.run(  # nosec B603 - fixed argv
+        [NODE, "--input-type=module", "-e", script], capture_output=True, text=True, check=True
+    )
+    return json.loads(out.stdout)
+
+
+def test_config_key_and_text() -> None:
+    assert _radar("m.configKey(runs[0])") == "hybrid|5|off"
+    assert _radar("m.configText(m.configKey(runs[1]))") == "hybrid, k 5, rerank on"
+    assert _radar("m.configKey({config: {}})") == "?|?|off"
+
+
+def test_set_groups_for_the_documents_picker() -> None:
+    got = _radar("m.setGroups(sets, runs, info)")
+    assert got == [
+        {"id": "book", "name": "All books", "label": "All books, sets 1, 2", "sets": [1, 2]},
+        {
+            "id": "newspaper",
+            "name": "All newspapers",
+            "label": "All newspapers, set 3",
+            "sets": [3],
+        },
+        {"id": "all", "name": "Everything", "label": "Everything, sets 1–3", "sets": [1, 2, 3]},
+    ]
+    assert _radar("m.setsText([1, 2, 3, 5])") == "sets 1–3, 5"
+    assert _radar("m.setsText([4])") == "set 4"
+
+
+def test_configs_for_sets_most_sets_first_rerank_on_first() -> None:
+    got = _radar("m.configsFor(runs, [1, 2, 3])")
+    assert got == [{"key": "hybrid|5|on", "sets": 3}, {"key": "hybrid|5|off", "sets": 1}]
+
+
+def test_pick_runs_latest_complete_per_set_with_one_config() -> None:
+    got = _radar("m.pickRuns(runs, [1, 2, 3], 'hybrid|5|on')")
+    assert [r["id"] for r in got["runs"]] == [9, 10, 11] and got["missing"] == []
+    off = _radar("m.pickRuns(runs, [1, 2], 'hybrid|5|off')")
+    assert [r["id"] for r in off["runs"]] == [1] and off["missing"] == [2]
+
+
+def test_earlier_comparable_runs_need_every_set() -> None:
+    # Set 1's latest rerank-on run (9) is judged; the earlier rerank-on run (2) is not, so
+    # there is no earlier comparable run for set 1 and the group has no overlay.
+    got = _radar("m.earlierRuns(runs, byId([9, 10, 11]))")
+    assert [r["id"] for r in got["runs"]] == [3, 4] and got["missing"] == [1]
+    ok = _radar("m.earlierRuns(runs, byId([10, 11]))")
+    assert [r["id"] for r in ok["runs"]] == [3, 4] and ok["missing"] == []
+    assert _radar("m.earlierRuns(runs, byId([1])).missing") == [1]
+
+
+def test_selection_of_runs_maps_back_to_the_pickers() -> None:
+    groups = "m.setGroups(sets, runs, info)"
+    assert _radar(f"m.selectionOf(byId([9, 10]), {groups})") == {
+        "scope": "set",
+        "docs": "book",
+        "key": "hybrid|5|on",
+    }
+    assert _radar(f"m.selectionOf(byId([4]), {groups})") == {
+        "scope": "one",
+        "docs": "set:3",
+        "key": "hybrid|5|on",
+    }
+    assert _radar(f"m.selectionOf(byId([1, 4]), {groups})") == {
+        "scope": "set",
+        "docs": "custom",
+        "key": "mixed",
+    }
+
+
+def test_default_view_prefers_books_and_the_config_most_sets_ran() -> None:
+    assert _radar("m.defaultView(runs, m.setGroups(sets, runs, info))") == {
+        "docs": "book",
+        "sets": [1, 2],
+        "key": "hybrid|5|on",
+    }
+    assert _radar("m.defaultView([], [])") is None
