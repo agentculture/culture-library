@@ -129,3 +129,132 @@ export const missed = (questions, found5) => (found5 === null || found5 === unde
 
 /** Newest first (highest id first). */
 export const newestFirst = runs => [...(runs || [])].sort((a, b) => b.id - a.id);
+
+/* ---------- radar (plan task t17) ---------- */
+
+/** A run's search setting as a key: "hybrid|5|on" (mode, k, rerank). */
+export const configKey = run => {
+  const c = (run && run.config) || {};
+  return `${c.mode || '?'}|${c.k ?? '?'}|${rerankOf(run) ? 'on' : 'off'}`;
+};
+/** "hybrid, k 5, rerank on" for a configKey. */
+export const configText = key => {
+  const [mode, k, rr] = String(key).split('|');
+  return `${mode === '?' ? 'mode ?' : mode}, k ${k}, rerank ${rr}`;
+};
+
+/** "set 4", "sets 1–3, 5": set ids, ranges of neighbours joined. */
+export function setsText(ids) {
+  const v = [...new Set(ids)].sort((a, b) => a - b);
+  const parts = [];
+  for (let i = 0; i < v.length; i++) {
+    let j = i;
+    while (j + 1 < v.length && v[j + 1] === v[j] + 1) j++;
+    parts.push(j > i + 1 ? `${v[i]}–${v[j]}` : j === i + 1 ? `${v[i]}, ${v[j]}` : `${v[i]}`);
+    i = j;
+  }
+  return `${v.length === 1 ? 'set' : 'sets'} ${parts.join(', ')}`;
+}
+
+const KIND_GROUPS = [['book', 'books'], ['newspaper', 'newspapers']];
+const completeSets = runs => new Set((runs || []).filter(r => r.status === 'complete').map(r => r.set_id));
+
+/**
+ * The radar's document groups, for sets with at least one complete run: all books, all
+ * newspapers, then other kinds, then everything (when more than one group). Each is
+ * {id, name, label, sets}; ``id`` is the item kind, or "all"; ``label`` is ``name`` with its sets.
+ */
+export function setGroups(sets, runs, info) {
+  const live = completeSets(runs);
+  const byKind = new Map();
+  for (const s of sets || []) {
+    if (!live.has(s.id)) continue;
+    const kind = (info(s.item_id) || {}).kind || 'document';
+    if (!byKind.has(kind)) byKind.set(kind, []);
+    byKind.get(kind).push(s.id);
+  }
+  const named = new Map(KIND_GROUPS);
+  const kinds = [...KIND_GROUPS.map(k => k[0]).filter(k => byKind.has(k)), ...[...byKind.keys()].filter(k => !named.has(k)).sort()];
+  const out = kinds.map(k => {
+    const ids = byKind.get(k).sort((a, b) => a - b);
+    const name = `All ${named.get(k) || `${k} items`}`;
+    return { id: k, name, label: `${name}, ${setsText(ids)}`, sets: ids };
+  });
+  if (out.length > 1) {
+    const all = out.flatMap(g => g.sets).sort((a, b) => a - b);
+    out.push({ id: 'all', name: 'Everything', label: `Everything, ${setsText(all)}`, sets: all });
+  }
+  return out;
+}
+
+/** The search settings complete runs of ``setIds`` used: [{key, sets}], most sets first, then rerank on. */
+export function configsFor(runs, setIds) {
+  const want = new Set(setIds), per = new Map();
+  for (const r of runs || []) {
+    if (r.status !== 'complete' || !want.has(r.set_id)) continue;
+    const k = configKey(r);
+    if (!per.has(k)) per.set(k, new Set());
+    per.get(k).add(r.set_id);
+  }
+  return [...per].map(([key, s]) => ({ key, sets: s.size }))
+    .sort((a, b) => b.sets - a.sets || b.key.endsWith('|on') - a.key.endsWith('|on') || a.key.localeCompare(b.key));
+}
+
+/** For each set, the latest complete run with search setting ``key``: {runs, missing: [set ids]}. */
+export function pickRuns(runs, setIds, key) {
+  const out = [], missing = [];
+  for (const sid of setIds) {
+    let best = null;
+    for (const r of runs || []) {
+      if (r.set_id === sid && r.status === 'complete' && configKey(r) === key && (!best || r.id > best.id)) best = r;
+    }
+    if (best) out.push(best); else missing.push(sid);
+  }
+  return { runs: out, missing };
+}
+
+const suiteNames = run => [...new Set((run.suites || []).map(s => s.name))].sort().join(',');
+const judgeOf = run => (run.config && run.config.judge_model) || null;
+
+/**
+ * The earlier run to lay under each of ``picked``: on the same set, complete, older (lower id),
+ * with the same search setting, the same suites and the same judge (what GET /api/eval/compare
+ * calls comparable, plus the same setting so the overlay shows change over time). The latest
+ * such run per set. {runs, missing: [set ids with none]}; the radar lays nothing under a group
+ * unless ``missing`` is empty.
+ */
+export function earlierRuns(runs, picked) {
+  const out = [], missing = [];
+  for (const p of picked) {
+    let best = null;
+    for (const r of runs || []) {
+      if (r.set_id !== p.set_id || r.status !== 'complete' || r.id >= p.id) continue;
+      if (configKey(r) !== configKey(p) || suiteNames(r) !== suiteNames(p) || judgeOf(r) !== judgeOf(p)) continue;
+      if (!best || r.id > best.id) best = r;
+    }
+    if (best) out.push(best); else missing.push(p.set_id);
+  }
+  return { runs: out, missing };
+}
+
+/**
+ * The pickers' state for runs named in a link: {scope: 'one' | 'set', docs, key}. ``docs`` is
+ * "set:N" for one run, a group id when the runs cover exactly that group's sets, else "custom";
+ * ``key`` is their shared configKey, else "mixed".
+ */
+export function selectionOf(picked, groups) {
+  const keys = new Set(picked.map(configKey));
+  const key = keys.size === 1 ? [...keys][0] : 'mixed';
+  if (picked.length === 1) return { scope: 'one', docs: `set:${picked[0].set_id}`, key };
+  const ids = [...new Set(picked.map(r => r.set_id))].sort((a, b) => a - b).join(',');
+  const g = (groups || []).find(x => x.sets.join(',') === ids);
+  return { scope: 'set', docs: g ? g.id : 'custom', key };
+}
+
+/** What #evals/radar shows without parameters: the first group (books first) and the setting most of its sets ran. */
+export function defaultView(runs, groups) {
+  const g = (groups || [])[0];
+  if (!g) return null;
+  const c = configsFor(runs, g.sets)[0];
+  return c ? { docs: g.id, sets: g.sets, key: c.key } : null;
+}

@@ -303,17 +303,18 @@ export function setPane(open) {
 
 /* ---------- views ---------- */
 const VIEWS = ['home', 'read', 'state', 'evals'];
-/** Show one view; ``page`` picks the Evals page ('overview', 'radar' or 'compare'). */
-export function show(view, page = 'overview') {
+/** Show one view; ``page`` picks the Evals page ('overview', 'radar' or 'compare') and
+ * ``params`` is that page's route parameters (the hash after "?"). */
+export function show(view, page = 'overview', params = '') {
   for (const v of VIEWS) $('view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === (view === 'read' ? 'home' : view))));
   if (view === 'state') void siteState.draw();
-  if (view === 'evals') evals.show(page);
+  if (view === 'evals') evals.show(page, params);
 }
 /** Open an Evals page and give it its canonical hash (an unknown #evals/... is the overview). */
 export function openEvals(page = 'overview', params = '') {
   S.current = null;
-  show('evals', page);
+  show('evals', page, params);
   const want = evalsHash(page) + (params ? '?' + params : '');
   if (location.hash !== want) history.replaceState(null, '', want);
 }

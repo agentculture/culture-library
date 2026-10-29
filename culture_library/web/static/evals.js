@@ -1,7 +1,8 @@
 /* Evals tab (plan task t16; design canvas "Evals overview", desktop and phone boards).
  *
- * Pages: the overview (#evals) and the stubs #evals/radar and #evals/compare, which later
- * views fill. The overview reads only the eval API:
+ * Pages: the overview (#evals), the radar (#evals/radar, evals-radar.js, plan task t17) and
+ * the stub #evals/compare, which a later view fills. Run ids in the runs table and the rerank
+ * dumbbell rows link to the radar (hashroute.js radarHash). The overview reads only the eval API:
  *   - GET /api/eval/runs and GET /api/eval/sets: every run and set this key can see;
  *   - GET /api/eval/radar?runs=...: per-run axes (found_at_5, judge_precision, judge_recall);
  *   - GET /api/eval/weakest?runs=...: per-item and per-source rows, weakest first;
@@ -17,6 +18,8 @@
  */
 import { $, SVG, api, byKey, chip, fill, fmtN, h, icon, kindKey } from './app.js';
 import * as M from './evals-model.js';
+import * as radar from './evals-radar.js';
+import { radarHash } from './hashroute.js';
 
 const PAGES = ['overview', 'radar', 'compare'];
 const RUNS_SHOWN = 10;
@@ -44,9 +47,15 @@ function info(itemId) {
 const kindChip = apiKind => chip(kindKey(apiKind || 'document'));
 
 /* ---------- pages ---------- */
-export function show(page) {
+let shownPage = null;
+export function show(page, params = '') {
   for (const p of PAGES) $('evals-' + p).hidden = p !== page;
+  // A link from the overview's runs table opens the radar at its top; a picker change on the
+  // radar itself keeps the scroll position.
+  if (shownPage && shownPage !== page) window.scrollTo({ top: 0 });
+  shownPage = page;
   if (page === 'overview') void draw();
+  if (page === 'radar') void radar.draw(params);
 }
 
 /* ---------- data ---------- */
@@ -145,6 +154,8 @@ function table(cols, rows) {
 }
 
 /* ---------- rerank dumbbell ---------- */
+/** The radar for a dumbbell row: rerank on laid over rerank off, or the one side there is. */
+const dbLink = r => (r.on && r.off ? radarHash({ runs: [r.on.run], vs: [r.off.run] }) : radarHash({ runs: [(r.on || r.off).run] }));
 function dbRow(r, pos) {
   const off = r.off && r.off.v, on = r.on && r.on.v;
   const has = v => v !== null && v !== undefined;
@@ -169,7 +180,7 @@ function dbRow(r, pos) {
     else val = has(on) ? [h('b', {}, f2(on)), ', rerank on only'] : `${f2(off)}, rerank off only`;
   }
   return h('div', { class: 'ev-dbrow', 'data-tip': tip },
-    h('div', { class: 'who' }, h('b', { class: 't', dir: 'auto' }, r.title), h('small', {}, `Set ${r.set_id}, ${plural(r.questions, 'question', 'questions')}`)),
+    h('div', { class: 'who' }, h('a', { class: 'ev-go', href: dbLink(r) }, h('b', { class: 't', dir: 'auto' }, r.title)), h('small', {}, `Set ${r.set_id}, ${plural(r.questions, 'question', 'questions')}`)),
     h('div', { class: 'ev-track' }, marks),
     h('div', { class: 'val' }, val));
 }
@@ -280,7 +291,7 @@ function runRow(r) {
   const idp = agg && typeof agg[ID_PRECISION] === 'number' ? agg[ID_PRECISION] : null;
   const td = (label, v, cls) => h('td', { class: cls, 'data-label': label }, v);
   return h('tr', {},
-    td('Run', h('b', {}, String(r.id))),
+    td('Run', h('a', { class: 'ev-go', href: radarHash({ runs: [r.id] }), 'aria-label': `Run ${r.id} on the radar` }, h('b', {}, String(r.id)))),
     td('Source', [kindChip(it.kind), ' ', h('span', { class: 't', dir: 'auto' }, it.title)], 'src'),
     td('Search', M.runSearch(r), 'cfg'),
     td('Status', status(r)),
@@ -312,6 +323,7 @@ function drawRuns() {
 
 /* ---------- events ---------- */
 export function init() {
+  radar.init();
   $('view-evals').addEventListener('click', e => {
     const t = e.target;
     const tog = t.closest('[data-evtog]');
