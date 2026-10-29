@@ -52,3 +52,39 @@ def test_harness_files_stay_in_step() -> None:
         assert "/api/rag" in text, name
         assert "eval" in text, name
         assert len(text.splitlines()) < 145, name
+
+
+def test_claude_md_documents_eval_suites_shape_and_api() -> None:
+    text = _read("CLAUDE.md")
+    for needle in (
+        "eval/suites/",
+        "id_retrieval",
+        "result_quality",
+        "freshness",
+        "fresh_share",
+        "within_budget",
+        "eval_radar.py",
+        "/api/eval/suites",
+        "/api/eval/runs/start",
+        "/api/eval/radar",
+        "/api/eval/weakest",
+        "/reanchor",
+        "docs/api/eval.md",
+        "eval_start_run",
+        "EVAL_ROUTES",
+        "show,suites,radar,compare,reanchor}",
+        "#30",
+        "culture-rules#121",
+    ):
+        assert needle in text, needle
+
+
+def test_readme_and_harness_files_mention_suites_and_radar() -> None:
+    readme = _read("README.md")
+    for needle in ("### Eval suites and shape", "/api/eval/radar", "docs/api/eval.md", "eval_*"):
+        assert needle in readme, needle
+    for name in ("QWEN.md", "AGENTS.override.md"):
+        text = _read(name)
+        for needle in ("id_retrieval", "radar", "docs/api/eval.md", "eval_*"):
+            assert needle in text, (name, needle)
+    assert not (ROOT / "AGENTS.md").exists()
