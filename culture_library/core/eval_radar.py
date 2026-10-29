@@ -27,6 +27,8 @@ AXES = (
     "judge_recall",
     "no_errors",
     "latency_in_budget",
+    "no_duplicates",
+    "fresh",
 )
 _ID_AXES = ("found_at_1", "found_at_3", "found_at_5", "mrr")
 _JUDGE = {"judge_precision": "context_precision", "judge_recall": "context_recall"}
@@ -88,6 +90,9 @@ def _axes(
     out["latency_in_budget"] = (
         sum(1 for ms in lat if ms <= budget_s * 1000) / len(lat) if lat else None
     )
+    dup = _judge(run, samples, "duplicate_rate", whole_run)
+    out["no_duplicates"] = None if dup is None else 1.0 - dup
+    out["fresh"] = _judge(run, samples, "fresh_share", whole_run)
     return {a: out[a] for a in AXES}
 
 

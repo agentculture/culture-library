@@ -19,6 +19,8 @@ ORDER = [
     "judge_recall",
     "no_errors",
     "latency_in_budget",
+    "no_duplicates",
+    "fresh",
 ]
 
 
@@ -221,3 +223,19 @@ def test_axes_item_aware_when_retrieved_item_ids_snapshotted():
     assert axes(run, [own_book])["found_at_1"] == 1.0
     legacy = {k: v for k, v in other_book.items() if k != "retrieved_item_ids"}
     assert axes(run, [legacy])["found_at_1"] == 1.0  # sha-only fallback for old runs
+
+
+def test_axes_result_quality_and_freshness_from_suite_scores():
+    """New suites add axes after the canvas seven: 1 - duplicate rate, and fresh share."""
+    from culture_library.core.eval_radar import axes
+
+    run = {"id": 1, "config_json": {"k": 5}, "aggregates_json": {"duplicate_rate": 0.2}}
+    samples = [
+        {"sample_id": 1, "scores_json": {"fresh_share": 1.0}},
+        {"sample_id": 2, "scores_json": {"fresh_share": 0.0}},
+        {"sample_id": 3, "scores_json": {"fresh_share": None}},
+    ]
+    ax = axes(run, samples)
+    assert ax["no_duplicates"] == 0.8
+    assert ax["fresh"] == 0.5  # unknown / not applicable questions are left out
+    assert axes({"id": 2, "config_json": {"k": 5}}, [])["fresh"] is None
