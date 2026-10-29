@@ -384,6 +384,94 @@ def list_run_samples(conn: sqlite3.Connection, run_id: int) -> list[dict[str, An
     return [_decode(r, _RUN_SAMPLE_COLS, _JSON_RUN_SAMPLE) for r in rows]
 
 
+def running_runs(conn: sqlite3.Connection, set_id: int | None = None) -> list[int]:
+    """Ids of runs still marked running (optionally of one set), oldest first."""
+    sql = "SELECT id FROM eval_runs WHERE running = 1"
+    params: list[Any] = []
+    if set_id is not None:
+        sql += " AND set_id = ?"
+        params.append(set_id)
+    return [int(r[0]) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
+
+
+def set_run_progress(conn: sqlite3.Connection, run_id: int, completed: int) -> None:
+    """Record how many questions a running run has finished."""
+    conn.execute("UPDATE eval_runs SET completed = ? WHERE id = ?", (int(completed), run_id))
+
+
+def finish_run(
+    conn: sqlite3.Connection,
+    run_id: int,
+    *,
+    status: str,
+    config: Any,
+    completed: int,
+    aggregates: Any = None,
+    partial_aggregates: Any = None,
+    error_rate: float | None = None,
+    suites: Sequence[Any] | None = None,
+) -> None:
+    """Close a running run with its final status and scores, and clear ``running``.
+
+    Same rule as :func:`create_run`: ``aggregates`` only for a ``complete`` run.
+    """
+    if status not in RUN_STATUSES:
+        raise ValidationError(f"run status must be one of {', '.join(RUN_STATUSES)}")
+    if aggregates is not None and status != "complete":
+        raise ValidationError("aggregates are only stored for a complete run")
+    get_run(conn, run_id)
+    conn.execute(
+        "UPDATE eval_runs SET status = ?, config_json = ?, completed = ?, aggregates_json = ?, "
+        "partial_aggregates_json = ?, error_rate = ?, suites_json = ?, running = 0 WHERE id = ?",
+        (
+            status,
+            _dumps(config),
+            int(completed),
+            None if aggregates is None else _dumps(aggregates),
+            None if partial_aggregates is None else _dumps(partial_aggregates),
+            error_rate,
+            None if suites is None else _dumps(list(suites)),
+            run_id,
+        ),
+    )
+
+
+def _score_means(results: Sequence[Mapping[str, Any]]) -> dict[str, float | None]:
+    values: dict[str, list[float]] = {}
+    for res in results:
+        for key, val in (res.get("scores_json") or {}).items():
+            bucket = values.setdefault(key, [])
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                bucket.append(float(val))
+    return {k: (sum(v) / len(v) if v else None) for k, v in sorted(values.items())}
+
+
+def close_running_runs(conn: sqlite3.Connection, reason: str) -> list[int]:
+    """Close every run still marked running (a server restart interrupted it).
+
+    A run with stored per-question results becomes ``partial`` (``completed`` = those results,
+    ``partial_aggregates`` = the mean of each score over them); one with none becomes
+    ``failed``. ``config["closed_reason"]`` records ``reason``. Returns the closed run ids.
+    """
+    closed = running_runs(conn)
+    for run_id in closed:
+        run = get_run(conn, run_id)
+        results = list_run_samples(conn, run_id)
+        config = dict(run["config_json"] or {})
+        config["closed_reason"] = reason
+        finish_run(
+            conn,
+            run_id,
+            status="partial" if results else "failed",
+            config=config,
+            completed=len(results),
+            partial_aggregates=_score_means(results) if results else None,
+            error_rate=run["error_rate"],
+            suites=run["suites_json"],
+        )
+    return closed
+
+
 def comparable(run_a: Mapping[str, Any], run_b: Mapping[str, Any]) -> bool:
     """True only when both runs are of the same eval set at the same set version."""
     return run_a["set_id"] == run_b["set_id"] and run_a["set_version"] == run_b["set_version"]
@@ -394,10 +482,12 @@ __all__ = [
     "add_run_sample",
     "add_samples",
     "backfill_snapshots",
+    "close_running_runs",
     "comparable",
     "create_run",
     "create_set",
     "ensure_columns",
+    "finish_run",
     "get_run",
     "get_set",
     "list_run_samples",
@@ -405,4 +495,6 @@ __all__ = [
     "list_samples",
     "list_sets",
     "replace_samples",
+    "running_runs",
+    "set_run_progress",
 ]
