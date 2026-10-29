@@ -146,6 +146,10 @@ def cmd_overview(args: argparse.Namespace) -> int:
                     "generate ITEM_ID — build an eval set from a book or newspaper and store it",
                     "run SET_ID — retrieve + score every sample and store the run",
                     "show [--set ID | --run ID | --item ID] — list or show sets and runs",
+                    "suites — list the metric suites a run can score (run --suites a,b)",
+                    "radar --run ID | --runs IDS [--vs IDS] — ten-axis shape of a run or group",
+                    "compare --before IDS --after IDS — before/after deltas (checks first)",
+                    "reanchor SET_ID — re-anchor a set's samples after the item changed",
                     "overview — this description",
                 ],
             },
@@ -206,10 +210,23 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _suite_names(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    if not names:
+        raise CliError(EXIT_USER_ERROR, "--suites needs at least one suite name", _SUITES_HINT)
+    return names
+
+
 def cmd_run(args: argparse.Namespace) -> int:
+    suites = _suite_names(args.suites)
+
     def go() -> dict[str, Any]:
         from culture_library.eval import runner
 
+        if suites is not None:
+            _check_suites(suites)
         judge = None if args.no_llm else _make_judge(args)
         adapter = runner.IdOnlyAdapter() if judge is None else _make_adapter(judge)
         client = _make_client()
@@ -224,6 +241,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             k=args.k,
             rerank=args.rerank,
             candidates=args.candidates,
+            suites=suites,
+            warmup=bool(args.warmup),
         )
         stored = client.create_run(run)
         return {
@@ -282,6 +301,153 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+_SUITES_HINT = "run 'culture-library eval suites' to list the available suite names"
+
+
+def _check_suites(names: list[str]) -> None:
+    """Refuse an unknown suite before any retrieval, with a hint listing the real ones."""
+    from culture_library.eval import suites as registry
+
+    known = [n for n in names if _is_known(registry, n)]
+    unknown = [n for n in names if n not in known]
+    if unknown:
+        raise CliError(EXIT_USER_ERROR, f"unknown suite: {', '.join(unknown)}", _SUITES_HINT)
+
+
+def _is_known(registry, name: str) -> bool:
+    try:
+        registry.get(name)
+    except KeyError:
+        return False
+    return True
+
+
+def _ids(raw: str | None, flag: str) -> str | None:
+    """Validate a comma-separated id list; returns it normalised or None when absent."""
+    if raw is None:
+        return None
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if not parts or not all(p.isdigit() for p in parts):
+        raise CliError(
+            EXIT_USER_ERROR, f"{flag} takes run ids like 3 or 3,4 (got {raw!r})", "pass integers"
+        )
+    return ",".join(parts)
+
+
+def _axes_lines(axes: dict[str, Any], indent: str = "  ") -> list[str]:
+    return [f"{indent}{k}: {_fmt(v)}" for k, v in axes.items()]
+
+
+def cmd_suites(args: argparse.Namespace) -> int:
+    def go() -> dict[str, Any]:
+        return _make_client().request("GET", "/api/eval/suites")
+
+    data = _map_errors(go)
+    lines: list[str] = []
+    for s in data.get("suites", []):
+        judge = " (needs judge)" if s.get("needs_judge") else ""
+        lines.append(f"{s['name']} v{s.get('version', '?')}{judge}")
+        for m in s.get("metrics", []):
+            lines.append(
+                f"  {m['name']} [{m.get('range', '')}, {m.get('direction', '')}]: "
+                f"{m.get('definition', '')}"
+            )
+    _emit(args, data, "\n".join(lines) or "no suites")
+    return 0
+
+
+def _radar_query(args: argparse.Namespace) -> str:
+    run, runs = _ids(args.run, "--run"), _ids(args.runs, "--runs")
+    vs = _ids(args.vs, "--vs")
+    if (run is None) == (runs is None):
+        raise CliError(EXIT_USER_ERROR, "pass exactly one of --run or --runs", "e.g. --run 3")
+    q = f"run={run}" if run is not None else f"runs={runs}"
+    if vs is not None:
+        q += f"&vs={vs}"
+    if args.budget_s is not None:
+        q += f"&budget_s={args.budget_s}"
+    return q
+
+
+def _radar_text(data: dict[str, Any]) -> str:
+    if data.get("kind") == "pair":
+        lines = [f"pair (budget {data.get('budget_s')}s)"]
+        for side in ("a", "b"):
+            lines.append(f"{side}:")
+            part = data.get(side) or {}
+            lines += _axes_lines(part.get("axes", part))
+        return "\n".join(lines)
+    lines = [f"{data.get('kind', 'run')} (budget {data.get('budget_s')}s)"]
+    lines += _axes_lines(data.get("axes", {}), "")
+    for d in data.get("documents", []):
+        lines.append(f"run {d.get('run_id')} set {d.get('set_id')}: {d.get('questions')} questions")
+    if data.get("left_out"):
+        lines.append(f"left out: {data['left_out']}")
+    return "\n".join(lines)
+
+
+def cmd_radar(args: argparse.Namespace) -> int:
+    query = _radar_query(args)
+    data = _map_errors(lambda: _make_client().request("GET", f"/api/eval/radar?{query}"))
+    _emit(args, data, _radar_text(data))
+    return 0
+
+
+def _compare_text(data: dict[str, Any]) -> str:
+    checks = data.get("checks") or {}
+    lines = []
+    if checks.get("comparable"):
+        lines.append("comparable: yes")
+    else:
+        lines.append("comparable: NO")
+    lines += [f"  reason: {r}" for r in checks.get("reasons", [])]
+    lines += [f"  warning: {w}" for w in checks.get("warnings", [])]
+    if "deltas" not in data:
+        if data.get("left_out"):
+            lines.append(f"left out: {data['left_out']}")
+        return "\n".join(lines)
+    before, after = (data.get(k, {}).get("axes", {}) for k in ("before", "after"))
+    deltas = data.get("deltas", {})
+    lines.append("axis: before -> after (delta)")
+    for axis in after or before:
+        lines.append(
+            f"  {axis}: {_fmt(before.get(axis))} -> {_fmt(after.get(axis))} "
+            f"({_fmt(deltas.get(axis))})"
+        )
+    for c in data.get("changed_questions", []):
+        lines.append(
+            f"  q: {c.get('question')}: {_fmt(c.get('before'))} -> {_fmt(c.get('after'))} "
+            f"({_fmt(c.get('delta'))})"
+        )
+    if data.get("left_out"):
+        lines.append(f"left out: {data['left_out']}")
+    return "\n".join(lines)
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    before, after = _ids(args.before, "--before"), _ids(args.after, "--after")
+    path = f"/api/eval/compare?before={before}&after={after}"
+    data = _map_errors(lambda: _make_client().request("GET", path))
+    _emit(args, data, _compare_text(data))
+    return 0
+
+
+def cmd_reanchor(args: argparse.Namespace) -> int:
+    path = f"/api/eval/sets/{int(args.set_id)}/reanchor"
+    data = _map_errors(lambda: _make_client().request("POST", path))
+    lost = data.get("could_not_re_anchor", [])
+    lines = [
+        f"set {data.get('set_id')}: version {data.get('previous_version')} -> "
+        f"{data.get('version')}, {len(data.get('re_anchored', []))} re-anchored, "
+        f"{len(lost)} could not be"
+    ]
+    lines += [f"  sample {x.get('sample_id')}: {x.get('reason')}" for x in lost]
+    if data.get("note"):
+        lines.append(str(data["note"]))
+    _emit(args, data, "\n".join(lines))
+    return 0
+
+
 def _fmt(v: Any) -> str:
     if v is None:
         return "n/a"
@@ -328,6 +494,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument(
         "--no-llm", action="store_true", help="Skip LLM-judged metrics (ID metrics only)."
     )
+    r.add_argument(
+        "--suites",
+        help="Comma-separated metric suites (see 'eval suites'; default the standard set).",
+    )
+    r.add_argument(
+        "--warmup", action="store_true", help="Run one untimed retrieval first (warm caches)."
+    )
     r.add_argument("--json", action="store_true", help=_JSON_HELP)
     r.set_defaults(func=cmd_run)
 
@@ -337,6 +510,29 @@ def register(sub: argparse._SubParsersAction) -> None:
     s.add_argument("--item", type=int, default=None, help="List sets and runs for an item.")
     s.add_argument("--json", action="store_true", help=_JSON_HELP)
     s.set_defaults(func=cmd_show)
+
+    su = nsub.add_parser("suites", help="List metric suites and their metrics.")
+    su.add_argument("--json", action="store_true", help=_JSON_HELP)
+    su.set_defaults(func=cmd_suites)
+
+    ra = nsub.add_parser("radar", help="Ten-axis shape of a run or a group of runs.")
+    ra.add_argument("--run", help="One run id.")
+    ra.add_argument("--runs", help="Comma-separated run ids (a group).")
+    ra.add_argument("--vs", help="Run id(s) to pair against.")
+    ra.add_argument("--budget-s", dest="budget_s", type=float, help="Latency budget in seconds.")
+    ra.add_argument("--json", action="store_true", help=_JSON_HELP)
+    ra.set_defaults(func=cmd_radar)
+
+    co = nsub.add_parser("compare", help="Compare run groups before and after a change.")
+    co.add_argument("--before", required=True, help="Comma-separated run ids.")
+    co.add_argument("--after", required=True, help="Comma-separated run ids.")
+    co.add_argument("--json", action="store_true", help=_JSON_HELP)
+    co.set_defaults(func=cmd_compare)
+
+    rn = nsub.add_parser("reanchor", help="Re-anchor a set's samples to the item's current text.")
+    rn.add_argument("set_id", type=int, help="Eval set id.")
+    rn.add_argument("--json", action="store_true", help=_JSON_HELP)
+    rn.set_defaults(func=cmd_reanchor)
 
     ov = nsub.add_parser("overview", help="Describe the eval noun.")
     ov.add_argument("--json", action="store_true", help=_JSON_HELP)
