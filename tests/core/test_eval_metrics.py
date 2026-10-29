@@ -20,7 +20,7 @@ def _run_means(run_id: str) -> dict:
     assert all(r["sha_only"] is True for r in rows)
     return {
         "found_at_1": sum(r["found_at_1"] for r in rows) / len(rows),
-        "mrr": sum(r["mrr_at_10"] for r in rows) / len(rows),
+        "mrr": sum(r["mrr"] for r in rows) / len(rows),
     }
 
 
@@ -48,9 +48,10 @@ def test_depth_beyond_k_run_is_none_not_zero():
 def test_found_at_depths():
     r = id_metrics(["a", "b", "c", "d", "e"], ["c"], 5)
     assert (r["found_at_1"], r["found_at_3"], r["found_at_5"]) == (0.0, 1.0, 1.0)
-    assert r["mrr_at_10"] == pytest.approx(1 / 3)
-    assert r["ndcg_at_10"] == pytest.approx(1 / math.log2(4))
+    assert r["mrr"] == pytest.approx(1 / 3)
+    assert r["ndcg"] == pytest.approx(1 / math.log2(4))
     assert r["k"] == 5
+    assert r["depth"] == 5  # d2: a k=5 run is measured at depth 5, not labelled @10
 
 
 def test_precision_at_k_ceiling_is_one_over_k():
@@ -67,17 +68,17 @@ def test_duplicate_retrieved_passage_counts_once():
 
 def test_no_hit_is_zero_and_empty_references_are_none():
     r = id_metrics(["a", "b"], ["z"], 5)
-    assert r["mrr_at_10"] == 0.0 and r["ndcg_at_10"] == 0.0 and r["precision_at_k"] == 0.0
+    assert r["mrr"] == 0.0 and r["ndcg"] == 0.0 and r["precision_at_k"] == 0.0
     empty = id_metrics(["a"], [], 5)
-    assert empty["found_at_1"] is None and empty["mrr_at_10"] is None
+    assert empty["found_at_1"] is None and empty["mrr"] is None
 
 
 def test_ndcg_binary_multiple_references_perfect_is_one():
     r = id_metrics(["a", "b", "x"], ["a", "b"], 5)
-    assert r["ndcg_at_10"] == pytest.approx(1.0)
+    assert r["ndcg"] == pytest.approx(1.0)
     swapped = id_metrics(["x", "a", "b"], ["a", "b"], 5)
     ideal = 1 + 1 / math.log2(3)
-    assert swapped["ndcg_at_10"] == pytest.approx((1 / math.log2(3) + 1 / 2) / ideal)
+    assert swapped["ndcg"] == pytest.approx((1 / math.log2(3) + 1 / 2) / ideal)
 
 
 def test_item_aware_same_sha_in_other_item_is_not_found():
@@ -85,7 +86,7 @@ def test_item_aware_same_sha_in_other_item_is_not_found():
     refs = [(1, "shared")]
     r = id_metrics(retrieved, refs, 5)
     assert r["found_at_5"] == 0.0
-    assert r["mrr_at_10"] == 0.0
+    assert r["mrr"] == 0.0
     assert r["sha_only"] is False
 
 
@@ -93,7 +94,7 @@ def test_item_aware_match_requires_both():
     r = id_metrics([(2, "x"), (1, "shared")], [(1, "shared")], 5)
     assert r["found_at_1"] == 0.0
     assert r["found_at_3"] == 1.0
-    assert r["mrr_at_10"] == pytest.approx(0.5)
+    assert r["mrr"] == pytest.approx(0.5)
     assert r["sha_only"] is False
 
 

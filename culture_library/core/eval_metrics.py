@@ -36,8 +36,9 @@ def id_metrics(
 
     Returns ``found_at_1/3/5/10`` (1.0 or 0.0; ``None`` when the depth exceeds
     ``k_run``, i.e. not measured), ``precision_at_k`` (distinct matched passages
-    in the top ``k_run`` / ``k_run``), ``mrr_at_10`` and ``ndcg_at_10`` (binary
-    relevance, over the top ``min(10, k_run)`` stored ranks), ``k`` and
+    in the top ``k_run`` / ``k_run``), ``mrr`` and ``ndcg`` (binary
+    relevance, over the top ``depth`` = ``min(10, k_run)`` stored ranks, so a
+    k=5 run's values are labelled depth 5, never 10), ``depth``, ``k`` and
     ``sha_only``. With no references every metric is ``None``.
     """
     item_aware = _has_item(retrieved) and _has_item(references)
@@ -50,19 +51,23 @@ def id_metrics(
         hit = key in refs and key not in seen
         seen.add(key)
         rel.append(1 if hit else 0)
-    out: dict[str, float | int | bool | None] = {"k": k_run, "sha_only": not item_aware}
+    out: dict[str, float | int | bool | None] = {
+        "k": k_run,
+        "depth": min(MRR_DEPTH, max(k_run, 0)),
+        "sha_only": not item_aware,
+    }
     if not refs:
         for d in FOUND_DEPTHS:
             out[f"found_at_{d}"] = None
-        out.update(precision_at_k=None, mrr_at_10=None, ndcg_at_10=None)
+        out.update(precision_at_k=None, mrr=None, ndcg=None)
         return out
     for d in FOUND_DEPTHS:
         out[f"found_at_{d}"] = None if d > k_run else float(any(rel[:d]))
     out["precision_at_k"] = sum(rel) / k_run if k_run > 0 else None
     depth = rel[:MRR_DEPTH]
     first = next((i for i, r in enumerate(depth, 1) if r), None)
-    out["mrr_at_10"] = 1.0 / first if first else 0.0
+    out["mrr"] = 1.0 / first if first else 0.0
     dcg = sum(r / math.log2(i + 1) for i, r in enumerate(depth, 1))
     ideal = sum(1 / math.log2(i + 1) for i in range(1, min(len(refs), len(depth)) + 1))
-    out["ndcg_at_10"] = dcg / ideal if ideal else 0.0
+    out["ndcg"] = dcg / ideal if ideal else 0.0
     return out
