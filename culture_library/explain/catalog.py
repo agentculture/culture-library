@@ -236,6 +236,31 @@ Back up the library to a second location and prove it restores.
 - `backup overview` — describe this noun.
 """
 
+_MIRROR = """\
+# culture-library mirror
+
+Inspect and reconcile the S3 mirror of repo documents. Every pushed version (and changed
+working draft) queues a row in the `mirror_outbox` table; the server's mirror worker uploads
+it to `<repo>/<path>@<commit>` (`@working` for drafts), retrying with backoff while the
+bucket is unreachable. Pushes never fail because the mirror is down.
+
+- `mirror status [--data-dir D]` — the outbox backlog: `pending`, `done`,
+  `oldest_pending_age_s`, the newest `last_error` among pending rows, and whether a backend
+  is configured (`CULTURE_LIBRARY_S3_BUCKET`). Opens the store directly, like `backup`.
+- `mirror reconcile [--data-dir D]` — compare every repo-document version and draft with the
+  bucket (`head`) and queue the keys that are missing or hold different bytes; reports
+  `enqueued` and the resulting `pending`. Needs `CULTURE_LIBRARY_S3_BUCKET` (plus `_REGION`,
+  `_PREFIX` and AWS credentials) and boto3 from the `[s3]` extra; without them it exits 2.
+  It only queues rows and never deletes objects; the server's worker uploads them.
+- `mirror overview` — describe this noun.
+
+The server: with `CULTURE_LIBRARY_S3_BUCKET` set, the worker drains every
+`CULTURE_LIBRARY_MIRROR_INTERVAL_S` seconds (default 5), backing off from
+`CULTURE_LIBRARY_MIRROR_BACKOFF_S` (5) up to `CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S` (300) while
+uploads fail. Without a bucket it does nothing. `GET /api/status` reports a `mirror` block
+`{enabled, pending, oldest_pending_age_s, last_error}`.
+"""
+
 _DEPLOY = """\
 # culture-library deploy
 
@@ -289,6 +314,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("backup", "overview"): _BACKUP,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
+    ("mirror",): _MIRROR,
+    ("mirror", "status"): _MIRROR,
+    ("mirror", "reconcile"): _MIRROR,
+    ("mirror", "overview"): _MIRROR,
     ("deploy",): _DEPLOY,
     ("deploy", "restart"): _DEPLOY,
     ("deploy", "overview"): _DEPLOY,
