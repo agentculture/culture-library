@@ -204,7 +204,8 @@ def test_run_retrieves_with_the_starting_keys_visibility(library, fixture_set):
     assert r.status_code == 202
     got = _wait(library, r.json()["run_id"])
     seen = {i for s in got["samples"] for i in s["retrieved_item_ids"]}
-    assert seen and secret.id not in seen
+    assert seen
+    assert secret.id not in seen
 
 
 def test_failed_worker_closes_the_run_failed(library, fixture_set, monkeypatch):

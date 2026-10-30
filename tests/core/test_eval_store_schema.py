@@ -220,7 +220,8 @@ def test_add_run_sample_snapshot_fields_and_old_callers(tmp_path):
         sid = eval_store.list_samples(conn, set_id)[0]["id"]
         eval_store.add_run_sample(conn, run_id, sid, retrieved_chunk_shas=["c"], scores={"s": 1})
         old = eval_store.list_run_samples(conn, run_id)[0]
-        assert old["question"] is None and old["latency_ms"] is None
+        assert old["question"] is None
+        assert old["latency_ms"] is None
         eval_store.add_run_sample(
             conn,
             run_id,

@@ -354,7 +354,8 @@ def test_complete_run_records_suites_snapshots_and_latency(lib):
     assert s0.set_version == 1
     assert s0.retrieved_chunk_shas == ["ref", "x0"]
     assert s0.retrieved_item_ids == [1, 2]
-    assert isinstance(s0.latency_ms, float) and s0.latency_ms >= 0
+    assert isinstance(s0.latency_ms, float)
+    assert s0.latency_ms >= 0
     assert s0.freshness == "fresh"
     for key in ("found_at_1", "ndcg", "duplicate_rate", "fresh_share", "error_rate", PRECISION):
         assert key in s0.scores
@@ -384,8 +385,10 @@ def test_runs_only_the_requested_suites(lib):
 
 
 def test_unknown_suite_is_an_eval_error(lib):
+    eval_set = _set(Sample(question="q"))
+    adapter = FakeAdapter()
     with pytest.raises(EvalError, match="unknown suite"):
-        run_set(lib.client, _set(Sample(question="q")), FakeAdapter(), suites=["nope"])
+        run_set(lib.client, eval_set, adapter, suites=["nope"])
     assert lib.retrieve_bodies == []
 
 

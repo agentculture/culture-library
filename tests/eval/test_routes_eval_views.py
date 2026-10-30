@@ -73,12 +73,15 @@ def test_radar_single_run(library):
     r = library.http.get(f"/api/eval/radar?run={rid}")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["kind"] == "run" and body["left_out"] == 0 and body["budget_s"] == 1.0
+    assert body["kind"] == "run"
+    assert body["left_out"] == 0
+    assert body["budget_s"] == 1.0
     assert body["axes"]["found_at_1"] == 0.5
     assert body["axes"]["judge_recall"] == 0.5
     assert body["axes"]["no_errors"] == 1.0
     assert body["axes"]["latency_in_budget"] == 1.0
-    assert body["documents"][0]["run_id"] == rid and body["documents"][0]["questions"] == 2
+    assert body["documents"][0]["run_id"] == rid
+    assert body["documents"][0]["questions"] == 2
     # budget is a parameter
     tight = library.http.get(f"/api/eval/radar?run={rid}&budget_s=0.05").json()
     assert tight["axes"]["latency_in_budget"] == 0.0
@@ -88,7 +91,8 @@ def test_radar_group_is_mean_over_documents(library):
     r1 = _make_run(library, _make_set(library, library.add_item(b"a")), hits=(True, True))
     r2 = _make_run(library, _make_set(library, library.add_item(b"b")), hits=(False, False))
     body = library.http.get(f"/api/eval/radar?runs={r1},{r2}").json()
-    assert body["kind"] == "group" and len(body["documents"]) == 2
+    assert body["kind"] == "group"
+    assert len(body["documents"]) == 2
     assert body["axes"]["found_at_1"] == 0.5
 
 
@@ -97,7 +101,8 @@ def test_radar_pair(library):
     r2 = _make_run(library, _make_set(library, library.add_item(b"b")), hits=(False, False))
     body = library.http.get(f"/api/eval/radar?run={r1}&vs={r2}").json()
     assert body["kind"] == "pair"
-    assert body["a"]["axes"]["found_at_1"] == 1.0 and body["b"]["axes"]["found_at_1"] == 0.0
+    assert body["a"]["axes"]["found_at_1"] == 1.0
+    assert body["b"]["axes"]["found_at_1"] == 0.0
 
 
 def test_item_aware_matching_uses_set_item(library):
@@ -183,7 +188,8 @@ def test_group_leaves_out_invisible_runs(library):
     assert [d["run_id"] for d in body["documents"]] == [pub]
     assert body["axes"]["found_at_1"] == 0.0  # no value from the hidden run
     wk = library.http.get(f"/api/eval/weakest?runs={pub},{priv}").json()
-    assert wk["left_out"] == 1 and {i["run_id"] for i in wk["items"]} == {pub}
+    assert wk["left_out"] == 1
+    assert {i["run_id"] for i in wk["items"]} == {pub}
     cmp = library.http.get(f"/api/eval/compare?before={pub},{priv}&after={pub}").json()
     assert cmp["left_out"] == {"before": 1, "after": 0}
 
@@ -194,7 +200,8 @@ def test_group_all_hidden_is_empty_not_404(library):
     )
     _as(library, scopes={"read"}, private=False)
     body = library.http.get(f"/api/eval/radar?runs={priv}").json()
-    assert body["documents"] == [] and body["left_out"] == 1
+    assert body["documents"] == []
+    assert body["left_out"] == 1
     assert all(v is None for v in body["axes"].values())
 
 
@@ -205,7 +212,8 @@ def test_compare_pair_and_deltas(library):
     body = library.http.get(f"/api/eval/compare?before={before}&after={after}").json()
     assert body["checks"]["comparable"] is True
     assert body["deltas"]["found_at_1"] == 0.5
-    assert body["before"]["found_at_1"] == 0.5 and body["after"]["found_at_1"] == 1.0
+    assert body["before"]["found_at_1"] == 0.5
+    assert body["after"]["found_at_1"] == 1.0
     assert [c["question"] for c in body["changed_questions"]] == ["q1?"]
     assert body["left_out"] == {"before": 0, "after": 0}
 
@@ -217,7 +225,8 @@ def test_compare_not_comparable_returns_only_checks(library):
     body = library.http.get(f"/api/eval/compare?before={a}&after={b}").json()
     assert body["checks"]["comparable"] is False
     assert any("judge" in x for x in body["checks"]["reasons"])
-    assert "deltas" not in body and "before" not in body
+    assert "deltas" not in body
+    assert "before" not in body
 
 
 def test_compare_warns_on_different_set_and_depth(library):
@@ -228,7 +237,8 @@ def test_compare_warns_on_different_set_and_depth(library):
         config={"k": 3, "judge_model": "j"},
     )
     w = library.http.get(f"/api/eval/compare?before={a}&after={b}").json()["checks"]["warnings"]
-    assert any("different set" in x for x in w) and any("depth" in x for x in w)
+    assert any("different set" in x for x in w)
+    assert any("depth" in x for x in w)
 
 
 def test_compare_groups_pair_by_set(library):
@@ -237,14 +247,17 @@ def test_compare_groups_pair_by_set(library):
     b1, b2 = _make_run(library, s1, hits=(False, False)), _make_run(library, s2, hits=(True, True))
     a1, a2 = _make_run(library, s1, hits=(True, True)), _make_run(library, s2, hits=(True, True))
     body = library.http.get(f"/api/eval/compare?before={b1},{b2}&after={a1},{a2}").json()
-    assert body["checks"]["comparable"] is True and body["checks"]["warnings"] == []
-    assert body["before"]["found_at_1"] == 0.5 and body["after"]["found_at_1"] == 1.0
+    assert body["checks"]["comparable"] is True
+    assert body["checks"]["warnings"] == []
+    assert body["before"]["found_at_1"] == 0.5
+    assert body["after"]["found_at_1"] == 1.0
     assert body["deltas"]["found_at_1"] == 0.5
     assert {c["set_id"] for c in body["changed_questions"]} == {s1["id"]}
     # a group with a different judge on one set is not comparable
     bad = _make_run(library, s2, config={"k": 5, "judge_model": "x"})
     nc = library.http.get(f"/api/eval/compare?before={b1},{b2}&after={a1},{bad}").json()
-    assert nc["checks"]["comparable"] is False and "deltas" not in nc
+    assert nc["checks"]["comparable"] is False
+    assert "deltas" not in nc
     # no overlapping sets at all
     s3 = _make_set(library, library.add_item(b"c"))
     c3 = _make_run(library, s3)
@@ -259,7 +272,8 @@ def test_compare_group_with_no_visible_side(library):
     )
     _as(library, scopes={"read"}, private=False)
     body = library.http.get(f"/api/eval/compare?before={priv},{priv + 50}&after={pub}").json()
-    assert body["checks"]["comparable"] is False and body["left_out"]["before"] == 2
+    assert body["checks"]["comparable"] is False
+    assert body["left_out"]["before"] == 2
 
 
 def test_weakest_sources_and_items(library):
@@ -271,9 +285,11 @@ def test_weakest_sources_and_items(library):
     rid = _make_run(library, s, hits=(True, False))
     body = library.http.get(f"/api/eval/weakest?runs={rid}").json()
     assert [x["url"] for x in body["sources"]] == ["http://bad", "http://good"]
-    assert body["sources"][0]["run_id"] == rid and body["sources"][0]["axes"]["found_at_5"] == 0.0
+    assert body["sources"][0]["run_id"] == rid
+    assert body["sources"][0]["axes"]["found_at_5"] == 0.0
     assert body["items"][0]["item_id"] == s["item_id"]
     assert body["items"][0]["questions"] == 2
     one = library.http.get(f"/api/eval/weakest?run={rid}&limit=1").json()
-    assert len(one["sources"]) == 1 and one["sources"][0]["url"] == "http://bad"
+    assert len(one["sources"]) == 1
+    assert one["sources"][0]["url"] == "http://bad"
     assert one["limit"] == 1

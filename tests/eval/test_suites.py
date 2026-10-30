@@ -88,8 +88,10 @@ def _ctx(vis, judge, is_public=None):
 def test_judged_skips_private_item_with_remote_judge():
     ad = _Adapter()
     out = _judged(ad).score(_ctx("private", JudgeConfig(url="https://judge.example.com")))
-    assert out.skipped and "item 1 is not public" in out.skipped
-    assert ad.seen is None and out.per_sample == []
+    assert out.skipped
+    assert "item 1 is not public" in out.skipped
+    assert ad.seen is None
+    assert out.per_sample == []
 
 
 def test_judged_local_judge_scores_private_item_unblanked():
@@ -132,15 +134,17 @@ def test_registered_context_manager_registers_and_undoes():
 
 def test_duplicate_suite_or_metric_rejected():
     with suites.registered(_Fake()):
+        duplicate = _Fake()
         with pytest.raises(ValueError):
-            suites.register(_Fake())
+            suites.register(duplicate)
 
     class Clash(_Fake):
         name = "clash"
         metrics = (Metric("mrr", "d", (0.0, 1.0), HIGHER),)
 
+    clash = Clash()
     with pytest.raises(ValueError):
-        suites.register(Clash())
+        suites.register(clash)
     assert "clash" not in suites.names()
 
 

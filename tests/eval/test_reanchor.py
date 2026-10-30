@@ -110,10 +110,12 @@ def test_reanchor_after_licence_removed(library):
     r = library.http.post(f"/api/eval/sets/{s['id']}/reanchor")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["version"] == 2 and body["previous_version"] == 1
+    assert body["version"] == 2
+    assert body["previous_version"] == 1
     assert body["re_anchored"] == sample_ids[1:]
     assert [x["sample_id"] for x in body["could_not_re_anchor"]] == sample_ids[:1]
-    assert body["note"]["stale"] == 1 and body["note"]["re_anchored"] == 2
+    assert body["note"]["stale"] == 1
+    assert body["note"]["re_anchored"] == 2
 
     got = library.http.get(f"/api/eval/sets/{s['id']}").json()
     assert got["version"] == 2
@@ -130,7 +132,8 @@ def test_reanchor_unchanged_does_not_bump_version(library):
     item = _index_item(library, texts)
     s = _build_set(library, item, _chunks(texts)[1:])
     body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
-    assert body["version"] == 1 and body["could_not_re_anchor"] == []
+    assert body["version"] == 1
+    assert body["could_not_re_anchor"] == []
     assert library.http.get(f"/api/eval/sets/{s['id']}").json()["version"] == 1
 
 
@@ -139,7 +142,8 @@ def test_reanchor_errors(library):
     item = library.add_item(b"unindexed")
     s = _build_set(library, item, _chunks(["x"]))
     r = library.http.post(f"/api/eval/sets/{s['id']}/reanchor")
-    assert r.status_code == 409 and r.json()["code"] == "not_indexed"
+    assert r.status_code == 409
+    assert r.json()["code"] == "not_indexed"
 
 
 def test_reanchor_needs_write_scope(library):
