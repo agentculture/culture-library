@@ -21,6 +21,7 @@ KINDS = (
     "devague-record",
     "todo",
     "discord-message",
+    "design",
 )
 VISIBILITIES = ("private", "public")
 
