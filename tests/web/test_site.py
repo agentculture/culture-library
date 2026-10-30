@@ -32,8 +32,10 @@ MODULES = (
     "evals-shape",
     "evals-radar",
     "evals-compare",
+    "projects",
+    "projects-model",
 )
-STYLESHEETS = ("styles", "evals")
+STYLESHEETS = ("styles", "evals", "projects")
 CSP_PARTS = (
     "default-src 'self'",
     "script-src 'self'",
@@ -193,14 +195,20 @@ def test_evals_tab_and_sections(client: TestClient) -> None:
     html = client.get("/").text
     assert 'href="/static/evals.css"' in html
     tabs = re.findall(r'<button role="tab"[^>]*data-view="(\w+)"[^>]*>([^<]+)</button>', html)
-    assert tabs == [("home", "Library"), ("state", "Site state"), ("evals", "Evals")]
+    assert tabs == [
+        ("home", "Library"),
+        ("state", "Site state"),
+        ("projects", "Projects"),
+        ("domains", "Domains"),
+        ("evals", "Evals"),
+    ]
     for id_ in ("view-evals", "evals-overview", "evals-radar", "evals-compare", "ev-lede"):
         assert f'id="{id_}"' in html, id_
     assert 'href="#evals/radar"' in html
     assert 'href="#evals/compare"' in html
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "import * as evals from './evals.js';" in app
-    assert "const VIEWS = ['home', 'read', 'state', 'evals'];" in app
+    assert "const VIEWS = ['home', 'read', 'state', 'evals', 'projects'];" in app
     assert "parseHash(location.hash" in app
 
 
