@@ -69,8 +69,10 @@ def test_push_list_read_links(env, keys):
     assert call(env, reader, "repodoc_list", domain="ai")["docs"]
     assert not call(env, reader, "repodoc_list", domain="nope")["docs"]
     read = call(env, reader, "repodoc_read", doc_id=doc_id)
-    assert read["text"] == SPEC and "content_base64" not in read
-    assert read["doc"]["id"] == doc_id and read["versions"]
+    assert read["text"] == SPEC
+    assert "content_base64" not in read
+    assert read["doc"]["id"] == doc_id
+    assert read["versions"]
     assert "spec_links" in call(env, reader, "repodoc_links", doc_id=doc_id)
     # private docs stay invisible to a public key
     assert call(env, public, "repodoc_list")["docs"] == []
@@ -92,7 +94,8 @@ def test_read_working_and_commit_and_binary(env, keys):
         env, writer, path="docs/img.png", content=None, content_b64=base64.b64encode(PNG).decode()
     )
     out = call(env, reader, "repodoc_read", doc_id=b["doc"]["id"])
-    assert base64.b64decode(out["content_base64"]) == PNG and "text" not in out
+    assert base64.b64decode(out["content_base64"]) == PNG
+    assert "text" not in out
 
 
 def test_search_takes_corpora(env, keys):
@@ -101,7 +104,8 @@ def test_search_takes_corpora(env, keys):
     ix.enqueue_missing(env.store)
     ix.Indexer(env.store, lambda texts: [[1.0, 0.0] for _ in texts]).run_once()
     hits = call(env, reader, "search", q="narwhal", mode="fulltext", corpora=["repodoc"])["hits"]
-    assert hits and all(h["corpus"] == "repodoc" for h in hits)
+    assert hits
+    assert all(h["corpus"] == "repodoc" for h in hits)
     assert call(env, reader, "search", q="narwhal", mode="fulltext", corpora=["item"])["hits"] == []
 
 

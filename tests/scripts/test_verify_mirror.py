@@ -77,7 +77,8 @@ def test_remote_parsed_from_git_config_without_git(tmp_path):
 def test_remoteless_falls_back_to_host_path(tmp_path):
     repo = make_repo(tmp_path, "solo", remote=None)
     ident = vm.repo_identity(repo)
-    assert ident.endswith(f":{repo.resolve()}") and ":/" in ident
+    assert ident.endswith(f":{repo.resolve()}")
+    assert ":/" in ident
 
 
 def test_walk_covers_pushed_prefixes_only_and_skips_worktrees(tmp_path):
@@ -169,8 +170,9 @@ def test_all_flag_and_unknown_repo(tmp_path, capsys):
 
 
 def test_requires_repos_or_all(tmp_path):
+    library, s3 = FakeLibrary(), FakeS3()
     with pytest.raises(SystemExit):
-        vm.main(["--root", str(tmp_path)], library=FakeLibrary(), s3=FakeS3())
+        vm.main(["--root", str(tmp_path)], library=library, s3=s3)
 
 
 def test_http_library_parses_api(monkeypatch):
@@ -188,5 +190,6 @@ def test_http_library_parses_api(monkeypatch):
 
     client = vm.HttpLibrary("http://x", "k", getter=fake_get)
     doc = client.lookup(REPO, "docs/specs/a.md")
-    assert doc.shas == {"aa", "bb"} and doc.commits == {"c1": "aa"}
+    assert doc.shas == {"aa", "bb"}
+    assert doc.commits == {"c1": "aa"}
     assert "remote=" in calls[0]

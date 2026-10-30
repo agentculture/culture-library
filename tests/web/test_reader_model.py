@@ -125,7 +125,8 @@ def test_spec_links_pr_without_safe_url_is_text_only() -> None:
     m = _call("specLinksModel", dict(base, pr={"url": None, "number": 9}))
     assert m["pr"] == {"href": None, "label": "#9"}
     only_merge = _call("specLinksModel", dict(base, merge_commit="d" * 40))
-    assert only_merge["pr"] is None and only_merge["computed"] is None
+    assert only_merge["pr"] is None
+    assert only_merge["computed"] is None
 
 
 @needs_node
@@ -153,8 +154,10 @@ def test_markdown_blocks_are_data_not_markup() -> None:
         {"t": "code", "s": "code"},
         {"t": "text", "s": " <b>tag</b>."},
     ]
-    assert blocks[2]["type"] == "ul" and len(blocks[2]["items"]) == 2
-    assert blocks[3]["type"] == "ol" and len(blocks[3]["items"]) == 2
+    assert blocks[2]["type"] == "ul"
+    assert len(blocks[2]["items"]) == 2
+    assert blocks[3]["type"] == "ol"
+    assert len(blocks[3]["items"]) == 2
     assert blocks[4] == {"type": "code", "text": "x < y"}
     assert blocks[5]["type"] == "quote"
 
@@ -162,5 +165,6 @@ def test_markdown_blocks_are_data_not_markup() -> None:
 def test_reader_wires_the_model_and_never_embeds_prototypes_unsandboxed() -> None:
     src = READER.read_text()
     assert "./reader-model.js" in src
-    assert "srcdoc" in src and "sandbox" in src
+    assert "srcdoc" in src
+    assert "sandbox" in src
     assert "allow-same-origin" not in src

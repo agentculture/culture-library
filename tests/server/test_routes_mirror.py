@@ -90,12 +90,14 @@ def test_worker_drains_pushes_to_backend(tmp_path):
     app = _app(tmp_path, be)
     with TestClient(app) as c:
         worker = app.state.mirror_worker
-        assert worker is not None and worker.is_alive()
+        assert worker is not None
+        assert worker.is_alive()
         assert _push(c).status_code in (200, 201)
         assert _wait(lambda: _mirror(c)["pending"] == 0)
         assert any(k.endswith("docs/specs/x.md@" + A) for k in be.objects)
         m = _mirror(c)
-        assert m["enabled"] is True and m["oldest_pending_age_s"] is None
+        assert m["enabled"] is True
+        assert m["oldest_pending_age_s"] is None
         assert m["last_error"] is None
     assert not worker.is_alive()
 
@@ -110,7 +112,8 @@ def test_failing_backend_keeps_pushes_2xx_then_recovers(tmp_path):
         assert _push(c, "docs/specs/b.md").status_code in (200, 201)
         assert _wait(lambda: (_mirror(c)["last_error"] or "").startswith("ConnectionError"))
         m = _mirror(c)
-        assert m["enabled"] is True and m["pending"] == 2
+        assert m["enabled"] is True
+        assert m["pending"] == 2
         assert m["oldest_pending_age_s"] >= 0
         # Backoff, not a spin: over ~0.6 s at backoff 0.2-0.4 s only a few passes run.
         time.sleep(0.6)
@@ -137,7 +140,8 @@ def test_last_error_hidden_from_public_callers(tmp_path):
         assert _wait(lambda: _mirror(c)["last_error"] is not None)
         app.dependency_overrides[current_principal] = lambda: _principal(private=False)
         m = _mirror(c)
-        assert m["pending"] == 1 and m["last_error"] is None
+        assert m["pending"] == 1
+        assert m["last_error"] is None
 
 
 def test_bucket_set_without_boto3_does_not_crash(tmp_path, monkeypatch):

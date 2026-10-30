@@ -64,17 +64,21 @@ def test_search_defaults_to_items_and_repodocs(env):
     assert {h["corpus"] for h in hits} == {"item", "repodoc"}
     doc = next(h for h in hits if h["corpus"] == "repodoc")
     assert doc["source"] == "fulltext"
-    assert doc["item_id"] is None and doc["repo"] and doc["path"] == "docs/specs/s.md"
+    assert doc["item_id"] is None
+    assert doc["repo"]
+    assert doc["path"] == "docs/specs/s.md"
     assert isinstance(doc["doc_id"], int)
     item = next(h for h in hits if h["corpus"] == "item")
-    assert item["item_id"] and item["title"] == "Moby"
+    assert item["item_id"]
+    assert item["title"] == "Moby"
 
 
 @pytest.mark.parametrize("qs", ["corpora=item", "corpora=item&corpora=item"])
 def test_search_corpora_narrows_to_items(env, qs):
     _store, http = env
     hits = http.get(f"/api/search?q=whale&mode=fulltext&{qs}").json()["hits"]
-    assert hits and {h["corpus"] for h in hits} == {"item"}
+    assert hits
+    assert {h["corpus"] for h in hits} == {"item"}
 
 
 def test_search_corpora_comma_list_and_repodoc_only(env):
@@ -115,7 +119,9 @@ def test_rag_accepts_repodoc_corpus(env):
     passages = http.post("/api/rag/retrieve", json=body).json()["passages"]
     assert {p["corpus"] for p in passages} == {"item", "repodoc"}
     doc = next(p for p in passages if p["corpus"] == "repodoc")
-    assert doc["item_id"] is None and doc["repo"] and doc["path"] == "docs/specs/s.md"
+    assert doc["item_id"] is None
+    assert doc["repo"]
+    assert doc["path"] == "docs/specs/s.md"
     assert isinstance(doc["doc_id"], int)
 
 
