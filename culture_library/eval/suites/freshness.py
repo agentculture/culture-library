@@ -41,7 +41,7 @@ def chunks_lookup(client) -> Callable[[int], Sequence[str] | None]:
             if exc.status == 404:
                 raise LookupError(f"item {item_id} is gone") from exc
             return None
-        except (KeyError, TypeError, ValueError):
+        except (TypeError, ValueError):
             return None
 
     return lookup
@@ -109,7 +109,7 @@ class FreshnessSuite:
             except (KeyError, TypeError, ValueError):
                 current = None
         per: list[dict[str, float | None]] = []
-        counts = {key: 0 for key in _COUNT_KEYS.values()}
+        counts = dict.fromkeys(_COUNT_KEYS.values(), 0)
         for sample in ctx.samples:
             state = _state(sample, current, gone)
             row: dict[str, float | None] = {

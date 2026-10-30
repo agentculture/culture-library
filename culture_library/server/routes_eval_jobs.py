@@ -34,7 +34,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from typing import Any, AsyncIterator, Literal
+from typing import Annotated, Any, AsyncIterator, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -143,7 +143,7 @@ class InProcessClient:
             raise EvalApiError(f"item {item_id} not found", status=404) from None
         return asdict(item)
 
-    def request(self, method: str, path: str, body: Any = None) -> Any:
+    def request(self, method: str, path: str) -> Any:
         match = _CHUNKS_PATH.match(path)
         if method != "GET" or match is None:
             raise EvalApiError(f"{method} {path} is not served in process", status=404)
@@ -324,8 +324,8 @@ def _worker(
 def start_run(
     body: StartIn,
     request: Request,
-    principal: Principal = Depends(current_principal),
-    store: Store = Depends(get_store),
+    principal: Annotated[Principal, Depends(current_principal)],
+    store: Annotated[Store, Depends(get_store)],
 ):
     check(principal, "write")
     found = _visible_set(store, principal, body.set_id)
