@@ -293,3 +293,28 @@ def test_weakest_sources_and_items(library):
     assert len(one["sources"]) == 1
     assert one["sources"][0]["url"] == "http://bad"
     assert one["limit"] == 1
+
+
+def test_views_check_each_set_once_and_read_samples_only_for_weakest(library, monkeypatch):
+    from culture_library.core import eval_store
+    from culture_library.server import routes_eval_views as views
+
+    s = _make_set(library, library.add_item(b"a"))
+    ids = ",".join(str(_make_run(library, s)) for _ in range(3))
+    seen = {"visible": 0, "samples": 0}
+    real_visible, real_samples = views._visible_set, eval_store.list_samples
+
+    def visible(*a, **kw):
+        seen["visible"] += 1
+        return real_visible(*a, **kw)
+
+    def samples(*a, **kw):
+        seen["samples"] += 1
+        return real_samples(*a, **kw)
+
+    monkeypatch.setattr(views, "_visible_set", visible)
+    monkeypatch.setattr(eval_store, "list_samples", samples)
+    assert library.http.get(f"/api/eval/radar?runs={ids}").status_code == 200
+    assert seen == {"visible": 1, "samples": 0}
+    assert library.http.get(f"/api/eval/weakest?runs={ids}").status_code == 200
+    assert seen == {"visible": 2, "samples": 1}

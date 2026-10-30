@@ -70,26 +70,54 @@ def _budget(budget_s: float) -> float:
     return budget_s
 
 
+class _Loader:
+    """Loads runs for one request: one set lookup and visibility check per set, not per run.
+
+    Set samples (questions and reference texts) are only read when ``with_samples`` is set,
+    since only the weakest-sources breakdown uses them.
+    """
+
+    def __init__(self, store: Store, principal: Principal, *, with_samples: bool = False):
+        self._store = store
+        self._principal = principal
+        self._with_samples = with_samples
+        self._item_of: dict[int, int | None] = {}  # set id -> item id, None when invisible
+        self._samples_of: dict[int, list[dict]] = {}
+
+    def _item_id(self, set_id: int) -> int | None:
+        if set_id not in self._item_of:
+            found = _visible_set(self._store, self._principal, set_id)
+            self._item_of[set_id] = None if found is None else found[0]["item_id"]
+        return self._item_of[set_id]
+
+    def load(self, run_id: int) -> _Scored | None:
+        """The run's scored rows, or None when absent or its item is invisible."""
+        try:
+            with self._store.reader() as conn:
+                run = eval_store.get_run(conn, run_id)
+        except NotFoundError:
+            return None
+        item_id = self._item_id(run["set_id"])
+        if item_id is None:
+            return None
+        run["item_id"] = item_id
+        with self._store.reader() as conn:
+            results = eval_store.list_run_samples(conn, run_id)
+            if self._with_samples and run["set_id"] not in self._samples_of:
+                self._samples_of[run["set_id"]] = eval_store.list_samples(conn, run["set_id"])
+        return run, results, self._samples_of.get(run["set_id"], [])
+
+    def group(self, ids: list[int]) -> tuple[list[_Scored], int]:
+        loaded = [self.load(i) for i in ids]
+        return [x for x in loaded if x is not None], sum(1 for x in loaded if x is None)
+
+
 def _load(store: Store, principal: Principal, run_id: int) -> _Scored | None:
-    """The run's scored rows, or None when absent or its item is invisible."""
-    try:
-        with store.reader() as conn:
-            run = eval_store.get_run(conn, run_id)
-    except NotFoundError:
-        return None
-    found = _visible_set(store, principal, run["set_id"])
-    if found is None:
-        return None
-    run["item_id"] = found[0]["item_id"]
-    with store.reader() as conn:
-        results = eval_store.list_run_samples(conn, run_id)
-        set_samples = eval_store.list_samples(conn, run["set_id"])
-    return run, results, set_samples
+    return _Loader(store, principal).load(run_id)
 
 
 def _load_group(store: Store, principal: Principal, ids: list[int]) -> tuple[list[_Scored], int]:
-    loaded = [_load(store, principal, i) for i in ids]
-    return [x for x in loaded if x is not None], sum(1 for x in loaded if x is None)
+    return _Loader(store, principal).group(ids)
 
 
 def _shape(scored: list[_Scored], left_out: int, kind: str, budget_s: float) -> dict[str, Any]:
@@ -259,7 +287,7 @@ def get_weakest(
             raise _Bad("limit must be at least 1")
     except _Bad as exc:
         return _flat(422, exc.detail, "invalid")
-    scored, left = _load_group(store, principal, ids)
+    scored, left = _Loader(store, principal, with_samples=True).group(ids)
     if run is not None and not scored:
         return _flat(404, f"eval run {ids[0]} not found", "not_found")
     sources: list[dict] = []

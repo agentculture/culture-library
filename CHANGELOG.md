@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.2] - 2026-10-30
+
+### Fixed
+
+- Re-anchoring a set moves its `item_sha256` to the item's current bytes once every question re-anchored, so later runs stop reporting `item_changed`. With any stale question left, the set keeps its old sha, because it still holds questions on the old text.
+- `eval_store.backfill_snapshots` copies a result's reference shas (and records its `set_version`) only while the set is still at the version the run used. After a re-anchor it fills the question only, instead of pairing old retrievals with new references.
+- A server run that fails after some retrievals closes `failed` with `completed` equal to the results it keeps, not 0.
+- `run_set` takes an `on_retrieval` callback, called once per question as it finishes. The server records progress through it, instead of a client that matched results to questions by counting calls.
+- The radar, compare and weakest views check each set's visibility once per request, not once per run, and only the weakest view reads the set samples (once per set).
+
+### Changed
+
+- CLAUDE.md: spark runs 0.18.1.
+
 ## [0.18.1] - 2026-10-30
 
 ### Fixed

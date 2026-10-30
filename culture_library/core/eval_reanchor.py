@@ -76,12 +76,19 @@ def reanchor_samples(samples: Sequence[Mapping[str, Any]], chunks: Sequence[Chun
 
 
 def apply_reanchor(
-    conn: sqlite3.Connection, set_id: int, chunks: Sequence[Chunk]
+    conn: sqlite3.Connection,
+    set_id: int,
+    chunks: Sequence[Chunk],
+    item_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Re-anchor a set in place; bump its version once if any sample's shas changed.
 
     Sample ids are kept (UPDATE, not replace_samples). The summary is stored additively under
-    ``generator_json["reanchor"]`` whether or not the version bumped, and returned.
+    ``generator_json["reanchor"]`` whether or not the version bumped, and returned. When every
+    sample re-anchored and ``item_sha256`` (the item's current bytes) is given, the set now
+    describes those bytes, so its ``item_sha256`` moves to them and later runs stop reporting
+    ``item_changed``. With any stale sample left, the set still holds questions on the old
+    text and keeps its old sha.
     """
     row = eval_store.get_set(conn, set_id)
     samples = eval_store.list_samples(conn, set_id)
@@ -97,6 +104,9 @@ def apply_reanchor(
             (eval_store._dumps(res.updates[sid]), sid),
         )
     version = row["version"] + (1 if changed else 0)
+    set_sha = row["item_sha256"]
+    if item_sha256 and not res.stale and set_sha != item_sha256:
+        set_sha = item_sha256
     note = {
         "at": now(),
         "version": version,
@@ -104,12 +114,13 @@ def apply_reanchor(
         "changed": len(changed),
         "stale": len(res.stale),
         "stale_sample_ids": [s["sample_id"] for s in res.stale],
+        "item_sha256": set_sha,
     }
     generator = dict(row["generator_json"] or {})
     generator["reanchor"] = note
     conn.execute(
-        "UPDATE eval_sets SET version = ?, generator_json = ? WHERE id = ?",
-        (version, eval_store._dumps(generator), set_id),
+        "UPDATE eval_sets SET version = ?, generator_json = ?, item_sha256 = ? WHERE id = ?",
+        (version, eval_store._dumps(generator), set_sha, set_id),
     )
     return {
         "previous_version": row["version"],

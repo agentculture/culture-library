@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses
 import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 from . import suites as registry
 from .adapter import ChatLLM, EvalAdapter
@@ -197,18 +197,24 @@ def _resolve(names: Sequence[str]) -> list:
     return out
 
 
+# Called once per question as its retrieval finishes (never for the warmup call): the
+# question's index in the set, the sample, its passages (None when it failed), the latency in
+# ms (None when it failed) and the error string (None when it succeeded).
+OnRetrieval = Callable[[int, Any, "list[Passage] | None", "float | None", "str | None"], None]
+
+
 @dataclass
 class _Retrieval:
     passages: list[Passage]
     latency_ms: float
 
 
-def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup):
+def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup, on_retrieval=None):
     """Retrieve every question; a failure is that question's error, never the run's end.
 
     Each call is timed client side with ``time.perf_counter`` (HTTP round trip plus JSON
     decode). ``warmup`` first makes one un-timed, unrecorded call so the first timed one is
-    not cold.
+    not cold. ``on_retrieval`` (see :data:`OnRetrieval`) reports each question as it finishes.
     """
     opts = {"k": k, "mode": mode, "rerank": rerank, "candidates": candidates}
     if warmup and samples:
@@ -218,16 +224,25 @@ def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup):
             pass
     outcomes: list[_Retrieval | None] = []
     errors: list[str | None] = []
-    for sample in samples:
+    for index, sample in enumerate(samples):
         start = time.perf_counter()
         try:
             passages = client.retrieve(sample.question, **opts)
         except _RETRIEVAL_ERRORS as exc:
             outcomes.append(None)
             errors.append(str(exc) or type(exc).__name__)
-            continue
-        outcomes.append(_Retrieval(passages, (time.perf_counter() - start) * 1000.0))
-        errors.append(None)
+        else:
+            outcomes.append(_Retrieval(passages, (time.perf_counter() - start) * 1000.0))
+            errors.append(None)
+        if on_retrieval is not None:
+            done = outcomes[-1]
+            on_retrieval(
+                index,
+                sample,
+                done.passages if done else None,
+                done.latency_ms if done else None,
+                errors[-1],
+            )
     return outcomes, errors
 
 
@@ -295,6 +310,7 @@ def run_set(
     candidates: int | None = None,
     suites: Sequence[str] | None = None,
     warmup: bool = False,
+    on_retrieval: OnRetrieval | None = None,
 ) -> SuiteRun:
     """Retrieve every sample's question, score it with ``suites``, return the unposted run.
 
@@ -317,7 +333,14 @@ def run_set(
     _note_item_and_warmup(config, eval_set, current_sha, warmup)
 
     outcomes, errors = _retrieve_all(
-        client, samples, k=k, mode=mode, rerank=rerank, candidates=candidates, warmup=warmup
+        client,
+        samples,
+        k=k,
+        mode=mode,
+        rerank=rerank,
+        candidates=candidates,
+        warmup=warmup,
+        on_retrieval=on_retrieval,
     )
     ok = [i for i, o in enumerate(outcomes) if o is not None]
     retrieved: list[list[Passage]] = [o.passages if o else [] for o in outcomes]

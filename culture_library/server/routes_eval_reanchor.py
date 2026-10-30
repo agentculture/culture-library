@@ -37,5 +37,5 @@ def reanchor_set(
         chunks = sr.item_chunks(conn, item.id, _vis(principal))
         if not chunks:
             return _flat(409, f"item {item.id} has no indexed chunks to anchor to", "not_indexed")
-        summary = eval_reanchor.apply_reanchor(conn, set_id, chunks)
+        summary = eval_reanchor.apply_reanchor(conn, set_id, chunks, item.sha256)
     return {"set_id": set_id, "item_id": item.id, **summary}

@@ -331,13 +331,26 @@ def backfill_snapshots(conn: sqlite3.Connection) -> int:
     """Copy question and reference shas from ``eval_samples`` into run results lacking them.
 
     Idempotent: a result that already has a question is left alone. A result whose sample was
-    deleted (a regenerated set) cannot be filled. Returns how many results were filled.
+    deleted (a regenerated set) cannot be filled. The question never changes, so it is always
+    copied; the reference shas (and the result's ``set_version``) are copied only while the
+    set is still at the version the run used, because a re-anchor since then rewrote them and
+    the current ones would not match what the run was scored against. Returns how many
+    results were filled.
     """
+    same_version = (
+        "(SELECT r.set_version FROM eval_runs r WHERE r.id = eval_run_samples.run_id) = "
+        "(SELECT st.version FROM eval_samples sm JOIN eval_sets st ON st.id = sm.set_id "
+        "WHERE sm.id = eval_run_samples.sample_id)"
+    )
     cur = conn.execute(
-        "UPDATE eval_run_samples SET "
+        "UPDATE eval_run_samples SET "  # nosec B608 - fixed SQL, no user input
         "question = (SELECT question FROM eval_samples WHERE id = eval_run_samples.sample_id), "
-        "reference_chunk_shas = (SELECT reference_chunk_shas FROM eval_samples "
-        "WHERE id = eval_run_samples.sample_id) "
+        f"reference_chunk_shas = CASE WHEN {same_version} THEN "
+        "(SELECT reference_chunk_shas FROM eval_samples "
+        "WHERE id = eval_run_samples.sample_id) ELSE reference_chunk_shas END, "
+        f"set_version = CASE WHEN {same_version} THEN "
+        "(SELECT r.set_version FROM eval_runs r WHERE r.id = eval_run_samples.run_id) "
+        "ELSE set_version END "
         "WHERE question IS NULL AND EXISTS "
         "(SELECT 1 FROM eval_samples WHERE id = eval_run_samples.sample_id)"
     )

@@ -306,3 +306,36 @@ def test_client_run_is_not_trivial(library, fixture_set):
     run = run_set(library.client, fixture_set, IdOnlyAdapter(), mode="hybrid", k=3)
     assert run.aggregates[RECALL] > 0
     assert len({tuple(s.retrieved_chunk_shas) for s in run.samples}) > 1
+
+
+def test_failed_run_keeps_its_results_and_says_how_many(library, fixture_set, monkeypatch):
+    """A run that fails after its retrievals closes with completed = the results it keeps."""
+
+    def retrieve_then_boom(*a, **kw):
+        jobs_run_set(*a, **kw)
+        raise RuntimeError("suite exploded")
+
+    jobs_run_set = jobs.run_set
+    monkeypatch.setattr(jobs, "run_set", retrieve_then_boom)
+    got = _wait(library, _start(library, set_id=fixture_set.id).json()["run_id"])
+    assert got["status"] == "failed"
+    assert got["completed"] == len(got["samples"]) == len(fixture_set.samples)
+
+
+def test_on_retrieval_reports_every_question_once_and_skips_warmup(library, fixture_set):
+    calls = []
+    run_set(
+        library.client,
+        fixture_set,
+        IdOnlyAdapter(),
+        k=3,
+        warmup=True,
+        on_retrieval=lambda i, s, p, ms, err: calls.append((i, s.question, p is not None, err)),
+    )
+    assert calls == [(i, s.question, True, None) for i, s in enumerate(fixture_set.samples)]
+
+
+def test_warmup_server_run_stores_every_question(library, fixture_set):
+    got = _wait(library, _start(library, set_id=fixture_set.id, warmup=True).json()["run_id"])
+    assert got["status"] == "complete"
+    assert [s["question"] for s in got["samples"]] == [s.question for s in fixture_set.samples]

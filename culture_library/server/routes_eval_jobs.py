@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import re
 import threading
-import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated, Any, AsyncIterator, Literal
@@ -172,35 +171,31 @@ class InProcessClient:
         return [Passage.from_dict(p) for p in data["passages"]]
 
 
-class _ProgressClient(InProcessClient):
-    """Stores each question's retrieval as it finishes and advances ``completed``."""
+class _Progress:
+    """Stores each question's retrieval as ``run_set`` reports it and advances ``completed``.
 
-    def __init__(self, app, store, principal, run_id: int, eval_set: EvalSet, warmup: bool):
-        super().__init__(app, store, principal)
+    ``recorded`` counts the results stored, so a run that fails later is closed with a
+    ``completed`` that matches the results it keeps.
+    """
+
+    def __init__(self, store: Store, run_id: int, version: int):
+        self._store = store
         self._run_id = run_id
-        self._samples = list(eval_set.samples)
-        self._version = eval_set.version
-        self._skip = 1 if warmup and self._samples else 0  # run_set's un-timed warmup call
+        self._version = version
         self._done = 0
+        self.recorded = 0
 
-    def retrieve(self, query: str, k: int = 5, mode: str = "hybrid", **opts: Any) -> list[Passage]:
-        if self._skip:
-            self._skip -= 1
-            return super().retrieve(query, k, mode, **opts)
-        start = time.perf_counter()
-        passages: list[Passage] | None = None
-        try:
-            passages = super().retrieve(query, k, mode, **opts)
-            return passages
-        finally:
-            self._record(query, passages, (time.perf_counter() - start) * 1000.0)
-
-    def _record(self, query: str, passages: list[Passage] | None, latency_ms: float) -> None:
-        index = self._done
+    def __call__(
+        self,
+        index: int,
+        sample: Any,
+        passages: list[Passage] | None,
+        latency_ms: float | None,
+        error: str | None,
+    ) -> None:
         self._done += 1
         with self._store.connect() as conn:
-            sample = self._samples[index] if index < len(self._samples) else None
-            if passages is not None and sample is not None and sample.question == query:
+            if passages is not None:
                 shas = [p.chunk_sha for p in passages]
                 eval_store.add_run_sample(
                     conn,
@@ -212,8 +207,9 @@ class _ProgressClient(InProcessClient):
                     reference_chunk_shas=list(sample.reference_chunk_shas),
                     set_version=self._version,
                     retrieved_item_ids=[p.item_id for p in passages],
-                    latency_ms=round(latency_ms, 3),
+                    latency_ms=None if latency_ms is None else round(latency_ms, 3),
                 )
+                self.recorded += 1
             eval_store.set_run_progress(conn, self._run_id, self._done)
 
 
@@ -267,7 +263,8 @@ def _worker(
     suites: list[str],
     base_config: dict,
 ) -> None:
-    client = _ProgressClient(app, store, principal, run_id, eval_set, body.warmup)
+    client = InProcessClient(app, store, principal)
+    progress = _Progress(store, run_id, eval_set.version)
     try:
         run = run_set(
             client,
@@ -279,6 +276,7 @@ def _worker(
             candidates=body.candidates,
             suites=suites,
             warmup=body.warmup,
+            on_retrieval=progress,
         )
     except Exception as exc:  # any failure closes the run; nothing escapes the thread
         log.exception("eval run %d failed", run_id)
@@ -288,7 +286,8 @@ def _worker(
                 run_id,
                 status="failed",
                 config={**base_config, "error": str(exc) or type(exc).__name__},
-                completed=0,
+                # The per-question results stored so far stay attached; completed says so.
+                completed=progress.recorded,
             )
         return
     config = {**run.config, "latency_source": LATENCY_SOURCE}
