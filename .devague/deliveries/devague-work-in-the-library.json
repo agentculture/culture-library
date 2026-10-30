@@ -1,0 +1,958 @@
+{
+  "plan_slug": "devague-work-in-the-library",
+  "schema_version": 2,
+  "created": "2026-10-30T18:50:08Z",
+  "updated": "2026-10-30T19:34:30Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Binary assets (images, HTML, PDF) under any pushed prefix get kind design, not only docs/design/; t1's acceptance only mapped docs/design/",
+      "task_ref": "t1",
+      "reason": "spec claim c44 covers binary assets under the other prefixes; the plan's t1 criteria were narrower; operator chose to follow the spec (2026-10-30)",
+      "affects": [
+        "t10",
+        "t11"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "set_links gained an at_committed_at parameter (ISO-8601 time of at_commit) to decide which code_paths are newer",
+      "task_ref": "t3",
+      "reason": "the library cannot run git, so 'newer commit' needs a timestamp from the pusher; culture-rules must send it",
+      "affects": [
+        "t10",
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "mirror reads repodoc blobs with store.blob_path(sha).read_bytes() instead of Store.read_bytes, and enqueue() gained force=True for re-uploading a key that was lost on the backend",
+      "task_ref": "t4",
+      "reason": "Store.read_bytes takes an item id and repodoc versions have only a sha256; without force a done key that vanished from S3 could never be re-queued",
+      "affects": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "projects normalizes bare 'host/org/repo' remotes by prefixing https:// before calling repodocs.normalize_remote",
+      "task_ref": "t2",
+      "reason": "normalize_remote rejects the bare form, but the brief requires bare and https forms to be one project; repodocs.py was outside t2's ownership",
+      "affects": [
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "repodoc feed events are shown to callers without private access only when the event is public (items keep the uploader-owner rule), and drafts carry their own visibility column",
+      "task_ref": "t7",
+      "reason": "item_uploaders is keyed by item id, so applying it to a doc id would be wrong; a private draft on a public doc must not leak (t1)",
+      "affects": [
+        "t10",
+        "t18"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t10 may add a minimal hook to core/repodocs.py (an optional callback or connection parameter on push/tombstone) so the outbox row and feed event commit in the same transaction as the version/draft",
+      "task_ref": "t10",
+      "reason": "RepoDocs.push opens its own connection (wave-1 t1), while mirror.enqueue and feed.append_repodoc take the caller's; t10's 'same transaction' criterion is unreachable from the route alone; no other wave-2 task writes repodocs.py",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "Repo documents are indexed additively: full text in the existing search_fts under negative rowids (-doc_id), vectors in a new repodoc_embeddings table, jobs in a new repodoc_index_queue; index_queue gains a priority column and item jobs always run first \u2014 instead of storing repodocs in the existing embeddings/index_queue tables",
+      "task_ref": "t11",
+      "reason": "embeddings.item_id and index_queue.item_id reference items(id) ON DELETE CASCADE (search.py:34, indexer.py:29); reuse would need rebuilding the live embeddings table, against store.register_migration's no-rebuild contract (store.py:172); operator chose the additive option (2026-10-30)",
+      "affects": [
+        "t15",
+        "t18",
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "The item-vs-repodoc field is named corpus (item|repodoc) and the filter corpora=[...]; the existing source field (fulltext|semantic|hybrid) keeps its meaning \u2014 spec text 'source=repodoc' (c10, h9, o11, t15) reads as corpus=repodoc",
+      "task_ref": "t11",
+      "reason": "Hit.source and Passage.source already mean fulltext/semantic/hybrid and are returned by /api/search and /api/rag/retrieve (routes_search.py:172, routes_rag.py:108); reusing the name would break the eval response shape; operator chose corpus (2026-10-30)",
+      "affects": [
+        "t15",
+        "t18",
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "projects.upsert and speclinks.set_links run after the push commits, on their own connections (validated before the push), instead of on the push's connection; only the version/draft, outbox row and feed event share one transaction",
+      "task_ref": "t10",
+      "reason": "Projects and SpecLinks open their own BEGIN IMMEDIATE connections (wave-1 t2/t3), so calling them inside the on_write hook would deadlock; the acceptance criterion only requires outbox+feed in the same transaction",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "a tombstone appends one 'archived' repodoc feed event and queues nothing for S3; a re-push that only flips the default-branch flag writes no outbox/feed row",
+      "task_ref": "t10",
+      "reason": "subscribers must learn about removals (c13); only created versions/drafts are changes",
+      "affects": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "the repodocs router now uses FlatErrorRoute, so its errors are flat {detail, code} instead of nested {detail: {detail, code}}",
+      "task_ref": "t10",
+      "reason": "413 too_large and the other structured codes match routes_library's error shape; existing tests only checked status codes",
+      "affects": [
+        "t18"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky",
+      "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "Amends d7: repo-document full text lives in a sibling FTS5 table repodoc_fts (rowid = repodocs.id), not in search_fts under negative rowids",
+      "task_ref": "t11",
+      "reason": "FTS5 bm25 uses whole-table statistics; ~4,600 repodocs in search_fts would change every item's full-text score and the hybrid ranks the eval baseline uses (measured: 199 extra rows reordered item hits); protects c47; operator accepted (2026-10-30)",
+      "affects": [
+        "t15"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "tests/core/test_store_migration.py _snapshot pins index_queue to its original seven columns",
+      "task_ref": "t11",
+      "reason": "the approved additive index_queue.priority column (d7) appears in SELECT * snapshots; the test still checks the items rebuild keeps every child row",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "t16 may edit the GET handlers in server/routes_repodocs.py (GET /api/repodocs/{id} and /content), not only routes_read.py",
+      "task_ref": "t16",
+      "reason": "those endpoints live in routes_repodocs.py (t10, merged), not routes_read.py; no other wave-3 task writes that file",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 14
+    },
+    {
+      "id": "d15",
+      "what": "/rendered returns 'shown' only when the doc has a working draft or a version/commit param was given; SVG is sandboxed like HTML; non-.md types come from mimetypes",
+      "task_ref": "t16",
+      "reason": "an existing test pins the exact /rendered dict for a draft-less doc and existing tests must pass unchanged; SVG is active content; mirror._content_type only distinguishes .md",
+      "affects": [
+        "t21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 15
+    },
+    {
+      "id": "d16",
+      "what": "eval runs record corpora=['item'] in the stored run config (eval/runner.py) instead of the server-reported /api/status retrieval block; two existing eval/rag tests updated for the additive corpus/corpora fields",
+      "task_ref": "t15",
+      "reason": "routes_status.py was owned by t14 in the same wave; eval only ever retrieves items so the run config is where comparability is decided (c47)",
+      "affects": [
+        "t23"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 16
+    },
+    {
+      "id": "d17",
+      "what": "mirror status hides outbox row errors (last_error) from callers without private visibility; mirror reconcile only queues rows (the server worker uploads them); timings via CULTURE_LIBRARY_MIRROR_INTERVAL_S/_BACKOFF_S/_BACKOFF_MAX_S env vars",
+      "task_ref": "t14",
+      "reason": "S3 error messages can name private repo paths; the CLI must not import fastapi and cannot run the worker",
+      "affects": [
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 17
+    },
+    {
+      "id": "d18",
+      "what": "Added GET /api/projects (repo, domains, connected, doc_count) and GET /api/domains (domain -> projects) in a new server/routes_projects.py before wave 4; only projects with a doc visible to the caller are listed",
+      "task_ref": "t20",
+      "reason": "t20 must list projects with their domains but no route exposed project rows (t2/t10 built only the core and the doc-list filters); adding it before the wave lets t18 cover it with MCP parity and t20 build on it, instead of a same-wave file the parity table couldn't see",
+      "affects": [
+        "t18",
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 18
+    },
+    {
+      "id": "d19",
+      "what": "MCP adds repodoc_rendered, repodoc_projects and repodoc_domains tools beyond the brief's list, rag_retrieve gains corpora, and a REPODOC_ALSO_USES table records repodoc_read's secondary use of the detail route so REPODOC_ROUTES stays strictly 1:1",
+      "task_ref": "t18",
+      "reason": "every repodoc route (incl. /rendered and d18's /api/projects, /api/domains) needs a tool for two-way parity; d8 makes corpora the filter on both search endpoints",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 19
+    },
+    {
+      "id": "d20",
+      "what": "t20 wired the views with five small edits to app.js (import, VIEWS, show/route/tab branches) and a #view-projects section in index.html; #domains reuses that section; tests/web/test_site.py's pinned module/stylesheet/tab lists were updated (also by t21 for reader-model.js)",
+      "task_ref": "t20",
+      "reason": "the site's view registry lives in app.js and existing tests pin its lists; the brief allowed only a one-line nav link",
+      "affects": [
+        "t21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 20
+    },
+    {
+      "id": "d21",
+      "what": "deploy check-bucket adds status (pass|fail|unknown) and bucket to the doctor shape; an IAM simulation that is not permitted reports unknown and fails healthy; AWS credentials come from grant names CULTURE_LIBRARY_AWS_ACCESS_KEY_ID / _SECRET_ACCESS_KEY (session token opt-in)",
+      "task_ref": "t19",
+      "reason": "a check the credentials cannot perform must never pass silently (c43); the doctor shape has no way to say 'could not check'",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 21
+    },
+    {
+      "id": "d22",
+      "what": "t23 is split: its in-repo part (CLAUDE.md and sibling harness docs, README, CHANGELOG, version bump) lands on the branch before the PR; its live steps (record the 0-doc baseline, create and check the private S3 bucket, back up, deploy, issue the culture-rules repodoc key, wait for culture-rules#124, 5-repo verify-mirror, the one-cycle draft check) are remaining work run with the operator after the PR merges; the delivery summary reports those claims unverified",
+      "task_ref": "t23",
+      "reason": "decider (general/clef, 2026-10-30): split_now_and_after_merge 0.940; P(live steps need the operator)=0.986; P(PR before live signals is ok if marked unverified)=0.883; t23's own instruction says the live steps are operator-gated, and culture-rules#124 is not yet built",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 22
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/e2e/test_repodoc_flow.py::test_repodoc_flow tests/server/test_routes_repodocs_push.py::test_png_round_trips_byte_identical",
+      "behavior_text": "one fixture file of each kind (spec, plan, devague-record, design) pushed once is readable byte-identical through the API, the MCP tool and the S3 key",
+      "contract_text": "culture-library holds every repo's devague work as it evolves \u2014 specs, plans, delivery summaries, designs and the raw .devague state (frames, plans, deliveries, reviews, questions) \u2014 browsable and searchable by repo/project and by domain, with the artifact bytes kept in an S3 bucket",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (2 passed in 0.54s) at 09af0fd, but they do not assert the whole obligation: S3 is checked against the in-memory FakeBackend only, not a real S3 object",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/core/test_repodocs.py",
+      "behavior_text": "existing repodoc tests pass unchanged: same (repo, path, commit) re-push is a no-op, a new commit adds a version, visibility only tightens",
+      "contract_text": "Committed specs, plans and devague records already have a home: core/repodocs.py stores them as (repo, path) docs with one commit-pinned version per push (repodoc_versions), current = newest default-branch version, kind inferred from path prefix (docs/specs \u2192 spec, docs/plans \u2192 plan, docs/deliveries and .devague/ \u2192 devague-record), visibility failing closed",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (60 passed in 0.89s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/core/test_repodocs.py::test_same_commit_from_clone_and_worktree_is_one_version tests/server/test_routes_repodocs_push.py::test_noop_repush_appends_neither tests/server/test_routes_repodocs_push.py::test_two_checkout_paths_yield_one_doc_and_one_version tests/core/test_repodocs.py::test_newer_default_commit_becomes_current",
+      "behavior_text": "pushing the same (repo, path, commit) twice returns 200 and adds no row; a new commit adds exactly one version row",
+      "contract_text": "Reuse, don't replace, the repodocs identity and versioning model \u2014 (repo, path) identity, (repo, path, commit) dedup and the default-branch 'current' rule stay; the original spec's promises (docs/specs/2026-10-23-library-culture-dev.md lines 40-48) remain the contract this extends",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (4 passed in 0.38s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/core/test_repodocs_drafts.py::test_spec_scenario_two_working_one_commit tests/core/test_repodocs_drafts.py::test_working_push_upserts_one_draft_and_no_version tests/core/test_repodocs_drafts.py::test_commit_push_after_draft_leaves_draft_untouched",
+      "behavior_text": "two working pushes leave one draft holding the second content and zero new version rows; a later commit push adds one version and leaves the draft",
+      "contract_text": "Work-in-progress state is captured, not only committed state: a version can be pushed for uncommitted/working-tree content (e.g. a frame mid-/think, a plan mid-run) and for the gitignored .devague/reviews and .devague/questions, without fabricating a commit sha \u2014 today every version requires commit_sha matching a 40/64-hex regex",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (3 passed in 0.16s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/core/test_repodocs_drafts.py::test_working_push_needs_no_commit_metadata tests/server/test_routes_repodocs_push.py::test_working_push_needs_no_commit_metadata tests/server/test_routes_repodocs_read.py::test_rendered_reviews_and_questions_markdown",
+      "behavior_text": "a gitignored review or question file pushed as working is stored and readable, with no commit sha required",
+      "contract_text": "Work-in-progress state is captured, not only committed state: a version can be pushed for uncommitted/working-tree content (e.g. a frame mid-/think, a plan mid-run) and for the gitignored .devague/reviews and .devague/questions, without fabricating a commit sha \u2014 today every version requires commit_sha matching a 40/64-hex regex",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (3 passed in 0.27s) at 09af0fd, but they do not assert the whole obligation: the review/question test pushes at a commit, not as a working draft; working pushes are tested on a spec path",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/core/test_projects.py::test_filters_exact_sets tests/core/test_projects.py::test_unknown_domain_and_project_are_empty_or_self tests/server/test_routes_repodocs_push.py::test_domain_project_and_connected_filters tests/server/test_routes_repodocs_push.py::test_connected_needs_project",
+      "behavior_text": "domain=X returns only docs of projects declaring X; project=P&connected=1 adds only P's declared connections; an unknown domain returns an empty list, not an error",
+      "contract_text": "Repo documents carry project and domain scope: the project is the repo, its domains come from the repo's culture.yaml (pushed by culture-rules), and projects can declare connections to other projects; documents can be listed and filtered by project (including connected projects) and by domain through the API, the MCP tools and the site",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (4 passed in 0.48s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/core/test_projects.py::test_upsert_replaces_both_lists tests/server/test_routes_repodocs_push.py::test_latest_project_push_wins tests/server/test_routes_repodocs_push.py::test_project_upsert_is_returned",
+      "behavior_text": "a push carrying new domains for a repo replaces that project's domains; documents of the repo are re-scoped without re-pushing them",
+      "contract_text": "Repo documents carry project and domain scope: the project is the repo, its domains come from the repo's culture.yaml (pushed by culture-rules), and projects can declare connections to other projects; documents can be listed and filtered by project (including connected projects) and by domain through the API, the MCP tools and the site",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (3 passed in 0.42s) at 09af0fd, but they do not assert the whole obligation: domain replacement is asserted; re-scoping a repo's existing docs without re-pushing them is not asserted directly",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_zero_deps.py tests/storage/test_s3.py::test_core_imports_no_network_modules tests/storage/test_s3.py::test_boto3_imported_lazily",
+      "behavior_text": "base dependencies stay [], the S3 client package is in its own optional extra, importing culture_library.cli with it blocked succeeds, and no module under core/ imports a network library",
+      "contract_text": "core/ stays stdlib-only and network-free and base dependencies stay empty: any S3 client is an optional extra imported lazily outside core/, behind a protocol core/ defines",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (9 passed in 0.20s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o10",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_png_round_trips_byte_identical tests/core/test_repodocs_drafts.py::test_binary_content_round_trips_byte_identical tests/server/test_routes_repodocs_read.py::test_html_design_is_sandboxed_download tests/server/test_routes_repodocs_read.py::test_image_and_pdf_content_types tests/web/test_reader_model.py::test_design_presentation_by_file_type tests/web/test_reader_model.py::test_sandbox_never_allows_same_origin_or_scripts tests/web/test_reader_model.py::test_reader_wires_the_model_and_never_embeds_prototypes_unsandboxed",
+      "behavior_text": "a PNG and an HTML prototype round-trip byte-identical; the site shows the image inline and the HTML as a downloadable/sandboxed view, never executed in the library origin",
+      "contract_text": "Designs are a supported artifact: design docs with their binary assets (screenshots, HTML prototypes, images) \u2014 e.g. this repo's docs/design/library-site.md, prototype.html and 30 reference screenshots \u2014 can be stored and viewed, not only UTF-8 text",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (7 passed in 0.55s) at 09af0fd, but they do not assert the whole obligation: PNG bytes round-trip; no HTML byte round-trip test; inline image and sandboxed HTML are asserted in the reader model and headers, not in a rendered browser page",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o11",
+      "test_ref": "tests/core/test_repodoc_index.py::test_markdown_spec_is_found_by_a_body_phrase_only_when_asked tests/core/test_repodoc_index.py::test_private_repodoc_needs_include_private tests/server/test_corpora_routes.py::test_search_defaults_to_items_and_repodocs tests/e2e/test_repodoc_flow.py::test_repodoc_flow",
+      "behavior_text": "a phrase only in a spec body returns that doc with source=repodoc; a key without private access gets zero repodoc hits",
+      "contract_text": "Specs, plans, deliveries and devague records are searchable (full-text and RAG) with the same visibility rule as items, closing issue #4",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (4 passed in 0.82s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o12",
+      "test_ref": "tests/core/test_devague_text.py tests/core/test_repodoc_index.py::test_devague_json_is_indexed_as_prose",
+      "behavior_text": "a frame's indexed text contains every claim text and honesty condition text; no chunk consists only of JSON punctuation or keys",
+      "contract_text": "Indexing devague JSON goes through a JSON-aware text extractor (claims, honesty conditions, tasks, risks as prose), not the raw pretty-printed JSON",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (21 passed in 0.11s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o13",
+      "test_ref": "tests/mcp/test_repodoc_tools.py::test_every_repodoc_route_has_a_tool_and_back",
+      "behavior_text": "a parity test fails if a repodoc route has no tool or a tool has no route",
+      "contract_text": "Agents get MCP tools for repo documents (list by repo/project/domain, read current or a version, push, search) mirroring the HTTP routes one to one, like EVAL_ROUTES",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (1 passed in 0.10s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o14",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_each_version_and_draft_enqueues_and_appends_one_event tests/server/test_routes_repodocs_push.py::test_noop_repush_appends_neither tests/core/test_feed.py::test_repodoc_events_interleave_in_cursor_order",
+      "behavior_text": "each new version or draft overwrite appends exactly one event carrying repo, path and commit-or-working; a no-op re-push appends none",
+      "contract_text": "A repo document change emits a feed event so subscribers (culture-rules, agents) can react to a spec or plan update",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (3 passed in 0.32s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o15",
+      "test_ref": "tests/render/test_delivery.py tests/server/test_routes_repodocs_read.py::test_rendered_reviews_and_questions_markdown tests/server/test_routes_repodocs_read.py::test_rendered_delivery_json_html",
+      "behavior_text": "every delivery JSON under ~/git top-level repos renders without the raw fallback; review/question markdown renders as Markdown",
+      "contract_text": "Delivery JSON, reviews and questions render as readable pages like frames and plans do",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (8 passed in 0.30s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o16",
+      "test_ref": "tests/server/test_routes_projects.py tests/web/test_projects.py",
+      "behavior_text": "the site lists projects and domains; a project page groups each slug's spec, plan, delivery and frame, and shows connected projects",
+      "contract_text": "The site gets a browse view by repo/project and by domain, with a spec's linked plan, delivery and frame shown together (joined on devague slug)",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (25 passed in 1.42s) at 09af0fd, but they do not assert the whole obligation: the slug grouping and views are asserted in the JS model and the API; the DOM of a rendered project page is not exercised (no browser test)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o17",
+      "test_ref": "tests/core/test_repodocs.py::test_library_source_never_runs_git_or_devague tests/core/test_repodocs.py::test_scanner_catches_violations tests/core/test_repodocs.py::test_scanner_ignores_prose",
+      "behavior_text": "no subprocess, git or devague invocation exists anywhere in culture_library, including the new storage and S3 code",
+      "contract_text": "The library only receives pushed content: nothing in culture_library runs git or devague; the collector that reads repos and .devague dirs lives outside this package (a culture-rules rule, a devague hook, or a separate client)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (11 passed in 0.11s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o18",
+      "test_ref": "tests/core/test_repodocs.py::test_same_commit_from_clone_and_worktree_is_one_version tests/server/test_routes_repodocs_push.py::test_two_checkout_paths_yield_one_doc_and_one_version tests/core/test_repodocs.py::test_remote_forms_collapse_to_one_id",
+      "behavior_text": "the same (remote, path, commit) from two checkout paths yields one doc and one version",
+      "contract_text": "Git worktree copies (.worktrees.*/, *-worktrees/) never multiply documents: dedup stays on (repo, path, commit) and working-state pushes are keyed by repo, not by checkout path",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (14 passed in 0.25s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o19",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_every_push_is_private_whatever_the_body_says tests/core/test_repodocs.py::test_push_without_visibility_is_private tests/core/test_repodocs.py::test_private_history_hidden_from_public_reader tests/core/test_repodocs_drafts.py::test_private_draft_hidden_from_public_reader tests/storage/test_s3.py::test_never_calls_delete",
+      "behavior_text": "every pushed doc lands private whatever the request says; a read key without private access sees none; S3 bytes are only reachable through the library",
+      "contract_text": "Migrated documents are private: every repo document pushed by culture-rules lands private regardless of the repo's GitHub visibility (decision c31), and the S3 bucket is never publicly readable \u2014 bytes reach readers only through the library's visibility check",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (5 passed in 0.34s) at 09af0fd, but they do not assert the whole obligation: private-by-default is asserted; 'S3 bytes only reachable through the library' depends on the bucket's Block Public Access, checked by deploy check-bucket only against a stub",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o20",
+      "test_ref": "tests/scripts/test_verify_mirror.py",
+      "behavior_text": "for each sampled repo file the sha256 equals the library current/draft sha256 and the S3 object's sha256; the report lists 0 missing and 0 mismatched",
+      "contract_text": "For at least 5 sampled repos, 100% of committed docs/{specs,plans,deliveries}/*.md, docs/design/** and .devague/** files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (12 passed in 0.02s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 41
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o22",
+      "test_ref": "tests/web/test_projects.py::test_three_projects_in_two_domains_show_exactly_the_expected_documents tests/server/test_routes_repodocs_push.py::test_domain_project_and_connected_filters tests/core/test_projects.py::test_filters_exact_sets tests/mcp/test_repodoc_tools.py::test_projects_and_domains tests/mcp/test_repodoc_tools.py::test_push_list_read_links",
+      "behavior_text": "each filter returns exactly the expected document set in all three surfaces, and 0 documents from other repos",
+      "contract_text": "Filtering by one domain or one project (with connected projects) returns exactly the documents of the repos declaring it \u2014 0 from others \u2014 in the API, MCP and site",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (5 passed in 0.96s) at 09af0fd, but they do not assert the whole obligation: the site model test and API test use 3 projects in 2 domains; the MCP test does not use that exact fixture",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 42
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o24",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_spec_links_are_stored_and_follow_renames tests/core/test_speclinks.py tests/server/test_routes_repodocs_read.py::test_spec_links_in_detail tests/web/test_reader_model.py::test_spec_links_model",
+      "behavior_text": "a delivered spec shows its PR and merge commit; after a later commit renames an implementing file, the spec's code links show the new path; a Spec: trailer commit is linked even if it touches files outside the merge diff",
+      "contract_text": "A spec is tied to the repo and commits that realize it: first to the merge that delivered it (repo, PR, merge commit), and later to the code that currently represents it \u2014 the link follows the implementing code forward as it changes, rather than freezing at the merge (operator, 2026-10-30)",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (8 passed in 0.48s) at 09af0fd, but they do not assert the whole obligation: PR, merge commit and rename-following are asserted; a Spec: trailer commit outside the merge diff is computed by the pusher (culture-rules), not the library, so it is not testable here",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 43
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o25",
+      "test_ref": "tests/core/test_repodocs_drafts.py::test_tombstone_marks_removed_drops_draft_keeps_versions tests/core/test_repodocs_drafts.py::test_removed_docs_excluded_from_list_unless_asked tests/server/test_routes_repodocs_push.py::test_tombstone_hides_doc_keeps_history_drops_draft tests/storage/test_s3.py::test_never_calls_delete",
+      "behavior_text": "a tombstone hides the doc from current listings at that commit, keeps its history readable, discards its draft, and deletes nothing in S3",
+      "contract_text": "Deletions propagate: when a file disappears from a repo (git rm, a deleted frame, a never-committed draft discarded), culture-rules sends a tombstone; the library marks the doc removed at that commit (history kept, hidden from current lists) and drops a stale working draft \u2014 nothing is deleted from S3",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (4 passed in 0.32s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 44
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o26",
+      "test_ref": "tests/server/test_routes_mirror.py tests/test_cli_mirror.py tests/core/test_mirror.py",
+      "behavior_text": "with the S3 backend failing, pushes return 2xx and the outbox grows; /api/status reports pending count and oldest age; after recovery a reconcile leaves 0 pending",
+      "contract_text": "S3 mirroring runs from a durable outbox table (doc version, key, state, attempts, last error) drained outside the push request; a reconcile verb re-mirrors anything missing, and /api/status reports mirror lag and failures",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (27 passed in 2.27s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 45
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o27",
+      "test_ref": "tests/test_deploy_s3.py",
+      "behavior_text": "the check fails if Block Public Access, default encryption or versioning is off, or the library's credentials can call DeleteObject",
+      "contract_text": "The bucket is private and append-only from the library's side: Block Public Access on, SSE encryption on, S3 Versioning on (so @working overwrites keep prior bytes), and the library's IAM credentials allow only PutObject/GetObject/ListBucket on that one bucket \u2014 no DeleteObject",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (27 passed in 0.10s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 46
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o28",
+      "test_ref": "tests/core/test_design_kind.py tests/core/test_design_binary_kind.py tests/server/test_routes_repodocs_push.py::test_tombstone_needs_write_scope_for_the_kind",
+      "behavior_text": "first open after upgrade accepts kind design with row counts unchanged; the culture-rules key can write spec, plan, devague-record and design and is refused book",
+      "contract_text": "A design kind is added (docs/design/** and binary assets under the other prefixes), widening KINDS \u2014 so the items kind CHECK rebuild runs once on first open \u2014 and the culture-rules push key is a write key scoped to kinds spec, plan, devague-record, design",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (18 passed in 0.37s) at 09af0fd, but they do not assert the whole obligation: the design kind migration keeps row counts; no test asserts that the culture-rules key (kinds spec, plan, devague-record, design) is refused a book write",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 47
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o29",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_png_round_trips_byte_identical tests/server/test_routes_repodocs_push.py::test_over_the_limit_is_413_and_stores_nothing tests/server/test_routes_repodocs_push.py::test_default_limit_is_16_mib",
+      "behavior_text": "a 1.3 MB binary round-trips; a body over the configured limit gets 413 with a structured code and stores nothing",
+      "contract_text": "Repo document pushes accept binary content (multipart or base64) up to a configured size limit like UPLOAD_LIMITS, refusing larger files with a structured 413; the largest file in the corpus today is 1.3 MB",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (3 passed in 0.24s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 48
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o30",
+      "test_ref": "tests/core/test_repodoc_index.py::test_item_enqueued_later_is_indexed_before_queued_repodocs tests/core/test_repodoc_index.py::test_new_item_preempts_the_repodoc_backfill tests/core/test_repodoc_index.py::test_gateway_failure_leaves_repodoc_jobs_queued_and_they_resume",
+      "behavior_text": "with 4,000+ repodocs queued, a newly uploaded library item is indexed before them; a gateway outage pauses and then resumes the backfill without losing queued work",
+      "contract_text": "The initial backfill indexes through the existing index queue at low priority so it never starves item indexing or the gateway: about 4,600 files at roughly 13-22 chunks/s for gemma2-embed is tens of minutes of embedding, not one burst",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (3 passed in 0.34s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 49
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o31",
+      "test_ref": "tests/server/test_corpora_routes.py tests/core/test_repodoc_index.py::test_item_ranking_unchanged_by_indexed_repodocs tests/eval/test_corpora_eval.py tests/eval/test_passage_corpus.py",
+      "behavior_text": "without a source filter, retrieval returns library items only; eval runs store the source filter; eval set 1 retrieves the same ids before and after the corpus is indexed",
+      "contract_text": "Adding repo documents to search does not move the existing eval baseline: /api/rag/retrieve keeps returning library items only unless a caller opts into repodocs (source filter), and eval runs record that filter in their retrieval config",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (12 passed in 3.16s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 50
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o32",
+      "test_ref": "tests/server/test_routes_projects.py::test_caller_without_private_access_sees_no_projects_or_domains tests/mcp/test_repodoc_tools.py::test_push_list_read_links",
+      "behavior_text": "a read key without private access lists 0 migrated docs; a private-access key lists them all; the runbook names each client's key and whether it has private access",
+      "contract_text": "Agents that should read the migrated corpus hold keys with private access (all docs are private, c31); a shared read-only key without private access sees none of it, and this is documented per client (Gwen, xteink, culture-rules, mesh MCP)",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (2 passed in 0.35s) at 09af0fd, but they do not assert the whole obligation: the no-private-access listing is asserted; the runbook's key table is documentation with no test",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 51
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o34",
+      "test_ref": "tests/core/test_backup_repodocs.py",
+      "behavior_text": "backup covers draft blobs and the outbox; restoring onto an empty data dir restores drafts and pending outbox rows with S3 unreachable",
+      "contract_text": "S3 is a mirror, not the backup: culture-library backup keeps working from the local blob store, now also covering working drafts and the outbox (any new table with sha256 is picked up automatically)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests ran green (2 passed in 0.21s) at 09af0fd and assert the obligation's behavior",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 52
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o35",
+      "test_ref": "tests/core/test_mirror.py::test_key_for tests/core/test_mirror.py::test_enqueue_and_drain_success tests/storage/test_s3.py::test_put_sets_sse_and_content_type_and_prefix tests/e2e/test_repodoc_flow.py::test_repodoc_flow",
+      "behavior_text": "a version write produces object key `<repo>/<path>@<commit>` (draft: `@working`) with the pushed bytes and content-type; the local blob is still written first",
+      "contract_text": "Every repo document version is written through to an AWS S3 bucket as a human-readable mirror tree \u2014 committed versions at `<repo>/<path>@<commit>`, the working draft at `<repo>/<path>@working` \u2014 behind a storage interface; the local content-addressed blob store stays the library's primary copy and backup source",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "tests ran green (4 passed in 0.54s) at 09af0fd, but they do not assert the whole obligation: the key format, bytes and content type are asserted; that the local blob is written before the outbox row is implied by the transaction, not asserted as an order",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T19:32:38Z",
+        "commit": "09af0fdf084ea06538377d2f6d211890065851db"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 53
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o23",
+      "test_ref": "gh issue view 124 --repo agentculture/culture-rules",
+      "behavior_text": "the culture-rules issue states endpoints, payload fields, worktree exclusion and the all-private rule",
+      "contract_text": "The culture-rules issue is filed and links this spec; it states the payload fields, worktree exclusion and the all-private rule",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "read the issue body at 2026-10-30T19:34:30Z: OPEN, names docs/specs/2026-10-30-devague-work-in-the-library.md and docs/api/repodocs.md, covers working, tombstone, domains, connected, worktrees, private, spec_links, content_b64 and the four key kinds; it names the spec by path, not a link, because the branch was unpushed \u2014 a PR link comment is still owed",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 54
+    },
+    {
+      "id": "e33",
+      "obligation_ref": "o33",
+      "test_ref": "gh issue view 35 --repo agentculture/culture-library",
+      "behavior_text": "the GitHub-removal follow-up requires a full-corpus verify of every repo and file before removal",
+      "contract_text": "The v2 follow-up's plan contains a full-corpus verify task whose pass is required before any file is removed from GitHub",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "read issue #35 at 2026-10-30T19:34:30Z: OPEN, states the full-corpus gate (every repo, every file, sha256 equal in repo, library and S3, via scripts/verify-mirror.py --all); the v2 plan itself does not exist yet, only the issue that gates it",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 55
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "binary assets (png, jpg, jpeg, gif, webp, svg, html, htm, pdf) under any pushed prefix get kind design, not only docs/design/",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e25"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "repo documents are indexed in their own tables (repodoc_fts, repodoc_embeddings, repodoc_index_queue) instead of the shared search_fts/embeddings/index_queue; item scores are unchanged",
+      "caused_by": [
+        "d12"
+      ],
+      "evidence_refs": [
+        "e27",
+        "e28"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "search and RAG hits carry corpus (item|repodoc) and take a corpora filter; source keeps meaning fulltext|semantic|hybrid",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [
+        "e10",
+        "e28"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}

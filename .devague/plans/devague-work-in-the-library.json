@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-30T18:03:16Z",
-  "updated": "2026-10-30T18:39:59Z",
+  "updated": "2026-10-30T19:24:09Z",
   "targets": [
     {
       "id": "c1",
@@ -1017,6 +1017,30 @@
       "text": "The design kind widens the items kind CHECK, which rebuilds the items table on first open; take a backup before deploying",
       "kind": "unknown_nonblocking",
       "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "HTML design prototypes render in an iframe srcdoc that inherits the site CSP (style-src 'self'), so prototypes with inline styles/scripts may render unstyled; not checked in a browser",
+      "kind": "unknown_nonblocking",
+      "task_id": "t21",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "Design images load via <img src=/content>, which carries the Cloudflare Access cookie but no Bearer key, so they show on library.culture.dev but not in an API-key-only session",
+      "kind": "unknown_nonblocking",
+      "task_id": "t21",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "deploy check-bucket's DeleteObject check uses IAM policy simulation, which does not read bucket policies; a bucket policy that grants delete would not be caught",
+      "kind": "unknown_nonblocking",
+      "task_id": "t19",
       "resolved": false,
       "resolution": ""
     }
