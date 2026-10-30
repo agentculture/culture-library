@@ -102,6 +102,7 @@ def test_retrieve_shape_and_order(tmp_path):
         "score",
         "rerank_score",
         "source",
+        "corpus",
     }
     assert ps[0]["item_id"] in (a.id, n.id)
     assert "whale" in ps[0]["text"].lower()

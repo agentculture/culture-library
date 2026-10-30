@@ -343,6 +343,9 @@ def run_set(
         "candidates": candidates,
         "adapter": {"name": adapter.name, "version": adapter.version},
         "judge_model": judge.model if judge is not None else None,
+        # Eval retrieves from library items only (the RAG default), so repo docs never move a
+        # baseline; recorded so a stored run says which corpora it covered.
+        "corpora": ["item"],
         "server": (client.status() or {}).get("retrieval", {}),
     }
     _note_item_and_warmup(config, eval_set, current_sha, warmup)

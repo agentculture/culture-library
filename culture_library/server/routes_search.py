@@ -1,7 +1,11 @@
 """``GET /api/search``: full-text, semantic or hybrid search (read scope), plus the indexer owner.
 
 ``GET /api/search?q=&mode=fulltext|semantic|hybrid&kind=&limit=`` returns
-``{query, mode, hits: [{item_id, title, kind, visibility, snippet, score, source}]}``.
+``{query, mode, hits: [{item_id, title, kind, visibility, snippet, score, source, corpus}]}``.
+``corpora`` (repeated or comma-separated; ``item``, ``repodoc``; default both) selects the
+corpora; unknown names answer 400. ``source`` stays fulltext|semantic|hybrid; ``corpus`` is
+``item`` or ``repodoc``, and repodoc hits have ``item_id`` null and add ``doc_id``, ``repo``
+and ``path``.
 Snippets mark matches with ``[ ]``. Private hits appear only for ``Principal.private``
 callers and for the key that uploaded them; archived items never appear.
 
@@ -128,6 +132,39 @@ def _unavailable(reason: str) -> HTTPException:
     return HTTPException(status_code=503, detail={"detail": reason, "code": "semantic_unavailable"})
 
 
+def _parse_corpora(raw: list[str] | None) -> tuple[str, ...]:
+    """``corpora`` query values (repeated or comma lists) -> corpus names; default both."""
+    if not raw:
+        return sr.CORPORA
+    names = [n.strip() for part in raw for n in part.split(",") if n.strip()]
+    unknown = [n for n in names if n not in sr.CORPORA]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "detail": f"unknown corpus {unknown[0]!r} (expected item or repodoc)",
+                "code": "invalid",
+            },
+        )
+    return tuple(dict.fromkeys(names)) or sr.CORPORA
+
+
+def _hit(h: sr.Hit) -> dict:
+    out = {
+        "item_id": h.item_id,
+        "title": h.title,
+        "kind": h.kind,
+        "visibility": h.visibility,
+        "snippet": h.snippet,
+        "score": h.score,
+        "source": h.source,
+        "corpus": h.corpus,
+    }
+    if h.corpus == "repodoc":
+        out.update(doc_id=h.doc_id, repo=h.repo, path=h.path)
+    return out
+
+
 @router.get("/api/search", tags=["search"])
 def search(
     request: Request,
@@ -135,14 +172,16 @@ def search(
     mode: Literal["fulltext", "semantic", "hybrid"] | None = None,
     kind: Literal[KINDS] | None = None,  # type: ignore[valid-type]
     limit: int = Query(20, ge=1, le=100),
+    corpora: list[str] | None = Query(None),
     principal: Principal = Depends(current_principal),
 ) -> dict:
     check(principal, "read")
     store = get_store(request)
     embed = _embedder(request)
     mode = mode or ("hybrid" if embed else "fulltext")
+    wanted = _parse_corpora(corpora)
     window = _FILTER_WINDOW if kind else limit
-    vis = {"include_private": principal.private, "owner": principal.key_id}
+    vis = {"include_private": principal.private, "owner": principal.key_id, "corpora": wanted}
     if mode == "fulltext":
         hits = sr.fulltext(store, q, **vis, limit=window)
     elif mode == "semantic":
@@ -161,16 +200,5 @@ def search(
     return {
         "query": q,
         "mode": mode,
-        "hits": [
-            {
-                "item_id": h.item_id,
-                "title": h.title,
-                "kind": h.kind,
-                "visibility": h.visibility,
-                "snippet": h.snippet,
-                "score": h.score,
-                "source": h.source,
-            }
-            for h in hits[:limit]
-        ],
+        "hits": [_hit(h) for h in hits[:limit]],
     }

@@ -471,6 +471,7 @@ def test_config_records_server_retrieval_and_adapter(lib):
         "candidates": None,
         "adapter": {"name": "fake", "version": "0"},
         "judge_model": None,
+        "corpora": ["item"],
         "server": RETRIEVAL,
     }
 
