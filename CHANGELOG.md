@@ -11,9 +11,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `culture-library eval compare` text output prints every axis again: it read `before.axes`/`after.axes`, but the API sends flat axis dicts, so only the heading printed.
 - nDCG is no longer inflated when the server returns fewer passages than k: the ideal ranking now fills min(10, k) ranks, not just the ranks returned.
-- The `id_retrieval` suite scores item-aware (item id and sha) when the set's item is known, so stored found-at/MRR/nDCG aggregates agree with the radar; identical text in another item no longer counts as found.
-- The compare page's changed questions are scored item-aware, like the axes above them.
-- Radar ID axes leave out failed retrievals, which already count on `no_errors`, so a failure is not penalised twice and the radar agrees with the run's partial aggregates.
+- The `id_retrieval` suite scores item-aware (item id and sha) when the set's item is known, so stored found-at/MRR/nDCG aggregates agree with the radar; identical text in another item no longer counts as found. Both use one helper, `core.eval_metrics.item_aware_metrics`. The suite's version goes to 2, so compare warns when a 0.18.0 run meets a 0.18.1 run. The runner's legacy `id_based_context_precision`/`recall` stay sha-only, unchanged, so they still compare with the 0.17 baseline.
+- Radar ID axes leave out failed retrievals for a whole run, because those already count on `no_errors`. Failures are found from `config.errors`, so this also works for runs without the speed suite. A per-item or per-source breakdown slice has no `no_errors` axis, so there a failure still scores as a miss and `/api/eval/weakest` keeps listing it first.
+- The compare page's changed questions are scored item-aware, like the axes above them, and leave out questions that failed on either side.
+- `eval compare` text output lists each changed question's moved axes as `axis before -> after`, not raw dicts.
+- `SuiteContext.item_id` replaces the item-id parsing that the suites each did themselves.
 
 ## [0.18.0] - 2026-10-30
 

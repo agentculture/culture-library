@@ -416,8 +416,12 @@ def _compare_text(data: dict[str, Any]) -> str:
         )
     for c in data.get("changed_questions", []):
         lines.append(
-            f"  q: {c.get('question')}: {_fmt(c.get('before'))} -> {_fmt(c.get('after'))} "
-            f"({_fmt(c.get('delta'))})"
+            f"  q: {c.get('question')} ({_fmt(c.get('delta'))}): "
+            + ", ".join(
+                f"{a} {_fmt(v)} -> {_fmt((c.get('after') or {}).get(a))}"
+                for a, v in (c.get("before") or {}).items()
+                if _fmt(v) != _fmt((c.get("after") or {}).get(a))
+            )
         )
     if data.get("left_out"):
         lines.append(f"left out: {data['left_out']}")

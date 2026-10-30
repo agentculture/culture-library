@@ -74,3 +74,22 @@ def id_metrics(
     ideal = sum(1 / math.log2(i + 1) for i in range(1, n_ideal + 1))
     out["ndcg"] = dcg / ideal if ideal else 0.0
     return out
+
+
+def item_aware_metrics(
+    shas: Sequence[str],
+    item_ids: Sequence[int | None] | None,
+    references: Sequence[str],
+    item_id: int | None,
+    k_run: int,
+) -> dict[str, float | int | bool | None]:
+    """``id_metrics`` for one question whose references all belong to ``item_id``.
+
+    Matches on item id and sha when the item is known and every rank carries an item id
+    (aligned with ``shas``); otherwise falls back to sha-only. The suite and the radar both
+    call this, so stored scores and the radar agree.
+    """
+    ids = list(item_ids) if item_ids is not None else []
+    if item_id is not None and len(ids) == len(shas) and all(i is not None for i in ids):
+        return id_metrics(list(zip(ids, shas)), [(item_id, r) for r in references], k_run)
+    return id_metrics(list(shas), list(references), k_run)

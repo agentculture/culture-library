@@ -287,3 +287,32 @@ def test_compare_changed_questions_are_item_aware():
     [changed] = out["changed_questions"]
     assert changed["before"]["found_at_1"] == 0.0
     assert changed["after"]["found_at_1"] == 1.0
+
+
+def test_failed_questions_known_from_config_errors_without_speed_suite():
+    """config.errors names the failed samples even when the speed suite did not run."""
+    run = _run(error_rate=0.5, config_json={"k": 5, "errors": [{"sample_id": 2, "error": "x"}]})
+    samples = [_s(1, ["a"], ["a"]), _s(2, [], ["a"])]
+    assert er.axes(run, samples)["found_at_1"] == 1.0
+
+
+def test_breakdown_slice_whose_questions_all_failed_stays_weakest():
+    """A slice has no no_errors axis, so its failures still score as misses and sort first."""
+    run = _run(error_rate=0.5, config_json={"k": 5, "errors": [{"sample_id": 2, "error": "x"}]})
+    samples = [_s(1, ["a"], ["a"]), _s(2, [], ["a"])]
+    sources = [{"id": 1, "source_urls": ["http://ok"]}, {"id": 2, "source_urls": ["http://bad"]}]
+    out = er.breakdown(run, samples, sources)
+    assert out["sources"][0]["url"] == "http://bad"
+    assert out["sources"][0]["axes"]["found_at_5"] == 0.0
+
+
+def test_compare_leaves_out_questions_that_failed_on_either_side():
+    before = [_s(1, ["a"], ["a"], q="one")]
+    after = [_s(1, [], ["a"], q="one")]
+    run_b = _run(
+        2,
+        error_rate=1.0,
+        config_json={"k": 5, "judge_model": "cortex", "errors": [{"sample_id": 1}]},
+    )
+    out = er.compare((_run(1), before), (run_b, after))
+    assert out["changed_questions"] == []

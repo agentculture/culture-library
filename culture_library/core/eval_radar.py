@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
-from culture_library.core.eval_metrics import id_metrics
+from culture_library.core.eval_metrics import item_aware_metrics
 
 DEFAULT_BUDGET_S = 1.0  # park v2: latency budget for the speed axis, a parameter everywhere
 AXES = (
@@ -108,17 +108,26 @@ def _question_metrics(sample: Result, k: int, item_id: Any = None) -> dict[str, 
     retrieved item ids (one per rank) a passage only counts when item and sha both
     match; identical text in another book shares a sha and must not be credited.
     """
-    refs = list(sample.get("reference_chunk_shas") or [])
-    retrieved = list(sample.get("retrieved_chunk_shas") or [])
-    item = sample.get("item_id", item_id)
     ids = sample.get("retrieved_item_ids")
-    if item is not None and isinstance(ids, list) and len(ids) == len(retrieved):
-        return id_metrics(list(zip(ids, retrieved)), [(item, r) for r in refs], k)
-    return id_metrics(retrieved, refs, k)
+    return item_aware_metrics(
+        list(sample.get("retrieved_chunk_shas") or []),
+        ids if isinstance(ids, list) else None,
+        list(sample.get("reference_chunk_shas") or []),
+        sample.get("item_id", item_id),
+        k,
+    )
 
 
-def _failed(sample: Result) -> bool:
+def _failed_ids(run: Run) -> set[Any]:
+    """Sample ids whose retrieval failed, from the run's ``config.errors``."""
+    errors = (run.get("config_json") or {}).get("errors") or []
+    return {e.get("sample_id") for e in errors if isinstance(e, Mapping)}
+
+
+def _failed(sample: Result, failed_ids: set[Any]) -> bool:
     """True when the runner recorded this question's retrieval as an error."""
+    if sample.get("sample_id") in failed_ids:
+        return True
     return ((sample.get("scores_json") or {}).get("error_rate") or 0.0) >= 1.0
 
 
@@ -135,9 +144,15 @@ def _axes(
     run: Run, samples: Sequence[Result], budget_s: float, whole_run: bool
 ) -> dict[str, float | None]:
     k = _k(run, samples)
-    # A failed retrieval already counts against no_errors; scoring its empty ranks as misses
-    # too would penalise it twice and disagree with the run's own (partial) aggregates.
-    rows = [_question_metrics(s, k, run.get("item_id")) for s in samples if not _failed(s)]
+    # For a whole run a failed retrieval already counts against no_errors, so its empty ranks
+    # are left out (as the run's partial aggregates do). A breakdown slice has no no_errors
+    # axis, so there a failure still scores as a miss and the weakest list keeps showing it.
+    failed = _failed_ids(run) if whole_run else None
+    rows = [
+        _question_metrics(s, k, run.get("item_id"))
+        for s in samples
+        if failed is None or not _failed(s, failed)
+    ]
     out: dict[str, float | None] = {a: _mean(r[a] for r in rows) for a in _ID_AXES}
     for axis, key in _JUDGE.items():
         out[axis] = _judge(run, samples, key, whole_run)
@@ -282,10 +297,13 @@ def compare(before: Scored, after: Scored, *, budget_s: float = DEFAULT_BUDGET_S
     }
     k_a, k_b = _k(run_a, rows_a), _k(run_b, rows_b)
     prior = {_qkey(s): s for s in rows_a}
+    failed_a, failed_b = _failed_ids(run_a), _failed_ids(run_b)
     changed = []
     for s in rows_b:
         old = prior.get(_qkey(s))
-        if old is None:
+        # A question that failed on either side is not on the ID axes (it moves no_errors),
+        # so it is not listed as an ID change either.
+        if old is None or _failed(old, failed_a) or _failed(s, failed_b):
             continue
         sb = _summary(old, k_a, run_a.get("item_id"))
         sa = _summary(s, k_b, run_b.get("item_id"))

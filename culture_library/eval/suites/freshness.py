@@ -101,10 +101,7 @@ class FreshnessSuite:
     def score(self, ctx: SuiteContext) -> SuiteScore:
         current: Sequence[str] | None = None
         gone = False
-        try:
-            item_id: int | None = int(ctx.item["id"])
-        except (KeyError, TypeError, ValueError):
-            item_id = None  # no item id: every question is unknown, never stale
+        item_id = ctx.item_id  # None: every question is unknown, never stale
         if ctx.current_chunks is not None and item_id is not None:
             try:
                 current = ctx.current_chunks(item_id)

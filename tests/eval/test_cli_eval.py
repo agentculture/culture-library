@@ -335,6 +335,27 @@ def test_compare_text_prints_every_axis_value():
     assert "0.45" in text
 
 
+def test_compare_text_changed_question_lists_only_moved_axes():
+    text = eval_cmd._compare_text(
+        {
+            "checks": {"comparable": True, "reasons": [], "warnings": []},
+            "before": {"mrr": 0.5},
+            "after": {"mrr": 1.0},
+            "deltas": {"mrr": 0.5},
+            "changed_questions": [
+                {
+                    "question": "who?",
+                    "before": {"found_at_1": 0.0, "mrr": 0.5, "found_at_5": 1.0},
+                    "after": {"found_at_1": 1.0, "mrr": 1.0, "found_at_5": 1.0},
+                    "delta": 0.5,
+                }
+            ],
+        }
+    )
+    assert "q: who? (0.500): found_at_1 0.000 -> 1.000, mrr 0.500 -> 1.000" in text
+    assert "{" not in text
+
+
 def test_reanchor(cli, capsys):
     item = _item(cli)
     _, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "2", "--json")

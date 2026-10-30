@@ -57,6 +57,14 @@ class SuiteContext:
     # None when the chunk listing could not be reached.
     current_chunks: Callable[[int], Sequence[str] | None] | None = None
 
+    @property
+    def item_id(self) -> int | None:
+        """The set's item id, or None when ``item`` has no usable id."""
+        try:
+            return int(self.item["id"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
 
 @dataclass
 class SuiteScore:

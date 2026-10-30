@@ -196,3 +196,9 @@ def test_id_retrieval_is_item_aware_when_the_item_is_known():
     assert hit.aggregate["found_at_1"] == 1.0
     legacy = suite.score(SuiteContext([s], [other], k=5))
     assert legacy.aggregate["found_at_1"] == 1.0  # no item: sha-only, as before
+
+
+def test_suite_context_item_id():
+    assert SuiteContext([], [], k=5, item={"id": "68"}).item_id == 68
+    assert SuiteContext([], [], k=5).item_id is None
+    assert SuiteContext([], [], k=5, item={"id": None}).item_id is None
