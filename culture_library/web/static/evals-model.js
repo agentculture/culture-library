@@ -7,7 +7,7 @@
  * {title, kind} (kind is the API kind, e.g. 'book' or 'newspaper').
  */
 
-const rerankOf = run => Boolean(run && run.config && run.config.rerank);
+const rerankOf = run => Boolean(run?.config?.rerank);
 
 /**
  * The runs the overview compares: for every set and each rerank setting (off, on), the latest
@@ -52,8 +52,7 @@ const mean = vals => {
 };
 const axis = (axes, run, name) => {
   if (!run) return null;
-  const a = axes.get(run.id);
-  return a && a[name] !== undefined ? a[name] : null;
+  return axes.get(run.id)?.[name] ?? null;
 };
 
 /**
@@ -95,8 +94,8 @@ export function headline(rows, kind) {
   return {
     sets: mine.length,
     questions: mine.reduce((a, r) => a + (r.questions || 0), 0),
-    on: mean(mine.map(r => r.on && r.on.v)),
-    off: mean(mine.map(r => r.off && r.off.v)),
+    on: mean(mine.map(r => r.on?.v)),
+    off: mean(mine.map(r => r.off?.v)),
     onSets: mine.filter(r => r.on && r.on.v !== null).length,
     offSets: mine.filter(r => r.off && r.off.v !== null).length,
   };
@@ -136,7 +135,7 @@ export const missed = (questions, found5) => (found5 === null || found5 === unde
 export function rankDepth(runs) {
   const depths = new Set();
   for (const r of runs || []) {
-    const k = r && r.config ? r.config.k : null;
+    const k = r?.config?.k ?? null;
     if (typeof k === 'number' && k > 0) depths.add(Math.min(10, k));
   }
   if (!depths.size) return null;
@@ -149,7 +148,7 @@ export const newestFirst = runs => [...(runs || [])].sort((a, b) => b.id - a.id)
 
 /** A run's search setting as a key: "hybrid|5|on" (mode, k, rerank). */
 export const configKey = run => {
-  const c = (run && run.config) || {};
+  const c = run?.config || {};
   return `${c.mode || '?'}|${c.k ?? '?'}|${rerankOf(run) ? 'on' : 'off'}`;
 };
 /** "hybrid, k 5, rerank on" for a configKey. */
@@ -158,18 +157,32 @@ export const configText = key => {
   return `${mode === '?' ? 'mode ?' : mode}, k ${k}, rerank ${rr}`;
 };
 
+/** One run of neighbouring set ids: "4", "4, 5" or "4–6" (``span`` is how many steps it covers). */
+function runText(first, last, span) {
+  if (span > 1) return `${first}–${last}`;
+  if (span === 1) return `${first}, ${last}`;
+  return `${first}`;
+}
+
 /** "set 4", "sets 1–3, 5": set ids, ranges of neighbours joined. */
 export function setsText(ids) {
   const v = [...new Set(ids)].sort((a, b) => a - b);
   const parts = [];
-  for (let i = 0; i < v.length; i++) {
+  let i = 0;
+  while (i < v.length) {
     let j = i;
     while (j + 1 < v.length && v[j + 1] === v[j] + 1) j++;
-    parts.push(j > i + 1 ? `${v[i]}–${v[j]}` : j === i + 1 ? `${v[i]}, ${v[j]}` : `${v[i]}`);
-    i = j;
+    parts.push(runText(v[i], v[j], j - i));
+    i = j + 1;
   }
   return `${v.length === 1 ? 'set' : 'sets'} ${parts.join(', ')}`;
 }
+
+/** Plain code-unit text order (what sort() does by default). */
+const byText = (a, b) => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
 
 const KIND_GROUPS = [['book', 'books'], ['newspaper', 'newspapers']];
 const completeSets = runs => new Set((runs || []).filter(r => r.status === 'complete').map(r => r.set_id));
@@ -184,15 +197,16 @@ export function setGroups(sets, runs, info) {
   const byKind = new Map();
   for (const s of sets || []) {
     if (!live.has(s.id)) continue;
-    const kind = (info(s.item_id) || {}).kind || 'document';
+    const kind = info(s.item_id)?.kind || 'document';
     if (!byKind.has(kind)) byKind.set(kind, []);
     byKind.get(kind).push(s.id);
   }
   const named = new Map(KIND_GROUPS);
-  const kinds = [...KIND_GROUPS.map(k => k[0]).filter(k => byKind.has(k)), ...[...byKind.keys()].filter(k => !named.has(k)).sort()];
+  const kinds = [...KIND_GROUPS.map(k => k[0]).filter(k => byKind.has(k)), ...[...byKind.keys()].filter(k => !named.has(k)).sort(byText)];
   const out = kinds.map(k => {
     const ids = byKind.get(k).sort((a, b) => a - b);
-    const name = `All ${named.get(k) || `${k} items`}`;
+    const kindName = named.get(k) || `${k} items`;
+    const name = `All ${kindName}`;
     return { id: k, name, label: `${name}, ${setsText(ids)}`, sets: ids };
   });
   if (out.length > 1) {
@@ -228,8 +242,8 @@ export function pickRuns(runs, setIds, key) {
   return { runs: out, missing };
 }
 
-const suiteNames = run => [...new Set((run.suites || []).map(s => s.name))].sort().join(',');
-const judgeOf = run => (run.config && run.config.judge_model) || null;
+const suiteNames = run => [...new Set((run.suites || []).map(s => s.name))].sort(byText).join(',');
+const judgeOf = run => run.config?.judge_model || null;
 
 /**
  * The earlier run to lay under each of ``picked``: on the same set, complete, older (lower id),
@@ -291,9 +305,16 @@ const sameSets = (a, b) => {
 };
 const runsName = runs => (runs.length === 1 ? `run ${runs[0].id}` : `runs ${runs.map(r => r.id).join(', ')}`);
 
+/** The sentence on how many settings differ between the sides. */
+function settingsText(diffs, afterKey) {
+  if (!diffs.length) return `No setting differs: ${configText(afterKey)}`;
+  if (diffs.length === 1) return `Only one setting differs: ${diffs[0].order}`;
+  return `${diffs.length} settings differ: ${diffs.map(d => d.order).join('; ')}`;
+}
+
 /**
  * What differs between the two sides' search settings, and the page's headline question.
- * {question, settings, diffs: [{what, then}]}. One setting differing: "Did turning rerank on
+ * {question, settings, diffs: [{what, order}]}. One setting differing: "Did turning rerank on
  * help?"; none: "What changed since run 3?"; a side with mixed settings, or different sets:
  * "How do these runs compare?".
  */
@@ -304,12 +325,10 @@ export function compareQuestion(before, after) {
   }
   const [mb, kkb, rb] = [...kb][0].split('|'), [ma, kka, ra] = [...ka][0].split('|');
   const diffs = [];
-  if (mb !== ma) diffs.push({ what: `switching from ${mb} to ${ma} search`, then: `${mb}, then ${ma} search` });
-  if (kkb !== kka) diffs.push({ what: `changing k from ${kkb} to ${kka}`, then: `k ${kkb}, then ${kka}` });
-  if (rb !== ra) diffs.push({ what: `turning rerank ${ra}`, then: `rerank ${rb}, then ${ra}` });
-  const settings = !diffs.length
-    ? `No setting differs: ${configText([...ka][0])}`
-    : diffs.length === 1 ? `Only one setting differs: ${diffs[0].then}` : `${diffs.length} settings differ: ${diffs.map(d => d.then).join('; ')}`;
+  if (mb !== ma) diffs.push({ what: `switching from ${mb} to ${ma} search`, order: `${mb}, then ${ma} search` });
+  if (kkb !== kka) diffs.push({ what: `changing k from ${kkb} to ${kka}`, order: `k ${kkb}, then ${kka}` });
+  if (rb !== ra) diffs.push({ what: `turning rerank ${ra}`, order: `rerank ${rb}, then ${ra}` });
+  const settings = settingsText(diffs, [...ka][0]);
   let question;
   if (!sameSets(before, after)) question = 'How do these runs compare?';
   else if (!diffs.length) question = `What changed since ${runsName(before)}?`;
@@ -331,38 +350,61 @@ export function checkRows(before, after, checks, leftOut) {
   const c = checks || { reasons: [], warnings: [] };
   const rows = (c.reasons || []).map(t => ({ state: 'fail', text: cap(t), detail: null }));
   const all = [...before, ...after];
-  const many = new Set(all.map(r => r.set_id)).size > 1;
-  if (all.length && sameSets(before, after)) {
-    const ver = new Set(all.map(r => r.set_version));
-    const known = ver.size === 1 && [...ver][0] !== undefined && [...ver][0] !== null;
-    const ids = [...new Set(before.map(r => r.set_id))];
-    const qs = before.reduce((t, r) => t + (r.total || 0), 0);
-    rows.push({
-      state: 'ok',
-      text: `Same question ${many ? 'sets' : 'set'}${known ? (many ? ' and versions' : ' and version') : ''}`,
-      detail: `${cap(setsText(ids))}${known && !many ? `, version ${[...ver][0]}` : ''}, ${qs} questions`,
-    });
-  }
-  const suites = new Set(all.map(suiteNames)), judges = new Set(all.map(judgeOf));
-  if (all.length && suites.size === 1 && judges.size === 1) {
-    const names = [...suites][0].split(',').filter(Boolean).map(suiteTitle);
-    const judge = [...judges][0];
-    rows.push({ state: 'ok', text: 'Same suites and judge', detail: `${cap(names.length > 2 ? names.join(', ') : andList(names)) || 'No suites'}; ${judge ? `judge ${judge}` : 'no judge'}` });
-  }
-  if (all.length && all.every(r => r.status === 'complete')) {
-    const errs = errorsOf(all);
-    rows.push({
-      state: 'ok',
-      text: `${all.length === 2 ? 'Both' : 'All'} complete${errs === null ? '' : `, ${errs} ${errs === 1 ? 'error' : 'errors'}`}`,
-      detail: compareQuestion(before, after).settings,
-    });
+  for (const row of [sameSetsRow(before, after, all), sameSuitesRow(all), completeRow(before, after, all)]) {
+    if (row) rows.push(row);
   }
   for (const t of c.warnings || []) rows.push({ state: 'warn', text: cap(t), detail: null });
   for (const side of ['before', 'after']) {
-    const n = (leftOut && leftOut[side]) || 0;
-    if (n) rows.push({ state: 'warn', text: `${n} ${n === 1 ? 'run' : 'runs'} left out on the ${side} side`, detail: `This key cannot see ${n === 1 ? 'its item' : 'their items'}.` });
+    const n = leftOut?.[side] || 0;
+    if (n) {
+      const unit = n === 1 ? 'run' : 'runs';
+      const seen = n === 1 ? 'its item' : 'their items';
+      rows.push({ state: 'warn', text: `${n} ${unit} left out on the ${side} side`, detail: `This key cannot see ${seen}.` });
+    }
   }
   return rows;
+}
+
+/** The "same question set" check row, or null when the sides cover different sets. */
+function sameSetsRow(before, after, all) {
+  if (!all.length || !sameSets(before, after)) return null;
+  const many = new Set(all.map(r => r.set_id)).size > 1;
+  const ver = new Set(all.map(r => r.set_version));
+  const known = ver.size === 1 && [...ver][0] !== undefined && [...ver][0] !== null;
+  const ids = [...new Set(before.map(r => r.set_id))];
+  const qs = before.reduce((t, r) => t + (r.total || 0), 0);
+  let versions = '';
+  if (known) versions = many ? ' and versions' : ' and version';
+  const versionDetail = known && !many ? `, version ${[...ver][0]}` : '';
+  return {
+    state: 'ok',
+    text: `Same question ${many ? 'sets' : 'set'}${versions}`,
+    detail: `${cap(setsText(ids))}${versionDetail}, ${qs} questions`,
+  };
+}
+
+/** The "same suites and judge" check row, or null. */
+function sameSuitesRow(all) {
+  const suites = new Set(all.map(suiteNames)), judges = new Set(all.map(judgeOf));
+  if (!all.length || suites.size !== 1 || judges.size !== 1) return null;
+  const names = [...suites][0].split(',').filter(Boolean).map(suiteTitle);
+  const judge = [...judges][0];
+  const suiteText = cap(names.length > 2 ? names.join(', ') : andList(names)) || 'No suites';
+  const judgeText = judge ? `judge ${judge}` : 'no judge';
+  return { state: 'ok', text: 'Same suites and judge', detail: `${suiteText}; ${judgeText}` };
+}
+
+/** The "every run complete" check row, or null. */
+function completeRow(before, after, all) {
+  if (!all.length || !all.every(r => r.status === 'complete')) return null;
+  const errs = errorsOf(all);
+  let errText = '';
+  if (errs !== null) errText = `, ${errs} ${errs === 1 ? 'error' : 'errors'}`;
+  return {
+    state: 'ok',
+    text: `${all.length === 2 ? 'Both' : 'All'} complete${errText}`,
+    detail: compareQuestion(before, after).settings,
+  };
 }
 
 const EPS = 0.005;
@@ -400,7 +442,7 @@ const num = v => (typeof v === 'number' && !Number.isNaN(v) ? v : null);
 export function questionGroups(changed) {
   const worse = [], better = [];
   for (const q of changed || []) {
-    const down = ID_AXES.some(a => num(q.before && q.before[a]) !== null && num(q.after && q.after[a]) !== null && q.after[a] < q.before[a]);
+    const down = ID_AXES.some(a => num(q.before?.[a]) !== null && num(q.after?.[a]) !== null && q.after[a] < q.before[a]);
     (down ? worse : better).push(q);
   }
   return { worse, better };
@@ -410,7 +452,7 @@ export function questionGroups(changed) {
 export function foundShift(changed) {
   let gained = 0, lost = 0;
   for (const q of changed || []) {
-    const b = num(q.before && q.before.found_at_5), a = num(q.after && q.after.found_at_5);
+    const b = num(q.before?.found_at_5), a = num(q.after?.found_at_5);
     if (b === null || a === null) continue;
     if (b < 0.5 && a >= 0.5) gained += 1;
     if (b >= 0.5 && a < 0.5) lost += 1;
@@ -438,8 +480,9 @@ export function compareOptions(runs, groups, info, sets) {
   }
   for (const r of newestFirst((runs || []).filter(x => x.status === 'complete'))) {
     const s = (sets || []).find(x => x.id === r.set_id);
-    const title = s ? (info(s.item_id) || {}).title : null;
-    out.push({ value: `r:${r.id}`, label: `Run ${r.id}, ${title || `set ${r.set_id}`}, ${configText(configKey(r))}`, ids: [r.id], group: 'One run' });
+    const title = s ? info(s.item_id)?.title : null;
+    const name = title || `set ${r.set_id}`;
+    out.push({ value: `r:${r.id}`, label: `Run ${r.id}, ${name}, ${configText(configKey(r))}`, ids: [r.id], group: 'One run' });
   }
   return out;
 }
@@ -449,6 +492,28 @@ export function optionFor(ids, options) {
   const want = [...ids].sort((a, b) => a - b).join(',');
   const o = (options || []).find(x => [...x.ids].sort((a, b) => a - b).join(',') === want);
   return o ? o.value : null;
+}
+
+/** For one set, the latest rerank-on run with a comparable rerank-off run: [off, on], or null. */
+function rerankPair(done, sid, base) {
+  const mine = done.filter(r => r.set_id === sid && configKey(r).startsWith(base + '|')).sort((a, b) => b.id - a.id);
+  const rerankOn = mine.filter(r => configKey(r).endsWith('|on')), offs = mine.filter(r => configKey(r).endsWith('|off'));
+  for (const on of rerankOn) {
+    const off = offs.find(r => suiteNames(r) === suiteNames(on) && judgeOf(r) === judgeOf(on));
+    if (off) return [off, on];
+  }
+  return null;
+}
+
+/** The group's rerank pairs under the mode and k most of its sets can pair on, or null. */
+function bestRerankPairs(done, g) {
+  const bases = [...new Set(configsFor(done, g.sets).map(c => c.key.split('|').slice(0, 2).join('|')))];
+  let best = null;
+  for (const base of bases) {
+    const pairs = g.sets.map(sid => rerankPair(done, sid, base)).filter(Boolean);
+    if (pairs.length && (!best || pairs.length > best.length)) best = pairs;
+  }
+  return best;
 }
 
 /**
@@ -462,20 +527,7 @@ export function optionFor(ids, options) {
 export function defaultCompare(runs, groups) {
   const done = (runs || []).filter(r => r.status === 'complete');
   for (const g of groups || []) {
-    const bases = [...new Set(configsFor(done, g.sets).map(c => c.key.split('|').slice(0, 2).join('|')))];
-    let best = null;
-    for (const base of bases) {
-      const pairs = [];
-      for (const sid of g.sets) {
-        const mine = done.filter(r => r.set_id === sid && configKey(r).startsWith(base + '|')).sort((a, b) => b.id - a.id);
-        const rerankOn = mine.filter(r => configKey(r).endsWith('|on')), offs = mine.filter(r => configKey(r).endsWith('|off'));
-        for (const on of rerankOn) {
-          const off = offs.find(r => suiteNames(r) === suiteNames(on) && judgeOf(r) === judgeOf(on));
-          if (off) { pairs.push([off, on]); break; }
-        }
-      }
-      if (pairs.length && (!best || pairs.length > best.length)) best = pairs;
-    }
+    const best = bestRerankPairs(done, g);
     if (best) return { before: best.map(p => p[0].id), after: best.map(p => p[1].id), why: 'rerank', group: g.id };
   }
   for (const r of newestFirst(done)) {

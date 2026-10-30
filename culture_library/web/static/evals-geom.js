@@ -48,7 +48,7 @@ const human = key => { const s = words(key).join(' '); return s.charAt(0).toUppe
  * ``metrics`` maps a suite metric name to its definition (GET /api/eval/suites).
  */
 export function axisList(keys, metrics, depth = null) {
-  const def = name => (metrics && Object.prototype.hasOwnProperty.call(metrics, name) ? metrics[name] : null);
+  const def = name => (metrics && Object.hasOwn(metrics, name) ? metrics[name] : null);
   return (keys || []).map(key => {
     const a = AXES[key];
     if (!a) {
@@ -124,8 +124,12 @@ export function outline(values, g) {
   let cur = [];
   for (let s = 1; s <= n; s++) {
     const i = (gaps[0] + s) % n;
-    if (has(i)) cur.push(i);
-    else { if (cur.length) runs.push(cur); cur = []; }
+    if (has(i)) {
+      cur.push(i);
+    } else {
+      if (cur.length) runs.push(cur);
+      cur = [];
+    }
   }
   if (cur.length) runs.push(cur);
   const long = runs.filter(r => r.length >= 2);
@@ -142,10 +146,13 @@ export function outline(values, g) {
 export function labelAt(i, n, g) {
   const a = angle(i, n), s = Math.sin(a), c = Math.cos(a), k = g.r / 170;
   const d = g.r + 20 * k;
+  let anchor = 'end';
+  if (Math.abs(s) < 0.05) anchor = 'middle';
+  else if (s > 0) anchor = 'start';
   return {
     x: r1(g.cx + d * s),
     y: r1(g.cy - d * c + (6 - 10 * c) * k),
-    anchor: Math.abs(s) < 0.05 ? 'middle' : s > 0 ? 'start' : 'end',
+    anchor,
   };
 }
 

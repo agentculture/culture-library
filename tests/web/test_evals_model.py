@@ -135,7 +135,8 @@ def test_rerank_rows_sorted_by_gain_with_titles() -> None:
         (2, "Paper B", "newspaper"),
         (1, "Book A", "book"),
     ]
-    assert rows[0]["off"] == {"run": 8, "v": 0.75} and rows[0]["on"] == {"run": 5, "v": 1.0}
+    assert rows[0]["off"] == {"run": 8, "v": 0.75}
+    assert rows[0]["on"] == {"run": 5, "v": 1.0}
     assert rows[1]["questions"] == 20
     assert abs(rows[1]["gain"] - 0.2) < 1e-9
 
@@ -166,9 +167,11 @@ def test_domain_and_headline_and_judge_and_counts() -> None:
         "offSets": 1,
     }
     none = _model("m.headline([], 'book')")
-    assert none["on"] is None and none["sets"] == 0
+    assert none["on"] is None
+    assert none["sets"] == 0
     judge = _model("m.judgeTile(picked, axes)")
-    assert judge["runs"] == 2 and abs(judge["value"] - 0.7) < 1e-9
+    assert judge["runs"] == 2
+    assert abs(judge["value"] - 0.7) < 1e-9
     assert judge["judges"] == ["cortex"]
     counts = _model("m.runCounts(runs)")
     assert counts == {
@@ -300,18 +303,22 @@ def test_configs_for_sets_most_sets_first_rerank_on_first() -> None:
 
 def test_pick_runs_latest_complete_per_set_with_one_config() -> None:
     got = _radar("m.pickRuns(runs, [1, 2, 3], 'hybrid|5|on')")
-    assert [r["id"] for r in got["runs"]] == [9, 10, 11] and got["missing"] == []
+    assert [r["id"] for r in got["runs"]] == [9, 10, 11]
+    assert got["missing"] == []
     off = _radar("m.pickRuns(runs, [1, 2], 'hybrid|5|off')")
-    assert [r["id"] for r in off["runs"]] == [1] and off["missing"] == [2]
+    assert [r["id"] for r in off["runs"]] == [1]
+    assert off["missing"] == [2]
 
 
 def test_earlier_comparable_runs_need_every_set() -> None:
     # Set 1's latest rerank-on run (9) is judged; the earlier rerank-on run (2) is not, so
     # there is no earlier comparable run for set 1 and the group has no overlay.
     got = _radar("m.earlierRuns(runs, byId([9, 10, 11]))")
-    assert [r["id"] for r in got["runs"]] == [3, 4] and got["missing"] == [1]
+    assert [r["id"] for r in got["runs"]] == [3, 4]
+    assert got["missing"] == [1]
     ok = _radar("m.earlierRuns(runs, byId([10, 11]))")
-    assert [r["id"] for r in ok["runs"]] == [3, 4] and ok["missing"] == []
+    assert [r["id"] for r in ok["runs"]] == [3, 4]
+    assert ok["missing"] == []
     assert _radar("m.earlierRuns(runs, byId([1])).missing") == [1]
 
 
