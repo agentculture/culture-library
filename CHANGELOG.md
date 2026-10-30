@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-10-30
+
+### Added
+
+- Eval suites (#28): a suite registry (`culture_library/eval/suites/`, auto-discovered; a new suite is one file) with five suites: ID retrieval (found at 1/3/5/10, precision at k, MRR and nDCG with an explicit depth), judged retrieval (RAGAS), result quality (duplicate rate, distinct sources), speed and errors (p50/p95 latency, share within a 1.0 s budget, timeout and error rate) and freshness (fresh, stale, unknown or not applicable per question).
+- Runs keep their scores when some retrievals fail: `partial` runs store partial aggregates and `error_rate`; every result snapshots its question, reference shas, set version, retrieved item ids and latency. Additive eval columns are added in place on first open; `eval_store.backfill_snapshots` fills older runs.
+- Shape radar and compare: `core/eval_radar.py` (0-1 higher-better axes that follow the registry, group mean over documents, comparability checks first, per-item and per-source breakdown) and `GET /api/eval/radar`, `/compare`, `/weakest`, `/suites`.
+- Server-side judge-free runs: `POST /api/eval/runs/start` (background, 409 while a set is running, interrupted runs closed on restart); `POST /api/eval/sets/{id}/reanchor` re-anchors questions after a re-index.
+- 12 `eval_*` MCP tools with an API parity test; `docs/api/eval.md` with contract tests (for culture-rules, agentculture/culture-rules#121); CLI `eval suites|radar|compare|reanchor` and `run --suites/--warmup`.
+- The site's Evals tab: an overview, a shape view (`#evals/radar`) and a compare view (`#evals/compare`), with an (i) note naming the depth MRR and nDCG were measured at; 12 new operator-approved reference screenshots (42 in all).
+- Delivery summary `docs/deliveries/2026-10-29-eval-suites-and-radar.md` and validation records (evidence e1-e27, deltas b1-b4, deviations d1-d4).
+
+### Changed
+
+- A changed item no longer refuses an eval run; the freshness suite reports its stale questions. Archived and not-indexed items still refuse.
+- New runs credit a retrieved passage only when item id and chunk sha both match (identical text in another item shares a sha).
+
 ## [0.17.2] - 2026-10-28
 
 ### Added
