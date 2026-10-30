@@ -28,7 +28,9 @@ it all, published at library.culture.dev.
 **The library is built and live** at library.culture.dev (behind Cloudflare
 Access). `culture_library/` holds the core, the HTTP API, the MCP server and
 the site. It also serves RAG passages (`/api/rag/retrieve`) and stores
-retrieval evals (`/api/eval`). Deploy files are in `deploy/`. If asked what
+retrieval evals (`/api/eval`): metric suites (id_retrieval, judged,
+result_quality, speed, freshness), a 0-1 shape radar, and twelve `eval_*` MCP
+tools; the contract is `docs/api/eval.md`. Deploy files are in `deploy/`. If asked what
 the library can do, describe what is on disk. It is a sibling to
 [`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
 supplier), [`steward`](https://github.com/agentculture/steward) (alignment),

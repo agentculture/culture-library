@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS items (
 """
 
 SCHEMA: list[str] = [_BASE_SCHEMA]
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = []
 
 # The items columns in declaration order; the kind-CHECK rebuild copies exactly these.
 _ITEM_COLUMNS = (
@@ -167,6 +168,12 @@ def register_schema(ddl: str) -> None:
         SCHEMA.append(ddl)
 
 
+def register_migration(fn: Callable[[sqlite3.Connection], None]) -> None:
+    """Register a step run after the DDL on every open (additive, idempotent, no rebuilds)."""
+    if fn not in MIGRATIONS:
+        MIGRATIONS.append(fn)
+
+
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -199,6 +206,8 @@ class Store:
                 for stmt in ddl.split(";"):
                     if stmt.strip():
                         conn.execute(stmt)
+            for migrate in MIGRATIONS:
+                migrate(conn)
 
     def _migrate_items_kinds(self) -> None:
         """Rebuild an existing items table whose kind CHECK differs from the current KINDS.

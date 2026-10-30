@@ -14,6 +14,32 @@ from .models import Chunk, EvalRun, EvalSet, Passage
 Transport = Callable[[str, str, dict, "bytes | None"], "tuple[int, bytes]"]
 
 
+# Optional run fields added by the suite runner; omitted from the posted body when unset, so a
+# plain EvalRun posts exactly the body it always did.
+_OPTIONAL_RUN_KEYS = ("partial_aggregates", "error_rate", "suites")
+_OPTIONAL_SAMPLE_KEYS = (
+    "question",
+    "reference_chunk_shas",
+    "set_version",
+    "retrieved_item_ids",
+    "latency_ms",
+    "freshness",
+)
+
+
+def run_body(run: EvalRun) -> dict:
+    """The ``POST /api/eval/runs`` body for ``run``, without unset optional fields."""
+    body = run.to_dict()
+    for key in _OPTIONAL_RUN_KEYS:
+        if body.get(key) is None:
+            body.pop(key, None)
+    for sample in body.get("samples", []):
+        for key in _OPTIONAL_SAMPLE_KEYS:
+            if sample.get(key) is None:
+                sample.pop(key, None)
+    return body
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **kw):  # noqa: D401 - never follow (would leak the key)
         return None
@@ -104,7 +130,7 @@ class LibraryClient:
         return EvalSet.from_dict(self.request("GET", f"/api/eval/sets/{int(set_id)}"))
 
     def create_run(self, run: EvalRun) -> dict:
-        return self.request("POST", "/api/eval/runs", run.to_dict())
+        return self.request("POST", "/api/eval/runs", run_body(run))
 
     def list_runs(self) -> Any:
         return self.request("GET", "/api/eval/runs")

@@ -219,3 +219,127 @@ def test_without_eval_extra_exits_2(verb):
     assert proc.returncode == 2, proc.stderr
     assert "culture-library[eval]" in proc.stderr
     assert json.loads(proc.stderr)["code"] == 2
+
+
+# ---- t12: suites, radar, compare, reanchor, run --suites --------------------------------
+
+
+def _two_runs(cli, capsys):
+    item = _item(cli)
+    _, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "3", "--json")
+    set_id = json.loads(out)["set_id"]
+    ids = []
+    for _i in range(2):
+        _, out, _ = _run(capsys, "eval", "run", str(set_id), "--no-llm", "--json")
+        ids.append(json.loads(out)["run_id"])
+    return item, set_id, ids
+
+
+def test_suites_text_and_json(cli, capsys):
+    rc, out, err = _run(capsys, "eval", "suites")
+    assert rc == 0
+    assert err == ""
+    assert "found_at_5" in out or "needs judge" in out
+    rc, out, _ = _run(capsys, "eval", "suites", "--json")
+    names = [s["name"] for s in json.loads(out)["suites"]]
+    assert names
+
+
+def test_run_with_suites_and_warmup(cli, capsys):
+    item = _item(cli)
+    _, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "2", "--json")
+    set_id = json.loads(out)["set_id"]
+    _, out, _ = _run(capsys, "eval", "suites", "--json")
+    first = json.loads(out)["suites"][0]["name"]
+    rc, out, _ = _run(
+        capsys, "eval", "run", str(set_id), "--no-llm", "--suites", first, "--warmup", "--json"
+    )
+    assert rc == 0
+    assert json.loads(out)["status"] == "complete"
+
+
+def test_run_unknown_suite_is_user_error_with_hint(cli, capsys):
+    rc, out, err = _run(capsys, "eval", "run", "1", "--suites", "nope", "--json")
+    assert rc == 1
+    assert "nope" in err
+    assert "eval suites" in err
+
+
+def test_radar_run_group_pair(cli, capsys):
+    _, _, (a, b) = _two_runs(cli, capsys)
+    rc, out, _ = _run(capsys, "eval", "radar", "--run", str(a), "--json")
+    assert rc == 0
+    assert "found_at_5" in json.loads(out)["axes"]
+    rc, out, _ = _run(capsys, "eval", "radar", "--runs", f"{a},{b}")
+    assert rc == 0
+    assert "found_at_5" in out
+    rc, out, _ = _run(capsys, "eval", "radar", "--run", str(a), "--vs", str(b), "--json")
+    assert json.loads(out)["kind"] == "pair"
+    rc, out, _ = _run(capsys, "eval", "radar", "--run", str(a), "--vs", str(b))
+    assert rc == 0
+    assert out.startswith("pair")
+
+
+def test_radar_bad_args(cli, capsys):
+    rc, _, err = _run(capsys, "eval", "radar")
+    assert rc == 1
+    assert "hint:" in err
+    rc, _, err = _run(capsys, "eval", "radar", "--run", "x")
+    assert rc == 1
+    assert "hint:" in err
+
+
+def test_radar_unknown_run_is_env_error(cli, capsys):
+    rc, _, err = _run(capsys, "eval", "radar", "--run", "999")
+    assert rc == 2
+    assert "hint:" in err
+
+
+def test_compare_text_prints_checks_first(cli, capsys):
+    _, _, (a, b) = _two_runs(cli, capsys)
+    rc, out, _ = _run(capsys, "eval", "compare", "--before", str(a), "--after", str(b))
+    assert rc == 0
+    assert out.startswith("comparable:")
+    assert "axis: before -> after" in out
+    rc, out, _ = _run(capsys, "eval", "compare", "--before", str(a), "--after", str(b), "--json")
+    data = json.loads(out)
+    assert data["checks"]["comparable"] is True
+    assert "deltas" in data
+
+
+def test_compare_not_comparable_prints_checks_only(capsys):
+    text = eval_cmd._compare_text(
+        {
+            "checks": {"comparable": False, "reasons": ["different sets"], "warnings": []},
+            "left_out": {"before": [], "after": [1]},
+            "budget_s": 1.0,
+        }
+    )
+    assert text.startswith("comparable: NO")
+    assert "different sets" in text
+
+
+def test_reanchor(cli, capsys):
+    item = _item(cli)
+    _, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "2", "--json")
+    set_id = json.loads(out)["set_id"]
+    rc, out, _ = _run(capsys, "eval", "reanchor", str(set_id), "--json")
+    assert rc == 0
+    data = json.loads(out)
+    assert data["set_id"] == set_id
+    assert "re_anchored" in data
+    rc, out, _ = _run(capsys, "eval", "reanchor", str(set_id))
+    assert rc == 0
+    assert f"set {set_id}" in out
+    rc, _, err = _run(capsys, "eval", "reanchor", "999")
+    assert rc == 2
+    assert "hint:" in err
+
+
+def test_overview_and_explain_mention_new_verbs(capsys):
+    _, out, _ = _run(capsys, "eval", "overview")
+    for verb in ("suites", "radar", "compare", "reanchor"):
+        assert verb in out
+        rc, text, _ = _run(capsys, "explain", "eval", verb)
+        assert rc == 0
+        assert verb in text

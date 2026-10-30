@@ -1,4 +1,4 @@
-"""The 30 reference views and how to reach each one.
+"""The 42 reference views (30 from the prototype, 12 Evals views) and how to reach each one.
 
 Names are the reference files' (``<form>-<scheme>-<view>``). ``DEVIATED`` are the views that
 cannot match the prototype's screenshots, and are compared with
@@ -29,6 +29,9 @@ CANDIDATES = ROOT / "docs" / "design" / "reference-candidates"
 DESKTOP = ("home", "reader-paper", "reader-spec", "reader-frame", "reader-list-hidden")
 DESKTOP += ("send-menu", "sent", "state", "upload")
 PHONE = ("home", "reader", "list-drawer", "send-menu", "sent", "upload")
+EVALS = ("evals", "evals-radar", "evals-compare")  # eval suites run (#28): full-page shots
+DESKTOP += EVALS
+PHONE += EVALS
 DEVIATED = {
     f"{form}-{scheme}-{view}"
     for scheme in ("light", "dark")
@@ -56,7 +59,7 @@ VIEWS: list[tuple[str, str, str, str]] = [  # (name, form, scheme, view)
     for scheme in ("light", "dark")
     for view in views
 ]
-assert len(VIEWS) == 30
+assert len(VIEWS) == 42
 
 
 def reference_path(name: str) -> Path:
@@ -116,6 +119,16 @@ def go(page, site, view: str) -> None:
     elif view == "state":
         _open(page, site, "#state", docs=False)
         page.wait_for_selector("#charts .cc")
+    elif view in EVALS:
+        hash_ = {
+            "evals": "#evals",
+            "evals-radar": "#evals/radar",
+            "evals-compare": "#evals/compare",
+        }
+        _open(page, site, hash_[view], docs=False)
+        body = {"evals": "#evals-overview .ev-card", "evals-radar": "#ev-radar-body svg"}
+        page.wait_for_selector(body.get(view, "#ev-compare-body svg"))
+        page.wait_for_load_state("networkidle")
     elif view == "upload":
         _open(page, site)
         page.click("#upload-open")

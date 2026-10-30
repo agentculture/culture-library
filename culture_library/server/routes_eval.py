@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictFloat, StrictInt, StrictStr, field_validator
 
 from culture_library.core import NotFoundError, Store, ValidationError, eval_store, library
 from culture_library.server.auth import Principal, check, current_principal, get_store
@@ -48,6 +48,18 @@ class SampleResultIn(BaseModel):
     sample_id: int
     retrieved_chunk_shas: list[str] = Field(default_factory=list)
     scores: dict[str, float | None] = Field(default_factory=dict)
+    # Optional per-question snapshot (a run's own record of what it asked and got).
+    question: StrictStr | None = None
+    reference_chunk_shas: list[StrictStr] | None = None
+    set_version: StrictInt | None = None
+    retrieved_item_ids: list[StrictInt] | None = None
+    latency_ms: StrictInt | StrictFloat | None = None
+    freshness: Any = None
+
+
+class SuiteRefIn(BaseModel):
+    name: StrictStr
+    version: StrictInt | StrictStr | None = None
 
 
 class RunIn(BaseModel):
@@ -57,7 +69,17 @@ class RunIn(BaseModel):
     total: int = 0
     completed: int = 0
     aggregates: dict[str, float | None] | None = None
+    partial_aggregates: dict[str, float | None] | None = None
+    error_rate: StrictInt | StrictFloat | None = Field(default=None, ge=0, le=1)
+    suites: list[StrictStr | SuiteRefIn] | None = None
     samples: list[SampleResultIn] = Field(default_factory=list)
+
+    @field_validator("suites")
+    @classmethod
+    def _normalise_suites(cls, v):
+        if v is None:
+            return None
+        return [{"name": e, "version": None} if isinstance(e, str) else e.model_dump() for e in v]
 
 
 def _flat(status: int, detail: str, code: str) -> JSONResponse:
@@ -94,16 +116,26 @@ def _sample_json(row: dict) -> dict:
     return {k: v for k, v in row.items() if k != "set_id"}
 
 
+def _suite_entries(raw: Any) -> list[dict]:
+    out = []
+    for e in raw or []:
+        out.append(dict(e) if isinstance(e, dict) else {"name": str(e), "version": None})
+    return out
+
+
 def _run_json(row: dict) -> dict:
     return {
         "id": row["id"],
         "set_id": row["set_id"],
         "set_version": row["set_version"],
-        "status": row["status"],
+        "status": "running" if row.get("running") else row["status"],
         "config": row["config_json"],
         "total": row["total"],
         "completed": row["completed"],
         "aggregates": row["aggregates_json"] or {},
+        "partial_aggregates": row.get("partial_aggregates_json") or {},
+        "error_rate": row.get("error_rate"),
+        "suites": _suite_entries(row.get("suites_json")),
         "created_at": row["created_at"],
     }
 
@@ -113,6 +145,12 @@ def _run_sample_json(row: dict) -> dict:
         "sample_id": row["sample_id"],
         "retrieved_chunk_shas": row["retrieved_chunk_shas"],
         "scores": row["scores_json"],
+        "question": row.get("question"),
+        "reference_chunk_shas": row.get("reference_chunk_shas"),
+        "set_version": row.get("set_version"),
+        "retrieved_item_ids": row.get("retrieved_item_ids"),
+        "latency_ms": row.get("latency_ms"),
+        "freshness": row.get("freshness"),
     }
 
 
@@ -224,6 +262,9 @@ def post_run(
                 total=body.total,
                 completed=body.completed,
                 aggregates=aggregates,
+                partial_aggregates=body.partial_aggregates,
+                error_rate=body.error_rate,
+                suites=body.suites,
             )
             for s in body.samples:
                 eval_store.add_run_sample(
@@ -232,6 +273,12 @@ def post_run(
                     s.sample_id,
                     retrieved_chunk_shas=s.retrieved_chunk_shas,
                     scores=s.scores,
+                    question=s.question,
+                    reference_chunk_shas=s.reference_chunk_shas,
+                    set_version=s.set_version,
+                    retrieved_item_ids=s.retrieved_item_ids,
+                    latency_ms=s.latency_ms,
+                    freshness=s.freshness,
                 )
             row = eval_store.get_run(conn, run_id)
             results = eval_store.list_run_samples(conn, run_id)
@@ -269,3 +316,12 @@ def get_run(
     with store.reader() as conn:
         results = eval_store.list_run_samples(conn, run_id)
     return {**_run_json(row), "samples": [_run_sample_json(r) for r in results]}
+
+
+@router.get("/api/eval/suites")
+def get_suites(principal: Principal = Depends(current_principal)):
+    """The suite registry with metric definitions (no ragas import)."""
+    from culture_library.eval import suites
+
+    check(principal, "read")
+    return {"suites": suites.catalog()}

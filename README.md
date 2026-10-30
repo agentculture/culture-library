@@ -65,6 +65,31 @@ non-public items is never sent to a non-local judge. Install
 `culture-library[eval]` to use it; the base package and the server image do
 not include it.
 
+### Eval suites and shape
+
+A run is scored by suites, each a file under `culture_library/eval/suites/`:
+`id_retrieval` (found_at_1/3/5/10, precision_at_k, mrr, ndcg), `judged` (RAGAS
+context precision and recall, needs a judge), `result_quality` (duplicate rate,
+distinct sources), `speed` (p50/p95 latency, share within a 1.0 s budget,
+timeout and error rates) and `freshness` (fresh, stale or unknown per
+question). The shape radar folds a run, or a group of runs, onto 0-1 axes where
+higher is better, so two configurations compare at a glance.
+
+```bash
+uv run culture-library eval suites
+uv run culture-library eval run SET_ID --suites id_retrieval,speed --warmup
+uv run culture-library eval radar --help
+uv run culture-library eval compare --help
+uv run culture-library eval reanchor --help
+```
+
+The HTTP side is `GET /api/eval/suites`, `POST /api/eval/runs/start`,
+`GET /api/eval/radar`, `/compare` and `/weakest`, and
+`POST /api/eval/sets/{id}/reanchor`; agents use the twelve `eval_*` MCP tools.
+The contract is `docs/api/eval.md`. The site has an Evals tab (`#evals`); its
+radar and compare pages are planned. The question review queue (#30) is not
+built yet.
+
 Embeddings are on in the live library (see "Enable embeddings" in
 `docs/operations/deploy.md`). The eval baseline is recorded there: five books
 (20 questions each) and three newspaper issues (4 questions each, built from

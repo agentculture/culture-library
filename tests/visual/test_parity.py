@@ -38,7 +38,7 @@ def test_view_matches_reference(browser, site, out_dir, name, form, scheme, view
     page = harness.new_page(browser, site, form, scheme)
     try:
         views.go(page, site, view)
-        shot = page.screenshot()
+        shot = page.screenshot(full_page=view in views.EVALS)
     finally:
         page.context.close()
     ref = views.reference_path(name)

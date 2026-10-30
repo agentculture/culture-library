@@ -1,0 +1,1522 @@
+{
+  "slug": "eval-suites-and-radar",
+  "title": "eval suites and radar",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-29T04:43:47Z",
+  "updated": "2026-10-29T05:19:02Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-library's evals become suites with an honest reflection: each run scores a registry of suites (ID retrieval at more depths, judged retrieval, result quality, speed and errors, and more), stores error rates and partial scores instead of dropping them, and is shown on an Evals tab with a radar per run (one document or a set) and a radar per comparison, so an operator can see at a glance whether a change improved the RAG",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Every part of the announcement is backed by a requirement below: suites (c3), kept partial scores (c2), the Evals tab (c7), the shape radar per run, per set and per comparison (c6)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "A run that hits retrieval errors keeps its scores over the questions that did score and stores error_rate in a new nullable column added with ALTER TABLE ADD COLUMN (decision q5), while aggregates_json keeps meaning a complete run; today runner.py _fail() truncates samples and sets aggregates to None",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "A run with some failed retrievals stores status partial, the scores of every question that did score, aggregates over those, and error_rate = failed / total; a run that scored nothing is failed with no aggregates; existing live rows survive the schema change unchanged",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "A run that hits retrieval errors keeps its scores over the questions that did score and stores error_rate; today runner.py _fail() truncates samples and sets aggregates to None, and eval_store's CHECK (aggregates_json IS NULL OR status = 'complete') forbids partial aggregates, so the schema constraint must change",
+          "kind": "requirement",
+          "reason": "q5 decided: additive column, no rebuild"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Suites are plugins in a registry: a run lists the suites it scored with each suite's name and version, and every metric belongs to one suite; today runner.py hard-codes id_based_context_precision/recall at k and adapter.py's EvalAdapter only has generate_samples and score",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Each stored run names every suite it scored with its version, every metric key belongs to exactly one suite, and the RAGAS adapter is one registered suite, not a special case in the runner",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Comparability is checked before any delta is shown: different suite or judge makes runs not comparable; a different suite version, set, set version or a partial run gives a warning; today core/eval_store.comparable() only checks set_id and set_version",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The compare endpoint returns its checks before any delta: not comparable when the suite set or judge differs (no deltas returned), a warning when suite version, set, set version or completeness differs; the old comparable() callers keep working",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Each scored result stores what result-quality and speed suites need: the item id of every retrieved passage and the client-side latency of the retrieve call; today eval_run_samples keeps only retrieved_chunk_shas and scores_json",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Each new run's per-question record stores the item id of every retrieved passage and the client-measured retrieve latency in ms, and a run posted without them (an old client) is still accepted",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "The radar is a shape chart: each benchmark result is one axis from 0 at the centre to 1 at the edge, so a run that scores 1 everywhere fills a regular outline and every dent is a result that falls short; it is drawn per run (one document) and per set of documents (mean shape, plus small multiples per document), and a comparison lays the after shape over the before shape",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The radar endpoint returns one value in [0, 1] per axis, higher better, for a run, for a group of runs (mean over documents) and for two runs or groups (before and after), and the site draws the after shape over the before shape on the same axes as the design canvas's Radar and Compare boards",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Behavioral obligation for /validate-delivery: render the built Radar and Compare views from live runs 11 and 19 and the books and newspaper sets, and check them against the Radar and Compare boards of the design canvas https://claude.ai/artifact/JSkBwBrSGJUYCbq7R1C7FP (one axis per result, perfect outline, after shape over before shape)",
+      "revisions": [
+        {
+          "text": "A radar is computed per run (one document) and per group of runs (a set of documents), and per comparison of two runs or two groups: each ringed metric is placed in Strong, Good, Watch or Weak by thresholds stored with the radar, and a comparison shows each blip's move inward (better) or outward (worse)",
+          "kind": "requirement",
+          "reason": "User 2026-10-29: prefers the shape over the ring-and-blip radar, which needs every number read; the ring radar is dropped"
+        }
+      ]
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The site gains an Evals tab next to Library and Site state with an overview, a radar page, a compare page and a review queue, following the design canvas https://claude.ai/artifact/JSkBwBrSGJUYCbq7R1C7FP built from live sets 1-8 and runs 1-22",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The Evals tab's overview, radar, compare views read only the eval API, work in light and dark at desktop and phone widths, and match the design canvas boards except where library-site.md records a deviation",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Behavioral obligation for /validate-delivery: the Evals views match the canvas boards (overview, radar, compare, phone) except recorded deviations",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "assumption",
+      "text": "The radar and comparison need no re-run of the baseline: per-question scores for runs 1-22 are already stored in eval_run_samples on live (checked 2026-10-29: run 11 vs run 19 per-question diffs read back from the DB)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Eval questions can be reviewed: approve, edit or reject, each appended to the question's history with the reviewer's role; approval is derived from the history (one approval is enough); the set's version moves only when scored content changes; live set 5 shows why: 12 of its 20 questions point at 'the passage', a figure, a footnote or a citation",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "core/ stays stdlib-only and network-free (CLAUDE.md, tests/test_zero_deps.py): suite scoring that calls the retriever or a judge lives in culture_library/eval/, and core/eval_store only stores and reads; radar ring placement is pure arithmetic and may live in core",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "core/ gains no third-party or network import: tests/test_zero_deps.py still passes, and every retriever or judge call stays in culture_library/eval/",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "The judge privacy rule stays: eval/config.py refuses to send a non-public item's text to a non-local judge, and new judged suites go through the same check",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "A judged suite on a non-public item with a non-local judge is skipped and recorded as skipped, exactly as runner._llm_scores does today, and no new code path sends item text to a judge without guard_text_egress",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "New site views follow docs/design/library-site.md and need operator-approved reference screenshots before the visual tests may gate them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "No visual test gates an Evals view until its reference PNG exists in docs/design/reference/ and the operator approved it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "MCP tools cover every eval capability: read (suites, sets, runs, radar, compare, weakest sources) and act (create a set from posted questions, start a judge-free run, post a client-scored run, re-anchor); each tool is a thin wrapper over its API route using the caller's own key, so write tools need the same write scope as the route; mcp/tools.py registers tools in _SPECS and _handlers, and tests/mcp/test_tools.py:17 pins the exact tool-name set",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Each eval MCP tool is a GET wrapper with no write path, returns only what the matching route returns to the same key, and tests/mcp pins the new tool names",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h40",
+          "text": "Each eval MCP tool calls exactly one eval API route with the caller's own key and returns what that route returns; no tool has a write path its route lacks, and tests/mcp pins the new tool names",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "New read-only MCP tools expose eval data (runs, one run, compare, radar, weakest sources), each a thin Client wrapper over a GET /api/eval route so scope and visibility come from routes_eval; mcp/tools.py registers tools in _SPECS and _handlers, and tests/mcp/test_tools.py:17 pins the exact tool-name set",
+          "kind": "requirement",
+          "reason": "User decision q7: full MCP and API surface, not read-only"
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "New eval routes: a compare endpoint and a radar endpoint under /api/eval, with read scope and the same visibility gate (_vis, _visible_set) as the existing set and run routes; routes_eval.py has no compare endpoint today",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The compare and radar routes need read scope, and a run whose set's item the key cannot see is 404 to that key, the same as GET /api/eval/runs/{id}",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "boundary",
+      "text": "POST /api/rag/retrieve keeps its request and response shape; latency is measured client-side in the eval runner, and duplicate rate is derived from the chunk_sha and item_id that every passage already carries (routes_rag.py:98, :162)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "POST /api/rag/retrieve's request and response are byte-for-byte the same shape after this work; the existing RAG route tests pass unchanged",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The Evals pages are hash routes that cannot collide with item keys (#evals, #evals/radar, #evals/compare, #evals/review); app.js show() hard-codes ['home','read','state'] (:302) and the tab handler sends any non-state tab home (:349), so routing is refactored, and a new evals.js joins tests/web/test_site.py MODULES",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "Opening #evals, #evals/radar, #evals/compare and an item key each lands on the right view, the Evals tab no longer falls through to home, and evals.js is in MODULES",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "boundary",
+      "text": "The Evals markup obeys the site's CSP and static rules: no inline script or style= attributes, no chart library or CDN, logical CSS properties only, textContent for untrusted text, dir=auto on question text (routes_web.py:11-41, tests/web/test_static_rules.py); the design canvas's inline styles are mockup-only",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "tests/web/test_static_rules.py passes with the Evals markup and scripts: no inline style or script, logical properties only, no innerHTML for question text",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Charts on the Evals pages follow the Site state pattern (state.js:130-141): every chart has a data-tip hover tooltip, a Table toggle and a source line; radar rings and run status always carry a text label, never colour alone",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "Every Evals chart has a hover tip, a Table toggle and a source line, and every status or ring is readable with colour removed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Every new eval CLI verb (compare, radar, review) gets an explain catalog entry next to _EVAL (explain/catalog.py:131-158) and an overview mention, and new eval tables join the migration child-table check in docs/operations/deploy.md:375",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "devague-style catalog check: culture-library explain eval compare (and radar) prints an entry, and deploy.md's migration check lists the new tables",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Staleness is three-valued per question: whether a question's reference chunk_sha still exists in the item's current chunks is true, false or unknown (library unreachable), counted apart in the run; today runner.precheck is a set-level hard gate on item_sha256 that records no run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "For each question, freshness is fresh when its reference chunk_sha is in the item's current chunks, stale when not (or the item is gone), unknown when the chunks cannot be fetched, and not applicable with no reference; the run stores the three counts and a changed item no longer blocks the run",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "non_goal",
+      "text": "No job queue with leases or worker tiers: server-side runs are in-process background tasks in the library container, closed out on restart (see the restart requirement), and judged runs stay synchronous CLI or client runs posted to the API; issue #28's worker-provenance lesson does not apply without separate workers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h41",
+          "text": "No worker process, lease table or queue exists; server-side runs live in the library process and are closed out on restart",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "No job queue with leases or worker tiers: eval runs stay synchronous CLI runs posted to the API, as today (cli/_commands/eval.py:217-228); issue #28's worker-provenance lesson does not apply without workers",
+          "kind": "non_goal",
+          "reason": "q7 adds in-process server runs; still no leased queue"
+        }
+      ]
+    },
+    {
+      "id": "c22",
+      "kind": "non_goal",
+      "text": "No Markdown pages or llms.txt for eval data in this round; agents read eval data through the read-only MCP tools (no text/markdown endpoint exists today beyond file serving, routes_library.py:70)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "non_goal",
+      "text": "No answer-generation suites (faithfulness, answer relevancy): retrieval is evaluated directly against references, as the previous spec's non-goals and issue #28's 'compare retrieval, not agent answers' both say",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "non_goal",
+      "text": "The question review queue (approve/edit/reject, history, roles, derived approvals) is not in this round; it is filed as its own issue (user decision q2, 2026-10-29), so c9 moves out",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "non_goal",
+      "text": "The no-answer, privacy-filter and whole-answer suites are not in this round (user decision q1, 2026-10-29); the registry must let them be added as modules later",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "The Evals tab ships with a single batch of new reference screenshots: all 30 existing views re-rendered for the third tab plus the new Evals views, approved by the operator and recorded as a deviation in docs/design/library-site.md (user decision q3)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The batch of new references (30 existing views re-rendered plus the Evals views) is committed only after the operator approves it, and library-site.md records the deviation",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "assumption",
+      "text": "#27 (strip Gutenberg boilerplate, re-index) lands after this work, so its before and after are measured with the new suites and a compare radar; its re-index stales every set, which the freshness suite must report rather than crash on (user decision q4)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "The radar page shows the shape for a set of documents with small multiples per document over the set mean, and a Table view of every value; found at 1 and 3 and MRR are computed from the ranked retrieved_chunk_shas already stored, so runs 1-22 get them without a re-run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The set view's small multiples share one scale with the big shape and the Table view lists every plotted value",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Alongside each radar, a star chart shows every metric of a run on one 0 to 1 axis each, outer edge best (found at 1, 3 and 5, MRR, judge precision, judge recall, no errors, plus axes for each new suite): one star per run, small multiples with the set mean for a set of documents, and before and after shapes overlaid for a comparison; found at 1 and 3 and MRR are computed from the ranked retrieved_chunk_shas already stored, so runs 1-22 get them without a re-run",
+          "kind": "requirement",
+          "reason": "Folded the star into c6, which is now the radar itself"
+        }
+      ]
+    },
+    {
+      "id": "c29",
+      "kind": "audience",
+      "text": "The operator deciding whether a change to the library's RAG helped (a re-index such as #27, an embedder swap such as #7, a speed change such as #25, a rerank setting), and the agents (Gwen, culture-rules, Claude) who read the same eval data through MCP to find weak sources and fix them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "The operator and at least one agent path (MCP) are served: both can answer did this change help without SQL",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "before_state",
+      "text": "Today an eval run prints two ID numbers and, with a judge, two RAGAS numbers; a partial run throws away the scores it collected (runner._fail); comparing two runs means reading two JSON blobs side by side; per-question ranks and found-at-1 exist only as raw rows in eval_run_samples, so building the design canvas on 2026-10-29 needed direct SQL against the live DB",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The before state is what is on disk at 1918be9: runner._fail drops aggregates, no compare route exists, and no view reads eval data",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "why_it_matters",
+      "text": "#27 (strip boilerplate and re-index), #7 (embedder choice) and #25 (faster retrieval) are each a change whose worth is a before-and-after measurement; without suites, a stored comparison and a picture of it, those decisions stay guesses, and a regression on one result hides inside a good average",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "#27, #7 and #25 are open issues whose acceptance depends on a measured before and after",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "after_state",
+      "text": "Every new eval run scores five suites and keeps its scores even when some retrievals fail; the Evals tab shows each run's shape (one axis per result, a perfect run fills the outline), lays the after shape over the before shape for any two comparable runs after showing the comparability checks, and lists the questions that changed; agents get the same data from read-only MCP tools",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "Each part of the after state maps to a requirement: suites c3, partial scores c2, tab c7, shape c6, compare c4, MCP c13",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Check against the design canvas https://claude.ai/artifact/JSkBwBrSGJUYCbq7R1C7FP: the Radar and Compare boards are the target",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "success_signal",
+      "text": "On live, comparing run 19 (rerank off) with run 11 (rerank on) without re-running either shows found at 1 going 0.20 -> 0.45 and MRR 0.44 -> 0.62, the values the design canvas was built from",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "The numbers come from live eval_run_samples for runs 19 and 11 as they stand on 2026-10-29 and are recomputed by the shipped code, not typed into a fixture",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "GET the compare endpoint for runs 19 and 11 on live and check those four numbers",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "success_signal",
+      "text": "A run in which 1 of 20 retrievals errors is stored with its 19 scored questions, aggregates over those 19, and error_rate 0.05, and the compare view marks it partial instead of hiding it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "The test injects exactly one failing retrieval among 20 and asserts the stored status, completed count, aggregates and error_rate",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "tests/eval/test_runner.py with a FakeLibrary that raises on one question",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "success_signal",
+      "text": "Adding a suite is one new module plus one registry entry: a test-only fake suite registered in the test is scored by the runner, listed by the suites endpoint and drawn as new axes by the radar endpoint, with no edits to runner.py, routes_eval.py or the site",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "The fake suite is registered only inside the test and the assertion checks the runner output, GET /api/eval/suites and the radar axes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "success_signal",
+      "text": "After #27's re-index, re-running sets 1-5 reports their questions as stale (count > 0) through the freshness suite instead of refusing the run, and the radar lays the post-#27 shape over the pre-#27 shape",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "Checked on live after #27 ships: the freshness counts and the overlay are produced by the shipped code; until then this signal is pending, not met",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "A suite catalog endpoint (GET /api/eval/suites) lists every registered suite with its name, version, whether it needs a judge, and each metric's name, definition, range and direction (higher is better or lower is better); the site's hover tips and the MCP suite tool read definitions from it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "Every metric drawn or shown on the site has a definition served by the catalog, and the hover tips render it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "requirement",
+      "text": "Every aggregate is also stored per source: per item for a set of documents, and per source URL for newspaper questions built from the sources sidecar, so one weak source cannot hide inside a good average (#28 section 3)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "A group radar or compare for several documents can be broken down per item, and a newspaper set's per-source-URL breakdown matches its sidecar entries",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "decision",
+      "text": "ID retrieval metrics (found at 1, 3, 5 and 10, precision at k, MRR@10, nDCG@10) are computed in core from the stored ranked retrieved_chunk_shas and the reference chunk shas, by pure arithmetic, so the runner and a backfill of runs 1-22 use the same function; runs stored at k=5 report the depth-10 metrics as not measured, never as zero",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "Radar axes are 0 to 1 with higher always better: lower-is-better metrics are turned around (1 - error rate, 1 - duplicate rate), latency becomes the share of retrievals within a time budget, and precision at k (ceiling 1/k for single-reference questions) stays in the table but off the radar; a metric a run did not score is drawn as a gap labelled not measured, never as 0",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "No radar axis can be read as worse-when-larger: every axis is higher-better, and an unscored metric shows as a labelled gap",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "Every scored result snapshots what it was scored against: the question text, the reference chunk shas and the set version, copied into the run record at scoring time; runs 1-22 are backfilled from eval_samples now, while every live set is still at version 1. Without it, replace_samples deletes eval_samples rows and old runs lose the references the radar and compare recompute from (eval_run_samples.sample_id has no foreign key, core/eval_store.py:64-68)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "After replace_samples bumps a set's version, every earlier run of that set still returns its question texts and reference shas, and its radar and compare values are unchanged; runs 1-22 carry snapshots after the backfill",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "New runs credit a retrieved passage as a match only when both its item id and its chunk_sha match a reference, because identical chunk text shares one chunk_sha across items (search.chunk_sha is sha256 of the text; probe on live 2026-10-29: 29 chunk texts are shared by 168 chunks across items); runs 1-22, which stored only shas, are marked as sha-only matches",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "A test where another item holds the same chunk text as the reference does not count that passage as found for a new run; runs 1-22 are labelled sha-only matches in the API and on the compare view",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "requirement",
+      "text": "Group radars and comparisons that span several sets apply item visibility per set: a run whose item the key cannot see is left out of the group and out of every mean, and the response says how many runs were left out, without naming them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "A key that cannot see one of the sets in a group gets a radar and mean computed only from the visible runs, plus a count of runs left out, and no value derived from the hidden run",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "decision",
+      "text": "A group's shape is the mean over documents, each document weighted equally, and the view shows each document's question count, so a 4-question newspaper and a 20-question book are visible as different evidence",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c45",
+      "kind": "decision",
+      "text": "Partial-run aggregates and error_rate go in a new nullable column added with ALTER TABLE ADD COLUMN; aggregates_json keeps meaning a complete run; eval_runs is not rebuilt (user decision q5, 2026-10-29)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c46",
+      "kind": "decision",
+      "text": "After a re-index (#27), references are re-anchored by their stored reference text onto the new chunks so the same questions stay comparable; questions whose text is gone are stale, and only sets with stale questions are regenerated (user decision q6, 2026-10-29)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c47",
+      "kind": "requirement",
+      "text": "A re-anchor step (CLI eval reanchor SET_ID, write scope) maps each question's stored reference_contexts onto the item's current chunks by text containment, records the new chunk shas with a set-version bump and a re-anchor note, and reports which questions it could not re-anchor",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "On a copy of the live DB re-indexed with #27's stripping, re-anchoring set 1 keeps its story questions with new shas that point at chunks containing their reference text, marks its 3 licence questions stale, and bumps the set version once",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c48",
+      "kind": "decision",
+      "text": "Evals are a full API and MCP surface with split execution: the server runs judge-free suites (ID retrieval, result quality, speed and errors, freshness) as an in-process background run; judged suites and question generation run in the CLI or Python client and post through the same API; the production image stays .[server] (user decision q7, 2026-10-29)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "Every eval capability is both an API route and an MCP tool, so agents and code (culture-rules, Gwen, Claude) integrate without the CLI: list suites, list and get sets, create a set from posted questions, start a run, get run status and results, post a client-scored run, radar, compare, weakest sources and re-anchor; a test pins the MCP tool list to the API routes so neither side can grow alone",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h36",
+          "text": "For each eval route there is an MCP tool of the same capability and vice versa, checked by a test that compares the two lists; an agent can go from listing suites to reading a radar using MCP alone",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "POST /api/eval/runs/start (write scope for the set item's kind) starts a server-side run of the requested judge-free suites in a background task and returns the run id at once with status running; GET /api/eval/runs/{id} reports progress (completed of total); asking for a judged suite there is refused with a hint to run it from the CLI or Python client",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h37",
+          "text": "Starting a judge-free run over the API returns a run id immediately, the run reaches complete with the same per-question scores the CLI would produce for the same set and config, and a judged-suite request is refused with a hint",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "A server-side run interrupted by a restart or crash is never left running: on startup any run still marked running is closed as partial (with what it scored) or failed, with the reason recorded; at most one server-side run per set runs at a time, and a second start for the same set is refused with the running run's id",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h38",
+          "text": "A test that kills a server-side run mid-way and restarts the app finds the run closed as partial or failed with a reason, never running; a second start for a set with a running run returns 409 with that run's id",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "The eval API is a documented contract for code clients: request and response shapes for every eval route are written down in docs (with the JSON examples culture-rules needs), and contract tests in tests/contract pin them so a change that would break culture-rules fails CI",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h39",
+          "text": "docs carry request and response examples for every eval route, and tests/contract fails when a documented field is renamed or removed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether retrieving k=10 and cutting to the top 5 gives the same top 5 as a k=5 retrieval when rerank is on (the reranker reorders a candidate pool); if not, depth-10 metrics need their own run",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "The default latency budget for the speed axis (proposed 1.0 s, between today's ~0.7 s without rerank and 1.5-1.9 s with it, and #25's 250 ms target for Gwen)",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Duplicate rate by exact chunk text undercounts near-duplicates (per-book Gutenberg licence chunks differ by title and ebook number); whether result quality also needs a normalized or fuzzy match is open",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Client-side latency is noisy: the first query is cold and the gateway is shared with the indexer and colleague (open park from the previous frame); the speed suite may need a warm-up query and to report the spread, to be settled when built",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "Plan-side once the plan exists: CI's visual job runs on every PR (.github/workflows/tests.yml:91-111), so the third tab fails all 30 parity checks until the approved references land in the same PR; and the eval schema change ships with a pre-deploy snapshot and rollback image like 0.16.1 and 0.17.0",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_library/eval/runner.py",
+      "finding": "run_set retrieves every sample and on the first exception calls _fail(), which sets status partial/failed, truncates samples to those before i and nulls aggregates; ID metrics are fixed precision/recall at k; the LLM path keeps ID aggregates when the judge fails",
+      "seeds": [
+        "c2",
+        "c3"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "culture_library/core/eval_store.py",
+      "finding": "tables eval_sets/eval_samples/eval_runs/eval_run_samples; CHECK aggregates_json IS NULL OR status='complete'; version bumps only in replace_samples; comparable() = same set_id and set_version; eval_run_samples stores retrieved_chunk_shas and scores_json only",
+      "seeds": [
+        "c2",
+        "c4",
+        "c5",
+        "c9"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_library/eval/adapter.py",
+      "finding": "EvalAdapter Protocol has name, version, generate_samples and score; RAGAS is the only shipped adapter; IdOnlyAdapter in runner.py stands in for --no-llm",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "live DB /data/library.db (read 2026-10-29)",
+      "finding": "8 sets, 22 runs (20 complete, 2 partial from the judge max_tokens bug); per-question scores stored for every run; set 5 has 12 of 20 questions pointing at their source or a citation; set 1 has 3 licence questions",
+      "seeds": [
+        "c8",
+        "c9"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "design canvas JSkBwBrSGJUYCbq7R1C7FP",
+      "finding": "five boards: overview, radar (set and one document), compare with change radars, review queue (dark), phone; all numbers from live",
+      "seeds": [
+        "c6",
+        "c7"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "CLAUDE.md conventions",
+      "finding": "core/ stdlib-only and network-free; runtime has zero third-party deps; eval extra holds ragas/openai; visual references are operator-approved",
+      "seeds": [
+        "c10",
+        "c12"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_library/eval/config.py",
+      "finding": "JudgeConfig.is_local gates sending text from non-public items to a non-local judge; runner._llm_scores blanks non-public passage text for a non-local judge",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "culture_library/server/routes_eval.py",
+      "finding": "POST/GET sets and runs with write/read scope and kind checks; aggregates refused unless complete (:210); every read gated by _vis/_visible_set (:67-:169); no compare, radar, error_rate, latency, per-source or review fields",
+      "seeds": [
+        "c2",
+        "c4",
+        "c14"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_library/server/routes_rag.py",
+      "finding": "retrieve (:120) reports no timing; passages carry item_id, kind, chunk_sha, text, score, rerank_score, source (:98) but no visibility; reranked flag and 503 rag_unavailable are the server error signals",
+      "seeds": [
+        "c5",
+        "c15"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "culture_library/mcp/ (server.py, tools.py, client.py)",
+      "finding": "nine tools registered statically in _SPECS (tools.py:37-130) and _handlers (:265); per-call Client uses the caller's Bearer key so the API enforces scope and visibility; read-only eval tools fit the pattern",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "culture_library/eval/client.py",
+      "finding": "LibraryClient has retrieve and set/run CRUD but no compare and no request timing; transport is injectable for tests",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "tests/eval and tests/mcp",
+      "finding": "conftest has FakeAdapter, FakeJudge, a real-app library fixture and a FakeLibrary in test_runner.py; MCP tests use an Env fixture with real keys; route tests go in test_routes_eval.py",
+      "seeds": [
+        "c13",
+        "c14"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "culture_library/web/static (index.html, app.js, state.js, styles.css)",
+      "finding": "two tabs (index.html:21-24); show() and route() hard-code home/read/state (app.js:302-330); Site state charts use .cc cards with data-tip, Table toggle and Source line (state.js:130-141); api() sends the session key or relies on Cloudflare Access (app.js:117-128); the site calls no /api/eval route",
+      "seeds": [
+        "c6",
+        "c16",
+        "c18"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "culture_library/server/routes_web.py + tests/web",
+      "finding": "strict CSP (script-src/connect-src self), no inline style= or handlers, logical properties only, MODULES list must include every module (test_site.py:83-175)",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "docs/design/library-site.md + tests/visual",
+      "finding": "top bar order is fixed by the contract (79-86); 30 reference PNGs, views.py asserts == 30 and DEVIATED holds 28; a third tab moves the search box in every screenshot, so all references would need re-approval",
+      "seeds": [
+        "c7",
+        "c12"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "culture_library/cli/_commands/eval.py + explain/catalog.py",
+      "finding": "verbs overview/generate/run/show; cmd_run hard-wires IdOnlyAdapter or RagasAdapter (:213); no compare, radar or review verb; _EVAL catalog entries at :131-158",
+      "seeds": [
+        "c3",
+        "c19"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "culture_library/eval/generate.py + ragas_adapter.py",
+      "finding": "seeded --samples (default 20), Gutenberg markers skipped, self-reference retry; samples replaced wholesale with a set version bump, no per-question history",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "runner.precheck + core/indexer.py + core/search.py",
+      "finding": "staleness today = set-level item_sha256 match, archived, index_state done, raising EvalStaleError; no per-item indexed-at; chunk_sha and GET /api/rag/items/{id}/chunks are the finer anchors",
+      "seeds": [
+        "c20"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "open issues #27, #25, #7",
+      "finding": "#27 licence chunks are what a result-quality suite measures and a re-index renumbers chunks, staling every set; #25 latency is what a speed suite measures; #7 is a run comparison across embed configs",
+      "seeds": [
+        "c2",
+        "c5"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "GitHub issue #30",
+      "finding": "the question review queue split out of #28 into #30 (user decision q2): history, roles, derived approvals, review page from the design canvas's Review board",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / migration lens: culture_library/core/store.py",
+      "finding": "only the items kind CHECK has a rebuild (_rebuild_items, foreign keys off, counts and sqlite_sequence verified); there is no general migration step, and relaxing eval_runs' CHECK needs its own rebuild or an additive column",
+      "seeds": []
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / data-lifecycle lens: core/eval_store.py eval_run_samples + replace_samples",
+      "finding": "sample_id has no foreign key and replace_samples deletes samples, so past runs can lose their references; seeded the snapshot requirement",
+      "seeds": [
+        "c41"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / adjacent-systems lens: core/search.py chunk_sha + live embeddings probe",
+      "finding": "chunk_sha is sha256 of the text; 29 texts are shared by 168 chunks across items on live, so sha-only matching can credit another book's chunk",
+      "seeds": [
+        "c42"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / security lens: group radar and compare across sets",
+      "finding": "per-set visibility must filter groups and means; seeded the group visibility requirement",
+      "seeds": [
+        "c43"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / counter-evidence lens: c36 vs c4 and #27's re-index",
+      "finding": "re-chunking changes reference shas, so a before/after of #27 on the same set reads as all-stale unless references are re-anchored; routed to a user question",
+      "seeds": []
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / operations lens: .github/workflows/tests.yml visual job",
+      "finding": "visual parity runs on every PR, so the reference batch must land with the tab; parked for the plan",
+      "seeds": []
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / aggregation lens: design canvas group shapes",
+      "finding": "the canvas averaged over documents; recorded as a decision with question counts shown",
+      "seeds": [
+        "c44"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / clean lenses",
+      "finding": "MCP read-only tools (mcp/tools.py pattern), judge privacy (config.guard_text_egress), phone layout and CSP rules examined: no new finding beyond claims c10-c17; residual: the culture-rules sidecar shape and OPDS/WebDAV paths were not examined, as they are untouched",
+      "seeds": []
+    }
+  ],
+  "lapses": [],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c2",
+      "seam": "eval runner and POST /api/eval/runs",
+      "behavior": "a run with failed retrievals is stored partial with the scored questions, aggregates over them and error_rate; a run that scored nothing is failed with no aggregates",
+      "source_text": "A run that hits retrieval errors keeps its scores over the questions that did score and stores error_rate; today runner.py _fail() truncates samples and sets aggregates to None, and eval_store's CHECK (aggregates_json IS NULL OR status = 'complete') forbids partial aggregates, so the schema constraint must change",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c34",
+      "seam": "eval runner (FakeLibrary failing 1 of 20)",
+      "behavior": "the stored run has completed 19, aggregates over 19 questions and error_rate 0.05, and compare marks it partial",
+      "source_text": "A run in which 1 of 20 retrievals errors is stored with its 19 scored questions, aggregates over those 19, and error_rate 0.05, and the compare view marks it partial instead of hiding it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c3",
+      "seam": "suite registry and runner",
+      "behavior": "every stored run lists the suites it scored with versions, every metric key maps to one suite, and RAGAS runs through the registry like any other suite",
+      "source_text": "Suites are plugins in a registry: a run lists the suites it scored with each suite's name and version, and every metric belongs to one suite; today runner.py hard-codes id_based_context_precision/recall at k and adapter.py's EvalAdapter only has generate_samples and score",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c35",
+      "seam": "suite registry, GET /api/eval/suites, radar endpoint",
+      "behavior": "a fake suite registered only in a test is scored by the runner, listed by the catalog and drawn as new radar axes with no edits to runner, routes or site",
+      "source_text": "Adding a suite is one new module plus one registry entry: a test-only fake suite registered in the test is scored by the runner, listed by the suites endpoint and drawn as new axes by the radar endpoint, with no edits to runner.py, routes_eval.py or the site",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c4",
+      "seam": "compare endpoint",
+      "behavior": "different suites or judge returns not comparable with no deltas; a different suite version, set, set version or a partial run returns warnings before the deltas",
+      "source_text": "Comparability is checked before any delta is shown: different suite or judge makes runs not comparable; a different suite version, set, set version or a partial run gives a warning; today core/eval_store.comparable() only checks set_id and set_version",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c5",
+      "seam": "per-question run records",
+      "behavior": "new runs store the item id of each retrieved passage and the retrieve latency in ms; a run posted without them is still accepted",
+      "source_text": "Each scored result stores what result-quality and speed suites need: the item id of every retrieved passage and the client-side latency of the retrieve call; today eval_run_samples keeps only retrieved_chunk_shas and scores_json",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c39",
+      "seam": "core ID metrics over stored ranks",
+      "behavior": "found at 1, 3, 5 and 10, MRR@10 and nDCG@10 are computed from stored retrieved_chunk_shas; a k=5 run reports the depth-10 metrics as not measured, never 0",
+      "source_text": "ID retrieval metrics (found at 1, 3, 5 and 10, precision at k, MRR@10, nDCG@10) are computed in core from the stored ranked retrieved_chunk_shas and the reference chunk shas, by pure arithmetic, so the runner and a backfill of runs 1-22 use the same function; runs stored at k=5 report the depth-10 metrics as not measured, never as zero",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c33",
+      "seam": "compare endpoint on live",
+      "behavior": "comparing run 19 with run 11 without re-running returns found at 1 0.20 -> 0.45 and MRR 0.44 -> 0.62",
+      "source_text": "On live, comparing run 19 (rerank off) with run 11 (rerank on) without re-running either shows found at 1 going 0.20 -> 0.45 and MRR 0.44 -> 0.62, the values the design canvas was built from",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c6",
+      "seam": "radar endpoint and the Radar and Compare views",
+      "behavior": "a run, a set of runs and a pair return one 0-1 higher-better value per axis, and the views draw the shape with the after shape over the before shape, matching the canvas Radar and Compare boards",
+      "source_text": "The radar is a shape chart: each benchmark result is one axis from 0 at the centre to 1 at the edge, so a run that scores 1 everywhere fills a regular outline and every dent is a result that falls short; it is drawn per run (one document) and per set of documents (mean shape, plus small multiples per document), and a comparison lays the after shape over the before shape",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c40",
+      "seam": "radar axes",
+      "behavior": "lower-is-better metrics are turned around, latency is the share within budget, precision at k is off the radar, and an unscored metric is a labelled gap, never 0",
+      "source_text": "Radar axes are 0 to 1 with higher always better: lower-is-better metrics are turned around (1 - error rate, 1 - duplicate rate), latency becomes the share of retrievals within a time budget, and precision at k (ceiling 1/k for single-reference questions) stays in the table but off the radar; a metric a run did not score is drawn as a gap labelled not measured, never as 0",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c7",
+      "seam": "Evals tab views",
+      "behavior": "overview, radar and compare render from the eval API in light and dark at desktop and phone widths and match the canvas boards except recorded deviations",
+      "source_text": "The site gains an Evals tab next to Library and Site state with an overview, a radar page, a compare page and a review queue, following the design canvas https://claude.ai/artifact/JSkBwBrSGJUYCbq7R1C7FP built from live sets 1-8 and runs 1-22",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c16",
+      "seam": "site routing",
+      "behavior": "#evals, #evals/radar, #evals/compare and item keys each open the right view, and the Evals tab never falls through to home",
+      "source_text": "The Evals pages are hash routes that cannot collide with item keys (#evals, #evals/radar, #evals/compare, #evals/review); app.js show() hard-codes ['home','read','state'] (:302) and the tab handler sends any non-state tab home (:349), so routing is refactored, and a new evals.js joins tests/web/test_site.py MODULES",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c18",
+      "seam": "Evals charts",
+      "behavior": "every chart has a hover tip, a Table toggle and a source line, and no state is shown by colour alone",
+      "source_text": "Charts on the Evals pages follow the Site state pattern (state.js:130-141): every chart has a data-tip hover tooltip, a Table toggle and a source line; radar rings and run status always carry a text label, never colour alone",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c20",
+      "seam": "freshness suite",
+      "behavior": "each question is fresh, stale, unknown or not applicable by its reference chunk_sha against the item's current chunks, the run stores the counts, and a changed item no longer blocks the run",
+      "source_text": "Staleness is three-valued per question: whether a question's reference chunk_sha still exists in the item's current chunks is true, false or unknown (library unreachable), counted apart in the run; today runner.precheck is a set-level hard gate on item_sha256 that records no run",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c36",
+      "seam": "freshness suite on live after #27",
+      "behavior": "re-running sets 1-5 after the re-index reports stale > 0 and the radar lays the after-#27 shape over the before-#27 shape",
+      "source_text": "After #27's re-index, re-running sets 1-5 reports their questions as stale (count > 0) through the freshness suite instead of refusing the run, and the radar lays the post-#27 shape over the pre-#27 shape",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c13",
+      "seam": "MCP eval tools",
+      "behavior": "each tool is read-only, returns what the matching GET route returns to the same key, and the pinned tool list includes them",
+      "source_text": "New read-only MCP tools expose eval data (runs, one run, compare, radar, weakest sources), each a thin Client wrapper over a GET /api/eval route so scope and visibility come from routes_eval; mcp/tools.py registers tools in _SPECS and _handlers, and tests/mcp/test_tools.py:17 pins the exact tool-name set",
+      "origin": "llm",
+      "status": "rejected"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c14",
+      "seam": "compare and radar routes",
+      "behavior": "need read scope, and a run whose item the key cannot see is 404 to that key",
+      "source_text": "New eval routes: a compare endpoint and a radar endpoint under /api/eval, with read scope and the same visibility gate (_vis, _visible_set) as the existing set and run routes; routes_eval.py has no compare endpoint today",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c15",
+      "seam": "POST /api/rag/retrieve",
+      "behavior": "request and response shapes are unchanged and the existing retrieve tests pass unmodified",
+      "source_text": "POST /api/rag/retrieve keeps its request and response shape; latency is measured client-side in the eval runner, and duplicate rate is derived from the chunk_sha and item_id that every passage already carries (routes_rag.py:98, :162)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c11",
+      "seam": "judged suites",
+      "behavior": "a non-public item with a non-local judge is skipped and recorded as skipped; no item text reaches a non-local judge",
+      "source_text": "The judge privacy rule stays: eval/config.py refuses to send a non-public item's text to a non-local judge, and new judged suites go through the same check",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c10",
+      "seam": "culture_library/core",
+      "behavior": "core gains no third-party or network import and tests/test_zero_deps.py passes",
+      "source_text": "core/ stays stdlib-only and network-free (CLAUDE.md, tests/test_zero_deps.py): suite scoring that calls the retriever or a judge lives in culture_library/eval/, and core/eval_store only stores and reads; radar ring placement is pure arithmetic and may live in core",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c37",
+      "seam": "GET /api/eval/suites",
+      "behavior": "every metric shown on the site has a served definition, range and direction, and the hover tips render it",
+      "source_text": "A suite catalog endpoint (GET /api/eval/suites) lists every registered suite with its name, version, whether it needs a judge, and each metric's name, definition, range and direction (higher is better or lower is better); the site's hover tips and the MCP suite tool read definitions from it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o22",
+      "claim_id": "c38",
+      "seam": "per-source breakdown",
+      "behavior": "a set-of-documents run breaks down per item, and a newspaper run per source URL matching its sidecar",
+      "source_text": "Every aggregate is also stored per source: per item for a set of documents, and per source URL for newspaper questions built from the sources sidecar, so one weak source cannot hide inside a good average (#28 section 3)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o23",
+      "claim_id": "c26",
+      "seam": "reference screenshots",
+      "behavior": "the 30 re-rendered views plus the Evals views are committed only after operator approval, with the deviation in library-site.md",
+      "source_text": "The Evals tab ships with a single batch of new reference screenshots: all 30 existing views re-rendered for the third tab plus the new Evals views, approved by the operator and recorded as a deviation in docs/design/library-site.md (user decision q3)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o24",
+      "claim_id": "c47",
+      "seam": "eval reanchor",
+      "behavior": "re-anchors references by stored reference text onto current chunks, bumps the set version once, and reports the questions it could not re-anchor as stale",
+      "source_text": "A re-anchor step (CLI eval reanchor SET_ID, write scope) maps each question's stored reference_contexts onto the item's current chunks by text containment, records the new chunk shas with a set-version bump and a re-anchor note, and reports which questions it could not re-anchor",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o25",
+      "claim_id": "c41",
+      "seam": "run records",
+      "behavior": "every run keeps its question text and reference shas after its set is replaced, and runs 1-22 are backfilled",
+      "source_text": "Every scored result snapshots what it was scored against: the question text, the reference chunk shas and the set version, copied into the run record at scoring time; runs 1-22 are backfilled from eval_samples now, while every live set is still at version 1. Without it, replace_samples deletes eval_samples rows and old runs lose the references the radar and compare recompute from (eval_run_samples.sample_id has no foreign key, core/eval_store.py:64-68)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o26",
+      "claim_id": "c42",
+      "seam": "ID matching",
+      "behavior": "a new run never credits another item's identical chunk as found; runs 1-22 are labelled sha-only",
+      "source_text": "New runs credit a retrieved passage as a match only when both its item id and its chunk_sha match a reference, because identical chunk text shares one chunk_sha across items (search.chunk_sha is sha256 of the text; probe on live 2026-10-29: 29 chunk texts are shared by 168 chunks across items); runs 1-22, which stored only shas, are marked as sha-only matches",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o27",
+      "claim_id": "c43",
+      "seam": "group radar and compare",
+      "behavior": "runs whose item the key cannot see are left out of every mean and counted, not named",
+      "source_text": "Group radars and comparisons that span several sets apply item visibility per set: a run whose item the key cannot see is left out of the group and out of every mean, and the response says how many runs were left out, without naming them",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o28",
+      "claim_id": "c49",
+      "seam": "API and MCP eval surface",
+      "behavior": "every eval capability is reachable as an API route and an MCP tool, and a test fails if one side gains a capability the other lacks",
+      "source_text": "Every eval capability is both an API route and an MCP tool, so agents and code (culture-rules, Gwen, Claude) integrate without the CLI: list suites, list and get sets, create a set from posted questions, start a run, get run status and results, post a client-scored run, radar, compare, weakest sources and re-anchor; a test pins the MCP tool list to the API routes so neither side can grow alone",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o29",
+      "claim_id": "c50",
+      "seam": "POST /api/eval/runs/start",
+      "behavior": "a judge-free run started over the API or MCP returns its id at once, can be polled to complete, and matches a CLI run of the same set and config; judged suites are refused with a hint",
+      "source_text": "POST /api/eval/runs/start (write scope for the set item's kind) starts a server-side run of the requested judge-free suites in a background task and returns the run id at once with status running; GET /api/eval/runs/{id} reports progress (completed of total); asking for a judged suite there is refused with a hint to run it from the CLI or Python client",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o30",
+      "claim_id": "c51",
+      "seam": "server-side run lifecycle",
+      "behavior": "a run interrupted by restart is closed partial or failed with a reason, and two runs of one set never run at once",
+      "source_text": "A server-side run interrupted by a restart or crash is never left running: on startup any run still marked running is closed as partial (with what it scored) or failed, with the reason recorded; at most one server-side run per set runs at a time, and a second start for the same set is refused with the running run's id",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o31",
+      "claim_id": "c52",
+      "seam": "eval API contract",
+      "behavior": "documented request and response shapes for every eval route are pinned by contract tests that culture-rules can rely on",
+      "source_text": "The eval API is a documented contract for code clients: request and response shapes for every eval route are written down in docs (with the JSON examples culture-rules needs), and contract tests in tests/contract pin them so a change that would break culture-rules fails CI",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o32",
+      "claim_id": "c13",
+      "seam": "MCP eval tools",
+      "behavior": "read tools return what the matching route returns to the same key, and act tools need the same write scope as their route",
+      "source_text": "MCP tools cover every eval capability: read (suites, sets, runs, radar, compare, weakest sources) and act (create a set from posted questions, start a judge-free run, post a client-scored run, re-anchor); each tool is a thin wrapper over its API route using the caller's own key, so write tools need the same write scope as the route; mcp/tools.py registers tools in _SPECS and _handlers, and tests/mcp/test_tools.py:17 pins the exact tool-name set",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
+}

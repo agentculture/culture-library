@@ -3,7 +3,8 @@
  * Ported from docs/design/prototype.html (approved 2026-10-24; contract:
  * docs/design/library-site.md). The prototype's single inline script is split into
  * app.js (this file), home.js, reader.js, search.js, upload.js, send.js and state.js:
- * plain ES modules, no build step, no framework. Data comes from the library API instead
+ * plain ES modules, no build step, no framework. The Evals tab (plan task t16) adds evals.js,
+ * with its pure helpers in evals-model.js, and hashroute.js maps a location hash to a view. Data comes from the library API instead
  * of the prototype's embedded DATA block.
  *
  * Content is untrusted (claim c38): every string from an item or a repo document reaches
@@ -13,6 +14,8 @@
  * localStorage behind try/catch, exactly like the prototype; a local-development key
  * lives in sessionStorage only.
  */
+import * as evals from './evals.js';
+import { evalsHash, parseHash } from './hashroute.js';
 import * as home from './home.js';
 import * as reader from './reader.js';
 import * as search from './search.js';
@@ -299,10 +302,21 @@ export function setPane(open) {
 }
 
 /* ---------- views ---------- */
-export function show(view) {
-  for (const v of ['home', 'read', 'state']) $('view-' + v).hidden = v !== view;
+const VIEWS = ['home', 'read', 'state', 'evals'];
+/** Show one view; ``page`` picks the Evals page ('overview', 'radar' or 'compare') and
+ * ``params`` is that page's route parameters (the hash after "?"). */
+export function show(view, page = 'overview', params = '') {
+  for (const v of VIEWS) $('view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === (view === 'read' ? 'home' : view))));
   if (view === 'state') void siteState.draw();
+  if (view === 'evals') evals.show(page, params);
+}
+/** Open an Evals page and give it its canonical hash (an unknown #evals/... is the overview). */
+export function openEvals(page = 'overview', params = '') {
+  S.current = null;
+  show('evals', page, params);
+  const want = evalsHash(page) + (params ? '?' + params : '');
+  if (location.hash !== want) history.replaceState(null, '', want);
 }
 export function openItem(key, keepScroll) {
   const i = byKey(key); if (!i) return goHome();
@@ -323,9 +337,12 @@ export function step(d) {
 }
 export function goHome() { S.current = null; show('home'); home.drawHome(); history.replaceState(null, '', '#home'); window.scrollTo({ top: 0 }); }
 function route() {
-  const h = location.hash.slice(1);
-  if (h === 'state') return show('state');
-  if (h && byKey(h)) return openItem(h);
+  // #evals... is matched before any item key, so it never collides with one and never falls
+  // through to home (hashroute.js).
+  const r = parseHash(location.hash, k => Boolean(byKey(k)));
+  if (r.view === 'state') return show('state');
+  if (r.view === 'evals') return openEvals(r.page, r.params);
+  if (r.view === 'read') return openItem(r.key);
   S.current = null; show('home'); home.drawHome();
 }
 let scrollT;
@@ -346,8 +363,13 @@ document.addEventListener('click', e => {
   if (t.closest('[data-pane-toggle]')) { setPane(split.classList.contains('closed')); return; }
   const hf = t.closest('[data-hfilter]'); if (hf) { S.homeFilter = hf.dataset.hfilter; home.drawHome(); return; }
   const pf = t.closest('[data-pfilter]'); if (pf) { S.paneFilter = pf.dataset.pfilter; reader.drawRows(); return; }
-  const v = t.closest('[data-view]'); if (v) { if (v.dataset.view === 'state') { show('state'); history.replaceState(null, '', '#state'); window.scrollTo({ top: 0 }); } else goHome(); }
+  const v = t.closest('[data-view]'); if (v) { tab(v.dataset.view); }
 });
+function tab(view) {
+  if (view === 'state') { show('state'); history.replaceState(null, '', '#state'); window.scrollTo({ top: 0 }); }
+  else if (view === 'evals') { openEvals(); window.scrollTo({ top: 0 }); }
+  else goHome();
+}
 $('prev').addEventListener('click', () => step(-1));
 $('next').addEventListener('click', () => step(1));
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && narrow() && !split.classList.contains('closed')) setPane(false); });
@@ -377,7 +399,7 @@ async function load() {
   }
 }
 initConnect();
-home.init(); search.init(); send.init(); upload.init(); siteState.init();
+home.init(); search.init(); send.init(); upload.init(); siteState.init(); evals.init();
 home.drawShelf(); home.drawHome();
 // Top-level await: app.js is the entry module and nothing imports it after evaluation (the
 // other modules are its dependencies), so awaiting here only defers this module's own

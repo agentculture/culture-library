@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import io
 import json
+import random
 import zipfile
 from pathlib import Path
 
-from culture_library.core import Store, keys, library
+from culture_library.core import Store, eval_store, keys, library
 from culture_library.core.repodocs import RepoDocs
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -118,5 +119,102 @@ def seed(data_dir: Path) -> dict:
             )
         ids[spec["key"]] = f"doc-{pushed.doc.id}"
     (Path(data_dir) / "targets.json").write_text(json.dumps(catalog["targets"]), encoding="utf-8")
+    ids.update(seed_evals(store))
     _, raw = keys.mint(store, "visual", ["read", "write"], private=True)
     return {"store": store, "key": raw, "ids": ids}
+
+
+_EVAL_STAMP = "2026-10-23T{:02d}:{:02d}:00+00:00"
+
+
+def seed_evals(store: Store) -> dict:
+    """Eval sets and runs for the Evals views: 3 books (20 questions) and 3 newspapers (4).
+
+    Deterministic (a seeded RNG and fixed ``created_at``), so the Evals screenshots are stable.
+    Each set has a rerank-off and a rerank-on run; each book has a later rerank-on run too, so
+    the radar lays an earlier comparable run under the latest one. Returns
+    ``{"eval-book-runs": "1,2,...", ...}`` for the views.
+    """
+    rnd = random.Random(7)
+    runs: dict[str, list[int]] = {"book": [], "newspaper": []}
+    minute = 0
+    with store.connect() as conn:
+        items = conn.execute(
+            "SELECT id, kind, sha256 FROM items WHERE kind IN ('book', 'newspaper') ORDER BY id"
+        ).fetchall()
+        picks = [i for i in items if i[1] == "book"][:3] + [
+            i for i in items if i[1] == "newspaper"
+        ][:3]
+        for iid, kind, sha in picks:
+            sid = eval_store.create_set(
+                conn, iid, sha, chunker={}, adapter="ragas", adapter_version="0.4.3", generator={}
+            )
+            n = 20 if kind == "book" else 4
+            eval_store.add_samples(
+                conn,
+                sid,
+                [
+                    {
+                        "question": f"Question {q} about this {kind}?",
+                        "reference_answer": "a",
+                        "reference_chunk_shas": [f"s{q}"],
+                        "source_urls": (
+                            [f"https://example.com/{iid}/{q % 2}"] if kind == "newspaper" else []
+                        ),
+                    }
+                    for q in range(n)
+                ],
+            )
+            samples = eval_store.list_samples(conn, sid)
+            plan = [(False, 0.55), (True, 0.7)] + ([(True, 0.88)] if kind == "book" else [])
+            for rerank, p in plan:
+                ranks = []
+                for _ in samples:
+                    r = rnd.random()
+                    ranks.append(0 if r < p * 0.75 else 1 if r < p * 0.92 else 2 if r < p else None)
+                judged = kind == "book"
+                agg: dict = {"id_based_context_precision": 0.17}
+                if judged:
+                    agg["context_precision"] = 0.75 + rnd.random() / 5
+                    agg["context_recall"] = 0.8 + rnd.random() / 6
+                suites = [{"name": "id_retrieval", "version": "1"}]
+                suites += [{"name": "judged", "version": "1"}] if judged else []
+                suites += [{"name": "speed", "version": "1"}]
+                rid = eval_store.create_run(
+                    conn,
+                    sid,
+                    status="complete",
+                    config={
+                        "mode": "hybrid",
+                        "k": 5,
+                        "rerank": rerank,
+                        "judge_model": "cortex" if judged else None,
+                    },
+                    total=n,
+                    completed=n,
+                    aggregates=agg,
+                    error_rate=0.0,
+                    suites=suites,
+                )
+                minute += 7
+                conn.execute(
+                    "UPDATE eval_runs SET created_at = ? WHERE id = ?",
+                    (_EVAL_STAMP.format(9 + minute // 60, minute % 60), rid),
+                )
+                runs[kind].append(rid)
+                for smp, rank in zip(samples, ranks):
+                    ret = ["x", "y", "z", "w", "v"]
+                    if rank is not None:
+                        ret[rank] = smp["reference_chunk_shas"][0]
+                    eval_store.add_run_sample(
+                        conn,
+                        rid,
+                        smp["id"],
+                        retrieved_chunk_shas=ret,
+                        scores={},
+                        question=smp["question"],
+                        reference_chunk_shas=smp["reference_chunk_shas"],
+                        retrieved_item_ids=[iid] * 5,
+                        latency_ms=rnd.choice([400, 700, 1300]),
+                    )
+    return {f"eval-{k}-runs": ",".join(str(r) for r in v) for k, v in runs.items()}

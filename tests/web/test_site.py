@@ -15,7 +15,25 @@ from culture_library.server import app as server_app  # noqa: E402
 
 STATIC = Path(__file__).resolve().parents[2] / "culture_library" / "web" / "static"
 PROTOTYPE = Path(__file__).resolve().parents[2] / "docs" / "design" / "prototype.html"
-MODULES = ("app", "home", "reader", "search", "upload", "send", "state", "checklist")
+MODULES = (
+    "app",
+    "home",
+    "reader",
+    "search",
+    "upload",
+    "send",
+    "state",
+    "checklist",
+    "links",
+    "hashroute",
+    "evals",
+    "evals-model",
+    "evals-geom",
+    "evals-shape",
+    "evals-radar",
+    "evals-compare",
+)
+STYLESHEETS = ("styles", "evals")
 CSP_PARTS = (
     "default-src 'self'",
     "script-src 'self'",
@@ -118,9 +136,12 @@ def test_static_modules_and_stylesheet_types(client: TestClient) -> None:
         assert r.status_code == 200, name
         assert r.headers["content-type"].startswith("text/javascript"), name
         _assert_security_headers(r)
+    for name in STYLESHEETS:
+        r = client.get(f"/static/{name}.css")
+        assert r.status_code == 200, name
+        assert r.headers["content-type"].startswith("text/css"), name
+        _assert_security_headers(r)
     css = client.get("/static/styles.css")
-    assert css.status_code == 200
-    assert css.headers["content-type"].startswith("text/css")
     assert "--accent: #00684a" in css.text
     assert "--accent: #5fd897" in css.text
 
@@ -161,5 +182,37 @@ def test_api_errors_are_not_masked_by_the_site(client: TestClient) -> None:
 def test_every_module_file_exists_on_disk() -> None:
     for name in MODULES:
         assert (STATIC / f"{name}.js").is_file(), name
-    assert (STATIC / "styles.css").is_file()
+    for name in STYLESHEETS:
+        assert (STATIC / f"{name}.css").is_file(), name
     assert (STATIC / "index.html").is_file()
+    # Every module on disk is listed, so a new one cannot skip these checks.
+    assert {p.stem for p in STATIC.glob("*.js")} == set(MODULES)
+
+
+def test_evals_tab_and_sections(client: TestClient) -> None:
+    html = client.get("/").text
+    assert 'href="/static/evals.css"' in html
+    tabs = re.findall(r'<button role="tab"[^>]*data-view="(\w+)"[^>]*>([^<]+)</button>', html)
+    assert tabs == [("home", "Library"), ("state", "Site state"), ("evals", "Evals")]
+    for id_ in ("view-evals", "evals-overview", "evals-radar", "evals-compare", "ev-lede"):
+        assert f'id="{id_}"' in html, id_
+    assert 'href="#evals/radar"' in html
+    assert 'href="#evals/compare"' in html
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "import * as evals from './evals.js';" in app
+    assert "const VIEWS = ['home', 'read', 'state', 'evals'];" in app
+    assert "parseHash(location.hash" in app
+
+
+def test_every_id_the_evals_module_uses_is_in_the_page() -> None:
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = "".join(
+        (STATIC / f"{m}.js").read_text(encoding="utf-8")
+        for m in ("evals", "evals-radar", "evals-compare")
+    )
+    ids = set(re.findall(r"\$\('([\w-]+)'\)", js))
+    ids |= {f"evals-{p}" for p in ("overview", "radar", "compare")}
+    assert ids >= {"ev-tiles", "ev-rerank", "ev-weak", "ev-suites", "ev-runs", "view-evals"}
+    assert ids >= {"ev-radar-body", "ev-compare-body", "ev-cmp-title", "ev-cmp-lede", "ev-cmp-pick"}
+    for id_ in ids:
+        assert f'id="{id_}"' in html, id_

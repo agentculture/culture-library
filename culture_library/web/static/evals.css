@@ -1,0 +1,328 @@
+/* Evals tab styles (plan task t16), from the design canvas boards "Evals overview" (desktop,
+   light), "Evals overview" (phone, dark), "Radar" and "Compare". Shared pieces (page intro,
+   crumb, cards with a head, Chart/Table segments, legend, source line, tables) come first so
+   the radar and compare views can reuse them; overview pieces follow. Everything is scoped to
+   .evals and prefixed ev- so it never touches the Library or Site state views.
+   Logical properties only (claim c39); colors are the site tokens from styles.css plus the
+   rerank-off shade below (one hue, two shades: --accent is rerank on). */
+:root { --ev-off: #7cbf9e; --ev-warn: #b77b00; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ev-off: #2f8a63; --ev-warn: #e8b04a; } }
+:root[data-theme="dark"] { --ev-off: #2f8a63; --ev-warn: #e8b04a; }
+
+/* ---------- shared: page, intro, crumb ---------- */
+.evals { padding-block: 0 56px; }
+.evals a.btn { text-decoration: none; color: var(--ink); min-height: 36px; }
+.evals a.btn.primary { color: var(--accent-ink); }
+.ev-crumb { padding-top: 22px; font-size: 13.5px; color: var(--ink-2); }
+.ev-intro { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; justify-content: space-between; padding-block: 36px 22px; }
+.ev-crumb + .ev-intro { padding-top: 6px; }
+.ev-title { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.1; font-weight: 900; letter-spacing: -0.01em; }
+.ev-intro p { margin: 10px 0 0; color: var(--ink-2); font-size: 17px; max-width: 66ch; }
+.ev-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- shared: cards, heads, segments, legend, source, tables ---------- */
+.ev-card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 20px 22px; min-width: 0; margin-top: 16px; overflow-wrap: anywhere; }
+.ev-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.ev-head h2 { font-size: 19px; }
+.ev-head p { margin: 2px 0 0; color: var(--ink-2); font-size: 13.5px; }
+.ev-h3 { font-size: 15px; margin: 18px 0 8px; }
+.ev-seg { display: flex; flex-wrap: wrap; gap: 2px; background: var(--surface-2); padding: 3px; border-radius: var(--r-pill); }
+.ev-seg button { border: 0; background: transparent; padding: 3px 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 700; color: var(--ink-2); cursor: pointer; min-height: 28px; }
+.ev-seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.ev-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
+.ev-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ev-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.ev-dot.on { background: var(--accent); }
+.ev-dot.off { background: var(--surface); border: 2.5px solid var(--ev-off); }
+.ev-src { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.ev-tbl { overflow-x: auto; }
+.evals .empty { padding: 12px 0; }
+.ev-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; padding-block: 2px; padding-inline: 7px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink); white-space: nowrap; }
+.ev-st { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; white-space: nowrap; color: var(--ink-2); }
+.ev-st.live, .ev-st.complete { color: var(--accent); }
+.ev-st.partial { color: var(--ev-warn); }
+.ev-st.failed { color: var(--critical); }
+.ev-st svg { flex: none; }
+
+/* ---------- overview: headline tiles ---------- */
+.ev-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 16px; }
+.ev-tile { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px 20px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ev-tile .l { font-size: 13.5px; color: var(--ink-2); font-weight: 700; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ev-tile .v { font-size: 44px; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ev-tile .d { font-size: 13.5px; color: var(--ink-2); }
+.ev-tile .d b { color: var(--ink); }
+.ev-counts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+/* ---------- overview: two-column row ---------- */
+.ev-grid2 { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; margin-top: 16px; }
+.ev-grid2 > .ev-card { margin-top: 0; }
+.ev-wide { flex: 999 1 640px; }
+.ev-side { flex: 1 1 380px; }
+
+/* ---------- overview: rerank dumbbell ---------- */
+.ev-db { display: grid; }
+.ev-dbrow { display: grid; grid-template-columns: minmax(150px, 240px) minmax(0, 1fr) 128px; grid-template-areas: "who track val"; gap: 0 16px; align-items: center; }
+.ev-dbrow .who { grid-area: who; padding-block: 9px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ev-dbrow .who b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-dbrow .who small { font-size: 12.5px; color: var(--muted); }
+.ev-dbrow .val { grid-area: val; font-size: 13.5px; font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: end; white-space: nowrap; }
+.ev-dbrow .val b { color: var(--ink); }
+.ev-scale { grid-area: track; position: relative; height: 22px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ev-scale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ev-scale span:first-child { transform: none; }
+.ev-scale span:last-child { transform: translateX(-100%); }
+.ev-axis .who { padding-block: 0; }
+.ev-track { grid-area: track; position: relative; height: 40px; border-radius: 8px; }
+.ev-dbrow:hover .ev-track { background: var(--surface-2); }
+.ev-track .g { position: absolute; top: 4px; bottom: 4px; width: 1px; background: var(--rule); }
+.ev-track .ln { position: absolute; top: 19px; height: 3px; border-radius: 2px; background: var(--ev-off); }
+.ev-track .d { position: absolute; top: 13px; width: 15px; height: 15px; margin-inline-start: -7.5px; border-radius: 50%; }
+.ev-track .d.on { background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
+.ev-track .d.off { background: var(--surface); border: 2.5px solid var(--ev-off); }
+.ev-track .d.both { background: var(--accent); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4.5px var(--ev-off); }
+
+/* ---------- overview: weakest sources ---------- */
+.ev-rank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ev-rank li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--rule); }
+.ev-rank li:first-child { border-top: 0; padding-top: 0; }
+.ev-rank .n { font-weight: 900; font-size: 18px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ev-rank b { font-size: 14.5px; min-width: 0; }
+.ev-rank b.u { font-weight: 400; font-size: 13.5px; overflow-wrap: anywhere; }
+.ev-rank .miss { font-weight: 900; font-size: 18px; font-variant-numeric: tabular-nums; text-align: end; }
+.ev-rank .miss small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.ev-bar { grid-column: 2 / 4; height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; display: flex; }
+.ev-bar span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+
+/* ---------- overview: suites ---------- */
+.ev-suites { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 12px; }
+.ev-suite { border: 1px solid var(--rule); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; background: var(--surface); }
+.ev-suite.live { background: var(--accent-soft); border-color: transparent; }
+.ev-suite .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ev-suite h3 { font-size: 15.5px; }
+.ev-suite p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+.ev-metrics { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.ev-metric { font-size: 12.5px; color: var(--ink-2); border-bottom: 1px dotted var(--muted); cursor: help; }
+
+/* ---------- overview: runs table ---------- */
+.ev-tablewrap { overflow-x: auto; }
+.ev-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ev-table th { text-align: start; font-size: 12.5px; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.ev-table td { padding: 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.ev-table td.src .t { white-space: normal; }
+.ev-table td.n, .ev-table th.n { text-align: end; }
+.ev-table td.cfg { color: var(--ink-2); }
+.ev-table tr:hover td { background: var(--surface-2); }
+.ev-more { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: 13.5px; color: var(--ink-2); }
+.ev-foot { padding-block: 24px 0; color: var(--muted); font-size: 13px; }
+
+/* ---------- phone ---------- */
+@media (max-width: 900px) {
+  .ev-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ev-tile { padding: 12px 14px; }
+  .ev-tile .v { font-size: 32px; }
+  .ev-tile .l, .ev-tile .d { font-size: 12.5px; }
+}
+@media (max-width: 720px) {
+  .ev-intro { padding-block: 22px 16px; }
+  .ev-intro p { font-size: 15.5px; }
+  .ev-card { padding: 16px; border-radius: 16px; }
+  .ev-head h2 { font-size: 17px; }
+  /* Dumbbell: title and values on one line, the track below. */
+  .ev-dbrow { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who val" "track track"; gap: 0 10px; padding-block: 6px; border-top: 1px solid var(--rule); }
+  .ev-dbrow.ev-axis { border-top: 0; grid-template-areas: "track track"; }
+  .ev-axis .who, .ev-axis .val { display: none; }
+  .ev-dbrow .who { padding-block: 0; }
+  .ev-dbrow .who small { display: none; }
+  .ev-track { height: 22px; }
+  .ev-track .g { top: 2px; bottom: 2px; }
+  .ev-track .ln { top: 9.5px; }
+  .ev-track .d { top: 4px; width: 14px; height: 14px; margin-inline-start: -7px; }
+  /* Runs: one stacked block per run instead of a wide table. */
+  .ev-table thead { display: none; }
+  .ev-table, .ev-table tbody, .ev-table tr, .ev-table td { display: block; }
+  .ev-table tr { padding: 10px 0; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+  .ev-table td { border: 0; padding: 0; white-space: normal; font-size: 13px; color: var(--ink-2); }
+  .ev-table td.n { text-align: start; }
+  .ev-table td.n::before, .ev-table td.cfg::before { content: attr(data-label) " "; color: var(--muted); }
+  .ev-table td:first-child { font-size: 14px; color: var(--ink); }
+  .ev-table td.src { flex: 1 1 60%; color: var(--ink); }
+  .ev-table tr:hover td { background: transparent; }
+}
+
+/* ---------- radar (plan task t17; canvas "Radar", reused by "Compare") ----------
+   The shape chart (evals-shape.js): grid rings, axes, the dotted perfect outline, the over
+   shape (solid, filled) over the under shape (dashed, the earlier run) and the mean outline
+   (dashed, small multiples). Unscored axes are gaps: a dashed axis and a muted label. */
+.ev-controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 16px; }
+.ev-sel { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-2); min-width: 0; max-width: 100%; }
+.ev-sel select { font-weight: 700; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-pill); padding-block: 6px; padding-inline: 12px; min-height: 36px; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.ev-headr { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.ev-go { color: inherit; text-decoration: none; min-width: 0; }
+.ev-go:hover b, .ev-go:focus-visible b { text-decoration: underline; color: var(--accent); }
+.ev-dbrow .who .ev-go { display: flex; min-width: 0; }
+.ev-dbrow .who .ev-go b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ev-starrow { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: center; }
+.ev-starrow .ev-star { flex: 1 1 420px; max-inline-size: 600px; }
+/* The bottom axis' "not scored" note sits just below the viewBox (overflow is visible). */
+.ev-star:not(.mini) { margin-block-end: 18px; }
+.ev-star { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
+.ev-star .grid { fill: none; stroke: var(--rule); stroke-width: 1.2; }
+.ev-star .perfect { fill: none; stroke: var(--ink-2); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.ev-star .ax { stroke: var(--rule); stroke-width: 1.2; }
+.ev-star .ax.gap { stroke: var(--muted); stroke-dasharray: 2 5; }
+.ev-star .gl { font-size: 13px; fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.ev-star .al { font-size: 17px; font-weight: 700; fill: var(--ink-2); }
+.ev-star .al.gap { fill: var(--muted); font-weight: 400; font-style: italic; }
+.ev-star .al.short { display: none; }
+.ev-star .gn { font-size: 13px; fill: var(--muted); font-style: italic; }
+.ev-star .axl { cursor: help; }
+.ev-star .sf { stroke: none; }
+.ev-star .sl { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.ev-star .over.sf { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ev-star .over.sl { stroke: var(--accent); stroke-width: 2.5; }
+.ev-star .under.sf { fill: none; }
+.ev-star .under.sl { stroke: var(--ev-off); stroke-width: 2.5; stroke-dasharray: 6 4; }
+.ev-star .mean.sf { fill: none; }
+.ev-star .mean.sl { stroke: var(--ink-2); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.ev-star .v { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.ev-star .vb { fill: var(--surface); stroke: var(--ev-off); stroke-width: 2.5; }
+.ev-star .hit { fill: transparent; pointer-events: all; }
+.ev-star .vx { cursor: help; }
+.ev-star .vx:hover .v, .ev-star .vx:hover .vb { stroke-width: 3.5; }
+.ev-star.mini .grid { stroke-width: 1; }
+.ev-star.mini .perfect { stroke-width: 1.2; }
+.ev-star.mini .over.sl { stroke-width: 2; }
+.ev-star.mini .mean.sl { stroke-width: 1.2; }
+
+.ev-key { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); margin-top: 8px; justify-content: center; }
+.ev-key.start { justify-content: flex-start; }
+.ev-key span { display: inline-flex; align-items: center; gap: 6px; }
+.ev-lnk { inline-size: 22px; block-size: 0; display: inline-block; flex: none; border-top: 2.5px solid var(--accent); }
+.ev-lnk.under { border-top: 2.5px dashed var(--ev-off); }
+.ev-lnk.mean { border-top: 1.5px dashed var(--ink-2); }
+.ev-lnk.perfect { border-top: 1.5px dotted var(--ink-2); }
+
+/* Per-axis readout beside the chart. */
+.ev-axl { list-style: none; margin: 0; padding: 0; flex: 0 1 320px; min-width: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ev-axl li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding-block: 6px; border-top: 1px solid var(--rule); }
+.ev-axl.two li { grid-template-columns: minmax(0, 1fr) auto 56px; }
+.ev-axl li:first-child { border-top: 0; }
+.ev-axl li.hd { font-size: 12.5px; color: var(--muted); font-weight: 700; }
+.ev-axl li.hd b { font-weight: 700; }
+.ev-axl li:not(.hd) { cursor: help; }
+.ev-axl .k.gap { color: var(--muted); font-style: italic; }
+.ev-axl .n, .ev-axl .d { text-align: end; }
+.ev-axl .n.low { color: var(--ev-warn); font-weight: 700; }
+.ev-axl .d.p { color: var(--accent); font-weight: 700; }
+.ev-axl .d.m { color: var(--critical); font-weight: 700; }
+
+.ev-note { font-size: 13.5px; color: var(--ink-2); background: var(--surface-2); border-radius: 12px; padding-block: 10px; padding-inline: 14px; margin: 12px 0 0; }
+
+/* Small multiples: one shape per document over the mean. */
+.ev-minis { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 12px; }
+.ev-mini { border: 1px solid var(--rule); border-radius: 14px; padding-block: 10px; padding-inline: 12px; min-width: 0; margin: 0; cursor: help; }
+.ev-mini:hover { background: var(--surface-2); }
+.ev-mini figcaption b { font-size: 14px; display: flex; gap: 2px; align-items: center; min-width: 0; }
+.ev-mini figcaption b .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-mini small { display: block; font-size: 12.5px; color: var(--ink-2); }
+.ev-mini .ev-star { max-inline-size: 220px; margin-inline: auto; }
+.ev-num { display: inline-grid; place-items: center; inline-size: 22px; block-size: 22px; flex: none; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 900; margin-inline-end: 8px; }
+
+/* The numbers table. */
+.ev-ntable { inline-size: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ev-ntable th { text-align: end; font-size: 12.5px; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.ev-ntable td { padding: 9px 10px; border-bottom: 1px solid var(--rule); text-align: end; white-space: nowrap; }
+.ev-ntable th:first-child, .ev-ntable td:first-child { text-align: start; }
+.ev-ntable td:first-child { white-space: normal; min-inline-size: 180px; }
+.ev-ntable tr:hover td { background: var(--surface-2); }
+.ev-ntable tr.mean td { font-weight: 700; background: var(--surface-2); }
+.ev-ntable tr.under td { color: var(--ink-2); }
+.ev-ntable .low { color: var(--ev-warn); font-weight: 700; }
+.ev-ntable .ns { color: var(--muted); font-style: italic; font-size: 12.5px; }
+
+@media (max-width: 720px) {
+  .ev-controls { gap: 8px; }
+  .ev-sel { flex: 1 1 100%; justify-content: space-between; }
+  .ev-sel select { flex: 1 1 auto; }
+  .ev-starrow .ev-star { flex-basis: 100%; }
+  .ev-axl { flex-basis: 100%; }
+  /* Phone shape: short axis labels (F1, F3, F5, MRR, JP, JR, OK, ...) at a size that reads. */
+  .ev-star .al.long { display: none; }
+  .ev-star .al.short { display: inline; font-size: 26px; }
+  .ev-star .gn { font-size: 20px; }
+  .ev-star .gl { font-size: 18px; }
+  .ev-star .grid, .ev-star .ax { stroke-width: 2; }
+  .ev-star .perfect { stroke-width: 2; stroke-dasharray: 3 5; }
+  .ev-star .over.sl { stroke-width: 4; }
+  .ev-star .under.sl { stroke-width: 4; }
+  .ev-star.mini .over.sl { stroke-width: 2; }
+  .ev-star.mini .grid, .ev-star.mini .perfect { stroke-width: 1.2; }
+}
+
+/* ---------- compare (plan task t18; canvas "Compare") ----------
+   Pickers in the intro, the checks card first and the verdict beside it, the shape of the
+   change (shared shape styles above), the change per metric with a centred bar, and the
+   changed questions, worse first. Worse is the warning amber, better the accent. */
+.ev-pick { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; max-width: 100%; }
+.ev-pick .ev-sel select { max-inline-size: 340px; }
+.ev-arrow { display: inline-flex; color: var(--ink-2); }
+.ev-cmprow { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin-top: 16px; }
+.ev-cmprow > .ev-card { margin-top: 0; flex: 1 1 520px; }
+.ev-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ev-checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; font-size: 14px; align-items: start; }
+.ev-checks .ic { display: inline-flex; padding-top: 2px; }
+.ev-checks .ic svg { inline-size: 18px; block-size: 18px; }
+.ev-checks small { display: block; color: var(--ink-2); font-size: 13px; }
+.ev-checks li.fail .tx { font-weight: 700; }
+.ev-checkcard.bad { border-inline-start: 4px solid var(--critical); }
+.ev-verdict .big { font-size: 44px; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ev-verdict .big small { font-size: 18px; font-weight: 700; color: var(--ink-2); }
+.ev-verdict p { margin: 6px 0 0; color: var(--ink-2); font-size: 14.5px; }
+.ev-tally { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.ev-tally .ev-pill { font-size: 13px; padding-inline: 8px 12px; padding-block: 3px; white-space: normal; }
+.ev-tally .ev-pill[data-tip] { cursor: help; }
+.ev-tally .ev-pill.ns { color: var(--ink-2); font-weight: 400; }
+.ev-cmp .ev-axl .d.m { color: var(--ev-warn); }
+
+.ev-ctable { inline-size: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ev-ctable th { text-align: start; font-size: 12.5px; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.ev-ctable td { padding: 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; overflow-wrap: normal; }
+.ev-ctable td.n, .ev-ctable th.n { text-align: end; white-space: nowrap; }
+.ev-ctable td.su { color: var(--ink-2); }
+.ev-ctable tr:hover td { background: var(--surface-2); }
+.ev-ctable tbody tr { cursor: help; }
+.ev-ctable .sr { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ev-delta { font-weight: 700; white-space: nowrap; }
+.ev-delta.p { color: var(--accent); }
+.ev-delta.m { color: var(--ev-warn); }
+.ev-dbar { position: relative; inline-size: 180px; block-size: 14px; }
+.ev-dbar::before { content: ""; position: absolute; inset-inline-start: 50%; inset-block: 0; inline-size: 1px; background: var(--ink-2); }
+.ev-dbar span { position: absolute; inset-block-start: 3px; block-size: 8px; border-radius: 4px; }
+.ev-dbar .p { inset-inline-start: 50%; background: var(--accent); }
+.ev-dbar .m { inset-inline-end: 50%; background: var(--ev-warn); }
+
+.ev-grp { font-size: 13.5px; font-weight: 700; color: var(--ink-2); margin: 16px 0 4px; display: flex; gap: 8px; align-items: center; }
+.ev-grp svg { flex: none; }
+.ev-q { list-style: none; margin: 0; padding: 0; }
+.ev-q li { display: grid; grid-template-columns: minmax(0, 1fr) 170px 190px; gap: 6px 14px; align-items: center; padding-block: 10px; border-top: 1px solid var(--rule); font-size: 14px; cursor: help; }
+.ev-q li[hidden] { display: none; }
+.ev-q .qt b { font-weight: 700; }
+.ev-q .qt small { display: block; color: var(--ink-2); font-size: 12.5px; }
+.ev-q .c { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ev-q .c b { color: var(--ink); }
+
+@media (max-width: 720px) {
+  .ev-pick { flex: 1 1 100%; }
+  .ev-pick .ev-sel select { max-inline-size: none; }
+  .ev-arrow { display: none; }
+  .ev-cmprow > .ev-card { flex-basis: 100%; }
+  .ev-verdict .big { font-size: 34px; }
+  .ev-ctable .su, .ev-ctable .br { display: none; }
+  .ev-ctable td, .ev-ctable th { padding-inline: 6px; }
+  .ev-q li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* (i) note on depth metrics (MRR@5 ...): deviation d4 */
+.evals .ev-info { display: inline-grid; place-items: center; inline-size: 15px; block-size: 15px; margin-inline-start: 6px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 10.5px; font-weight: 700; font-style: normal; line-height: 1; color: var(--muted); cursor: help; vertical-align: 1px; }
+.evals .ev-info:hover, .evals .ev-info:focus-visible { color: var(--accent); }
