@@ -33,13 +33,17 @@ byte-identical.
 
 The library only receives pushed content: nothing here (or anywhere in culture_library)
 runs git or devague. New, pure stdlib; written for culture-library plan task t8; drafts,
-tombstones and the design kind for the devague-work plan task t1.
+tombstones and the design kind for the devague-work plan task t1. ``push`` and ``tombstone``
+take an optional ``on_write(conn, result)`` hook that runs inside their transaction, so a
+caller's side rows (the mirror outbox, the feed event) commit or roll back with the push
+(deviation d6, task t10).
 """
 
 from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -303,11 +307,14 @@ class RepoDocs:
         default_branch_head: str | None = None,
         content: str | bytes,
         visibility: str | None = None,
+        on_write: Callable[[sqlite3.Connection, PushResult], None] | None = None,
     ) -> PushResult:
         """Store a committed version, or with ``commit="working"`` the doc's working draft.
 
         ``committed_at`` and ``default_branch_head`` are required for a commit push and
-        ignored for a working push.
+        ignored for a working push. ``on_write(conn, result)``, when given, runs on this
+        push's connection inside its transaction (deviation d6), so whatever it writes commits
+        or rolls back with the version/draft; if it raises, nothing of the push persists.
         """
         repo = normalize_remote(remote)
         rel = normalize_path(path)
@@ -343,7 +350,10 @@ class RepoDocs:
             else:
                 doc_id, old_current = row["id"], row["current_version_id"]
             if sha == WORKING:
-                return self._push_working(conn, doc_id, blob, len(data), vis, stamp)
+                result = self._push_working(conn, doc_id, blob, len(data), vis, stamp)
+                if on_write is not None:
+                    on_write(conn, result)
+                return result
             existing = conn.execute(
                 "SELECT * FROM repodoc_versions WHERE doc_id = ? AND commit_sha = ?",
                 (doc_id, sha),
@@ -374,7 +384,10 @@ class RepoDocs:
                 (doc_id, sha),
             ).fetchone()
             doc = conn.execute(_DOC_SELECT + " WHERE d.id = ?", (doc_id,)).fetchone()
-        return PushResult(_doc(doc), _version(version), created, new_current != old_current)
+            result = PushResult(_doc(doc), _version(version), created, new_current != old_current)
+            if on_write is not None:
+                on_write(conn, result)
+        return result
 
     def _push_working(
         self, conn: sqlite3.Connection, doc_id: int, blob: str, size: int, vis: str, stamp: str
@@ -434,12 +447,20 @@ class RepoDocs:
             ahead=ahead,
         )
 
-    def tombstone(self, repo: str, path: str, commit: str) -> RepoDoc:
+    def tombstone(
+        self,
+        repo: str,
+        path: str,
+        commit: str,
+        *,
+        on_write: Callable[[sqlite3.Connection, RepoDoc], None] | None = None,
+    ) -> RepoDoc:
         """Mark ``(repo, path)`` removed at ``commit`` (a sha, or ``working``).
 
         Drops the doc's draft; its versions stay stored and readable. The blob file of the
         dropped draft is left in place (other rows may share it). Raises
-        :class:`NotFoundError` for a doc the library never received.
+        :class:`NotFoundError` for a doc the library never received. ``on_write(conn, doc)``
+        runs inside the tombstone's transaction, like :meth:`push`'s.
         """
         rid = normalize_remote(repo)
         rel = normalize_path(path)
@@ -457,8 +478,10 @@ class RepoDocs:
                 " WHERE id = ?",
                 (stamp, sha, stamp, row["id"]),
             )
-            doc = conn.execute(_DOC_SELECT + " WHERE d.id = ?", (row["id"],)).fetchone()
-        return _doc(doc)
+            doc = _doc(conn.execute(_DOC_SELECT + " WHERE d.id = ?", (row["id"],)).fetchone())
+            if on_write is not None:
+                on_write(conn, doc)
+        return doc
 
     @staticmethod
     def _recompute(conn: sqlite3.Connection, doc_id: int, stamp: str) -> int | None:
