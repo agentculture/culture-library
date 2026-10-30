@@ -16,7 +16,8 @@ class Block:
     def find_spec(self, name, path=None, target=None):
         top = name.split('.')[0]
         if top in {'fastapi', 'uvicorn', 'starlette', 'mcp', 'multipart', 'httpx',
-                   'ragas', 'openai', 'datasets', 'instructor'} or top.startswith('langchain'):
+                   'ragas', 'openai', 'datasets', 'instructor',
+                   'boto3', 'botocore'} or top.startswith('langchain'):
             raise ImportError('blocked: ' + name)
 
 sys.meta_path.insert(0, Block())
@@ -95,3 +96,10 @@ def test_default_ci_sync_has_no_eval_extra() -> None:
     syncs = [ln.strip() for ln in wf.splitlines() if "uv sync" in ln]
     assert "- run: uv sync" in syncs
     assert [s for s in syncs if "eval" in s] == ["- run: uv sync --extra eval"]
+
+
+def test_s3_extra_declared_and_base_still_empty() -> None:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert data["project"]["dependencies"] == []
+    assert any(d.startswith("boto3") for d in data["project"]["optional-dependencies"]["s3"])
+    assert ".[server,s3]" in (ROOT / "deploy/Dockerfile").read_text()
