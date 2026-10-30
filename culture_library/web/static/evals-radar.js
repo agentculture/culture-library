@@ -119,24 +119,38 @@ export async function draw(params) {
     return;
   }
   const after = picked.map(r => r.id);
-  const { under, note, overlay, checks } = await overlayFor(p, all, picked, after);
-  const q = after.length === 1 ? `run=${after[0]}` : `runs=${after.join(',')}`;
-  const vsQuery = under ? `&vs=${under.join(',')}` : '';
+  const over = await overlayFor(p, all, picked, after);
   let shape;
   try {
-    shape = await api(`/api/eval/radar?${q}${vsQuery}`);
+    shape = await api(radarQuery(after, over.under));
   } catch (e) {
     if (my === drawing) fill(body, h('p', { class: 'empty' }, `The radar did not answer (${e.detail || e.message}).`));
     return;
   }
   if (my !== drawing) return;
+  cur = { all, allSets, groups, picked, sel, overlay: over.overlay, vs: p.vs };
+  render(body, shapeView(shape, suites, all, picked, over, unknown), after, over.under);
+}
+
+/** GET /api/eval/radar for the drawn runs, with the earlier runs as ``vs`` when laid under. */
+function radarQuery(after, under) {
+  const q = after.length === 1 ? `run=${after[0]}` : `runs=${after.join(',')}`;
+  const vsQuery = under ? `&vs=${under.join(',')}` : '';
+  return `/api/eval/radar?${q}${vsQuery}`;
+}
+
+/** The view model the cards draw from: axes (with the MRR depth note), both shapes and notes. */
+function shapeView(shape, suites, all, picked, over, unknown) {
+  const { under, note, checks } = over;
   const a = shape.kind === 'pair' ? shape.a : shape;
   const b = shape.kind === 'pair' ? shape.b : null;
-  const keys = axisKeys(a, b);
-  const metrics = metricDefs(suites);
   const underRuns = under ? under.map(id => all.find(r => r.id === id)).filter(Boolean) : [];
-  cur = { all, allSets, groups, picked, sel, overlay, vs: p.vs };
-  const view = { axes: G.axisList(keys, metrics, M.rankDepth([...(picked || []), ...underRuns])), a, b, picked, underRuns, under, checks, note, unknown, budget: shape.budget_s };
+  const axes = G.axisList(axisKeys(a, b), metricDefs(suites), M.rankDepth([...picked, ...underRuns]));
+  return { axes, a, b, picked, underRuns, under, checks, note, unknown, budget: shape.budget_s };
+}
+
+/** Fill the page and point "Compare two runs" at the pair on screen. */
+function render(body, view, after, under) {
   fill(body, controls(cur), mainCard(view), minis(view), numbers(view));
   const cmp = $('ev-radar-compare');
   if (cmp) cmp.setAttribute('href', under ? `#evals/compare?before=${under.join(',')}&after=${after.join(',')}` : '#evals/compare');
