@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-10-30
+
+### Added
+
+- Devague work in the library (spec docs/specs/2026-10-30-devague-work-in-the-library.md): every repo's specs, plans, deliveries, designs and raw .devague state, pushed by culture-rules (push contract docs/api/repodocs.md; culture-rules#124).
+- Working drafts: POST /api/repodocs with commit="working" keeps one mutable draft per (repo, path); tombstones mark removed docs and keep their history; content_b64 for binary files, capped by CULTURE_LIBRARY_REPODOC_MAX_BYTES (16 MiB, 413 too_large).
+- A design kind: docs/design/** plus any image, HTML or PDF under a pushed prefix.
+- Project and domain scope from each repo's culture.yaml (core/projects.py), GET /api/projects and /api/domains, and domain/project/connected/include_removed filters on GET /api/repodocs.
+- Spec links: a spec's PR, merge commit and current code paths (core/speclinks.py), shown in GET /api/repodocs/{id} and the reader.
+- A private S3 mirror: core/mirror.py (readable keys, durable outbox, reconcile), storage/s3.py behind a new optional [s3] extra, a mirror worker, a mirror block in /api/status, culture-library mirror {overview,status,reconcile} and culture-library deploy check-bucket.
+- Repo-document search (#4): repodoc_fts, repodoc_embeddings and repodoc_index_queue, indexed at low priority behind library items; hits carry corpus (item|repodoc) and /api/search takes corpora.
+- Delivery JSON renders as a page; reviews and questions render as Markdown; design HTML is served sandboxed as a download.
+- MCP repodoc_* tools with REPODOC_ROUTES parity; repodoc feed events (subject=repodoc).
+- Site: #projects and #domains views grouped by devague slug; the reader shows the working draft by default with a working badge, designs inline, and spec links.
+- scripts/verify-mirror.py checks repo files against the library and S3.
+
+### Changed
+
+- Every repo document is stored private, whatever visibility a push sends (decision c31).
+- /api/rag/retrieve and eval runs use library items only by default (corpora ["item"], recorded in config.corpora), so the eval baseline is unchanged.
+- Repodoc errors are flat {detail, code}.
+- The items kind CHECK widens for design, which rebuilds the items table once on first open: back up before deploying.
+- uv.lock: boto3 for the [s3] extra pins python-dateutil to 2.9.0.post0 (was 3.0.0).
+
+### Fixed
+
+- eval Passage parses repodoc passages (null item_id).
+
 ## [0.18.3] - 2026-10-30
 
 ### Changed
