@@ -114,6 +114,17 @@ _KIND_PREFIXES = (
     ("docs/deliveries/", "devague-record"),
     (".devague/", "devague-record"),
 )
+_DESIGN_SUFFIXES = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".html",
+    ".htm",
+    ".pdf",
+)
 
 
 def _clean_segments(path: str, what: str) -> list[str]:
@@ -174,9 +185,15 @@ def normalize_path(path: str) -> str:
 
 
 def infer_kind(path: str) -> str:
-    """design / spec / plan / devague-record from the path; anything else is a document."""
+    """design / spec / plan / devague-record from the path; anything else is a document.
+
+    A binary asset (image, HTML, PDF) under any pushed prefix is a design, whatever
+    folder it sits in (deviation d1, spec claim c44).
+    """
     for prefix, kind in _KIND_PREFIXES:
         if path.startswith(prefix):
+            if path.lower().endswith(_DESIGN_SUFFIXES):
+                return "design"
             return kind
     return "document"
 
