@@ -282,6 +282,18 @@ runbook's "Restart the live stack" (`docs/operations/deploy.md`).
   `/api/health`, and list the send targets the new container loads. `--build` rebuilds the
   image first; `--dry-run` prints the commands and runs nothing. A schema change still needs
   the upgrade runbook (tag, back up, then restart).
+  When the env file sets `CULTURE_LIBRARY_S3_BUCKET`, the same `grant run` also injects
+  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (`--aws-key-id-secret`, default
+  `CULTURE_LIBRARY_AWS_ACCESS_KEY_ID`; `--aws-secret-key-secret`, default
+  `CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY`; optional `--aws-session-secret`;
+  `--no-aws-credentials` skips them). A placeholder `CULTURE_LIBRARY_S3_*` value, or AWS
+  credentials in the env file, are refused.
+- `deploy check-bucket [--bucket B] [--region R]` — audit the S3 mirror bucket (needs the
+  `[s3]` extra): Block Public Access (all four flags), a default encryption rule, versioning
+  Enabled, and that the configured credentials cannot `s3:DeleteObject` (IAM policy
+  simulation; if simulation is not permitted the check is `unknown` and counts as unhealthy).
+  Emits `{healthy, bucket, checks: [{id, passed, status, severity, message, remediation}]}`;
+  exit 1 when unhealthy.
 - `deploy overview` — describe this noun.
 """
 
@@ -320,6 +332,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("mirror", "overview"): _MIRROR,
     ("deploy",): _DEPLOY,
     ("deploy", "restart"): _DEPLOY,
+    ("deploy", "check-bucket"): _DEPLOY,
     ("deploy", "overview"): _DEPLOY,
     ("server",): _SERVER,
     ("server", "serve"): _SERVER,
