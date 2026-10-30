@@ -90,7 +90,8 @@ def test_precision_at_k_is_excluded_and_values_in_unit_range():
 def test_unscored_metrics_are_none_not_zero():
     run = _run(aggregates_json=None, error_rate=None)
     ax = er.axes(run, [_s(1, ["a"], ["a"])])
-    assert ax["judge_precision"] is None and ax["judge_recall"] is None
+    assert ax["judge_precision"] is None
+    assert ax["judge_recall"] is None
     assert ax["no_errors"] is None
     assert ax["latency_in_budget"] is None
     assert ax["found_at_1"] == 1.0
@@ -99,7 +100,8 @@ def test_unscored_metrics_are_none_not_zero():
 def test_depth_beyond_k_is_none():
     run = _run(config_json={"k": 3})
     ax = er.axes(run, [_s(1, ["a", "b", "c"], ["c"])])
-    assert ax["found_at_5"] is None and ax["found_at_3"] == 1.0
+    assert ax["found_at_5"] is None
+    assert ax["found_at_3"] == 1.0
 
 
 def test_lower_is_better_turned_around_and_partial_aggregates_used():
@@ -137,7 +139,8 @@ def test_compare_checks_come_first_and_block_on_suite_or_judge():
         (_run(1), [_s(1, ["a"], ["a"])]),
         (_run(2, config_json={"k": 5, "judge_model": "other"}), [_s(1, ["a"], ["a"])]),
     )
-    assert j["checks"]["comparable"] is False and set(j) == {"checks"}
+    assert j["checks"]["comparable"] is False
+    assert set(j) == {"checks"}
 
 
 def test_compare_warnings_do_not_block():
@@ -178,7 +181,8 @@ def test_compare_deltas_and_changed_questions_worst_first():
     changed = out["changed_questions"]
     assert [c["question"] for c in changed] == ["one", "two", "four"]
     assert changed[0]["delta"] < 0 < changed[-1]["delta"]
-    assert changed[0]["before"]["mrr"] == 1.0 and changed[0]["after"]["mrr"] == 0.0
+    assert changed[0]["before"]["mrr"] == 1.0
+    assert changed[0]["after"]["mrr"] == 0.0
 
 
 def test_breakdown_per_item_and_per_source_url():
@@ -197,7 +201,8 @@ def test_breakdown_per_item_and_per_source_url():
     ]
     out = er.breakdown(run, samples, sources)
     items = {i["item_id"]: i for i in out["items"]}
-    assert items[10]["questions"] == 2 and items[10]["axes"]["found_at_1"] == 0.5
+    assert items[10]["questions"] == 2
+    assert items[10]["axes"]["found_at_1"] == 0.5
     assert items[11]["axes"]["found_at_1"] == 1.0
     urls = {u["url"]: u for u in out["sources"]}
     assert urls["http://u/1"]["questions"] == 2
@@ -252,7 +257,8 @@ def test_extra_axes_come_from_the_axis_source_and_turn_lower_around():
         ax = er.axes(run, [])
         assert er.axis_names()[: len(er.AXES)] == er.AXES
         assert er.axis_names()[len(er.AXES) :] == ("x_good", "x_bad")  # mapped names skipped
-        assert ax["x_good"] == 0.7 and abs(ax["x_bad"] - 0.8) < 1e-9
+        assert ax["x_good"] == 0.7
+        assert abs(ax["x_bad"] - 0.8) < 1e-9
         assert set(er.group([(run, [])])["axes"]) == set(er.axis_names())
         er.set_axis_source(None)
         assert er.axis_names() == er.AXES

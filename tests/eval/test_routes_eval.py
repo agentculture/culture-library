@@ -187,10 +187,13 @@ def test_post_run_old_body_still_accepted_with_empty_new_fields(library):
     r = library.http.post("/api/eval/runs", json=body)
     assert r.status_code == 201, r.text
     got = r.json()
-    assert got["status"] == "complete" and got["aggregates"] == {"hit": 0.5}
-    assert got["partial_aggregates"] == {} and got["error_rate"] is None
+    assert got["status"] == "complete"
+    assert got["aggregates"] == {"hit": 0.5}
+    assert got["partial_aggregates"] == {}
+    assert got["error_rate"] is None
     assert got["suites"] == []
-    assert got["samples"][0]["question"] is None and got["samples"][0]["latency_ms"] is None
+    assert got["samples"][0]["question"] is None
+    assert got["samples"][0]["latency_ms"] is None
 
 
 def test_post_run_new_fields_roundtrip(library):
@@ -220,7 +223,8 @@ def test_post_run_new_fields_roundtrip(library):
     r = library.http.post("/api/eval/runs", json=body)
     assert r.status_code == 201, r.text
     got = library.http.get(f"/api/eval/runs/{r.json()['id']}").json()
-    assert got["status"] == "partial" and got["aggregates"] == {}
+    assert got["status"] == "partial"
+    assert got["aggregates"] == {}
     assert got["partial_aggregates"] == {"recall": 0.75}
     assert got["error_rate"] == 0.5
     assert got["suites"] == [
@@ -228,9 +232,12 @@ def test_post_run_new_fields_roundtrip(library):
         {"name": "judged", "version": None},
     ]
     smp = got["samples"][0]
-    assert smp["question"] == "q0?" and smp["reference_chunk_shas"] == ["sha0"]
-    assert smp["retrieved_item_ids"] == [7, 8] and smp["latency_ms"] == 12.5
-    assert smp["freshness"] == {"stale": False} and smp["set_version"] == 1
+    assert smp["question"] == "q0?"
+    assert smp["reference_chunk_shas"] == ["sha0"]
+    assert smp["retrieved_item_ids"] == [7, 8]
+    assert smp["latency_ms"] == 12.5
+    assert smp["freshness"] == {"stale": False}
+    assert smp["set_version"] == 1
 
 
 def test_partial_aggregates_do_not_trip_aggregate_rule(library):
@@ -239,7 +246,8 @@ def test_partial_aggregates_do_not_trip_aggregate_rule(library):
         "/api/eval/runs",
         json={"set_id": s["id"], "status": "failed", "partial_aggregates": {"x": 1.0}},
     )
-    assert r.status_code == 201 and r.json()["aggregates"] == {}
+    assert r.status_code == 201
+    assert r.json()["aggregates"] == {}
 
 
 @pytest.mark.parametrize(

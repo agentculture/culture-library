@@ -77,7 +77,8 @@ def test_no_inline_style_attributes_in_markup() -> None:
 
 
 def test_stylesheet_has_no_physical_left_right() -> None:
-    assert CSS in CSS_FILES and len(CSS_FILES) >= 2
+    assert CSS in CSS_FILES
+    assert len(CSS_FILES) >= 2
     for path in CSS_FILES:
         css = _strip_css_comments(path.read_text(encoding="utf-8"))
         for pat in _PHYSICAL:
@@ -112,7 +113,9 @@ def test_evals_text_goes_through_text_nodes() -> None:
     assert "h('b', { class: 't', dir: 'auto' }, r.title)" in js  # dumbbell row titles
     assert "h('b', { class: cls, dir: 'auto' }, nameOf(r))" in js  # weakest items and URLs
     assert "h('span', { class: 't', dir: 'auto' }, it.title)" in js  # runs table source
-    assert "data-tip" in js and "data-evtog" in js and "ev-src" in js  # tips, Table, Source
+    assert "data-tip" in js
+    assert "data-evtog" in js
+    assert "ev-src" in js
     # The pure modules stay pure: no DOM and no imports, so Node can test them.
     for name in PURE_JS:
         text = (STATIC / name).read_text(encoding="utf-8")
@@ -205,17 +208,25 @@ def test_shape_chart_draws_gaps_tips_and_a_table() -> None:
     the dotted perfect outline, labelled gaps for unscored axes, hover tips and a Table toggle;
     the radar page has a Source line and links back from the overview."""
     shape = (STATIC / "evals-shape.js").read_text(encoding="utf-8")
-    assert "createElementNS" in shape and "'perfect'" in shape
-    assert "'not scored'" in shape and "ax gap" in shape and "al gap" in shape
-    assert "'data-tip'" in shape and "data-evtog" in shape
+    assert "createElementNS" in shape
+    assert "'perfect'" in shape
+    assert "'not scored'" in shape
+    assert "ax gap" in shape
+    assert "al gap" in shape
+    assert "'data-tip'" in shape
+    assert "data-evtog" in shape
     radar = (STATIC / "evals-radar.js").read_text(encoding="utf-8")
-    assert "ev-src" in radar and "ev-tbl" in radar and "shapeToggle(" in radar
-    assert "/api/eval/compare?before=" in radar and "checks.comparable" in radar
+    assert "ev-src" in radar
+    assert "ev-tbl" in radar
+    assert "shapeToggle(" in radar
+    assert "/api/eval/compare?before=" in radar
+    assert "checks.comparable" in radar
     evals = (STATIC / "evals.js").read_text(encoding="utf-8")
     assert "radarHash({ runs: [r.id] })" in evals  # runs table
     assert "radarHash({ runs: [r.on.run], vs: [r.off.run] })" in evals  # dumbbell rows
     css = (STATIC / "evals.css").read_text(encoding="utf-8")
-    assert ".ev-star .perfect" in css and "stroke-dasharray: 2 4" in css
+    assert ".ev-star .perfect" in css
+    assert "stroke-dasharray: 2 4" in css
 
 
 def test_compare_page_shows_checks_first_and_question_text_as_text() -> None:
@@ -223,15 +234,20 @@ def test_compare_page_shows_checks_first_and_question_text_as_text() -> None:
     after shape over the before shape with the results sorted by change, and renders question
     text and reasons as text nodes with dir=auto."""
     js = (STATIC / "evals-compare.js").read_text(encoding="utf-8")
-    assert "/api/eval/compare?before=" in js and "checks.comparable" in js
+    assert "/api/eval/compare?before=" in js
+    assert "checks.comparable" in js
     # Checks come first in the row, before the verdict (the first delta on the page).
     assert "checksCard(rows, true), verdict(view)" in js
     assert "shapeChart({ axes, over, under, was: 'before'" in js
-    assert "M.byChange(" in js and "shapeList(sorted, over, under" in js
-    assert "M.questionGroups(" in js and "'Questions that changed'" in js
+    assert "M.byChange(" in js
+    assert "shapeList(sorted, over, under" in js
+    assert "M.questionGroups(" in js
+    assert "'Questions that changed'" in js
     assert "h('b', { class: 't', dir: 'auto' }, q.question" in js
     assert "h('span', { class: 'tx', dir: 'auto' }, r.text" in js
     assert "compareHash({ before, after })" in js
-    assert "ev-src" in js and "shapeToggle(" in js and "'data-tip'" in js
+    assert "ev-src" in js
+    assert "shapeToggle(" in js
+    assert "'data-tip'" in js
     hr = (STATIC / "hashroute.js").read_text(encoding="utf-8")
     assert "#evals/compare?before=19&after=11" in hr

@@ -196,7 +196,8 @@ def test_evals_tab_and_sections(client: TestClient) -> None:
     assert tabs == [("home", "Library"), ("state", "Site state"), ("evals", "Evals")]
     for id_ in ("view-evals", "evals-overview", "evals-radar", "evals-compare", "ev-lede"):
         assert f'id="{id_}"' in html, id_
-    assert 'href="#evals/radar"' in html and 'href="#evals/compare"' in html
+    assert 'href="#evals/radar"' in html
+    assert 'href="#evals/compare"' in html
     app = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "import * as evals from './evals.js';" in app
     assert "const VIEWS = ['home', 'read', 'state', 'evals'];" in app

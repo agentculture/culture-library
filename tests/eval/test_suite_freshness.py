@@ -31,7 +31,8 @@ def _state(row):
 
 def test_registered_and_metric_names_unique():
     assert "freshness" in suites.names()
-    assert SUITE.needs_judge is False and SUITE.version == "1"
+    assert SUITE.needs_judge is False
+    assert SUITE.version == "1"
 
 
 def test_fresh_stale_and_not_applicable():

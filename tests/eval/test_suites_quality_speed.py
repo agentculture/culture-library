@@ -33,7 +33,8 @@ def test_registered_with_definitions_range_direction():
         assert cat[name]["version"] == "1"
         assert cat[name]["needs_judge"] is False
         for m in cat[name]["metrics"]:
-            assert m["definition"] and m["direction"] in ("higher", "lower")
+            assert m["definition"]
+            assert m["direction"] in ("higher", "lower")
     rq = suites.get("result_quality")
     assert _metric(rq, "duplicate_rate").direction == LOWER
     assert _metric(rq, "distinct_sources").direction == HIGHER
@@ -111,4 +112,5 @@ def test_unrecorded_latency_and_errors_are_none_not_zero():
 def test_all_failed_leaves_latency_undefined_error_rate_one():
     ctx = _ctx([[]], latencies_ms=[None], errors=["connection refused"])
     a = SpeedSuite().score(ctx).aggregate
-    assert a["error_rate"] == 1.0 and a["latency_p50_ms"] is None
+    assert a["error_rate"] == 1.0
+    assert a["latency_p50_ms"] is None

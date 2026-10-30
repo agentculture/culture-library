@@ -68,9 +68,12 @@ def test_duplicate_retrieved_passage_counts_once():
 
 def test_no_hit_is_zero_and_empty_references_are_none():
     r = id_metrics(["a", "b"], ["z"], 5)
-    assert r["mrr"] == 0.0 and r["ndcg"] == 0.0 and r["precision_at_k"] == 0.0
+    assert r["mrr"] == 0.0
+    assert r["ndcg"] == 0.0
+    assert r["precision_at_k"] == 0.0
     empty = id_metrics(["a"], [], 5)
-    assert empty["found_at_1"] is None and empty["mrr"] is None
+    assert empty["found_at_1"] is None
+    assert empty["mrr"] is None
 
 
 def test_ndcg_binary_multiple_references_perfect_is_one():
@@ -100,6 +103,8 @@ def test_item_aware_match_requires_both():
 
 def test_sha_only_when_either_side_lacks_item_ids():
     r = id_metrics([(2, "shared")], ["shared"], 5)
-    assert r["found_at_1"] == 1.0 and r["sha_only"] is True
+    assert r["found_at_1"] == 1.0
+    assert r["sha_only"] is True
     r = id_metrics(["shared"], [(1, "shared")], 5)
-    assert r["found_at_1"] == 1.0 and r["sha_only"] is True
+    assert r["found_at_1"] == 1.0
+    assert r["sha_only"] is True
