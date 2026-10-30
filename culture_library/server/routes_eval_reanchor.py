@@ -4,7 +4,8 @@ Maps each sample's stored reference text onto the item's current chunks
 (:mod:`culture_library.core.eval_reanchor`), updates the shas in place (sample ids kept),
 bumps the set version once when anything changed, and records a re-anchor note under the
 set's ``generator.reanchor``. Needs ``write`` scope for the item's kind; an invisible set is
-a 404, an unindexed item a 409 ``not_indexed``.
+a 404, an unindexed item a 409 ``not_indexed``, and an item whose re-index is still
+pending a 409 ``index_pending``.
 """
 
 from __future__ import annotations
@@ -21,6 +22,11 @@ from culture_library.server.routes_eval import _flat, _vis, _visible_set
 router = APIRouter(tags=["eval"])
 
 
+def _index_pending(conn, item_id: int) -> bool:
+    row = conn.execute("SELECT state FROM index_queue WHERE item_id = ?", (item_id,)).fetchone()
+    return row is not None and row[0] == "pending"
+
+
 @router.post("/api/eval/sets/{set_id}/reanchor")
 def reanchor_set(
     set_id: int,
@@ -34,6 +40,14 @@ def reanchor_set(
     _, item = found
     check(principal, "write", item.kind)
     with store.connect() as conn:
+        # Chunks are rebuilt in the background after the bytes change; until that job is
+        # done they may describe the old text, so anchoring (and moving the set's sha) waits.
+        if _index_pending(conn, item.id):
+            return _flat(
+                409,
+                f"item {item.id} is being re-indexed; re-anchor when it is done",
+                "index_pending",
+            )
         chunks = sr.item_chunks(conn, item.id, _vis(principal))
         if not chunks:
             return _flat(409, f"item {item.id} has no indexed chunks to anchor to", "not_indexed")

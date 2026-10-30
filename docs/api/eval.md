@@ -134,7 +134,7 @@ Response 200:
       ]
     }
   ],
-  "updated_at": "2026-10-29T23:36:43+00:00"
+  "updated_at": "2026-10-30T12:50:07+00:00"
 }
 ```
 
@@ -256,7 +256,7 @@ Response 201:
     "questions": "newspaper sources"
   },
   "version": 1,
-  "created_at": "2026-10-29T23:36:43+00:00",
+  "created_at": "2026-10-30T12:50:07+00:00",
   "samples": [
     {
       "id": 1,
@@ -322,7 +322,7 @@ Response 200:
         "questions": "newspaper sources"
       },
       "version": 1,
-      "created_at": "2026-10-29T23:36:43+00:00"
+      "created_at": "2026-10-30T12:50:07+00:00"
     }
   ]
 }
@@ -349,7 +349,7 @@ Response 200:
     "questions": "newspaper sources"
   },
   "version": 1,
-  "created_at": "2026-10-29T23:36:43+00:00",
+  "created_at": "2026-10-30T12:50:07+00:00",
   "samples": [
     {
       "id": 1,
@@ -549,8 +549,8 @@ Response 200:
     "fresh_unknown_count": 0.0,
     "id_based_context_precision": 0.3333333333333333,
     "id_based_context_recall": 1.0,
-    "latency_p50_ms": 12.163036997662857,
-    "latency_p95_ms": 13.73708839819301,
+    "latency_p50_ms": 0.3707334981299937,
+    "latency_p95_ms": 0.38370114052668214,
     "mrr": 0.6666666666666666,
     "ndcg": 0.75,
     "precision_at_k": 0.2,
@@ -567,7 +567,7 @@ Response 200:
     },
     {
       "name": "id_retrieval",
-      "version": "1"
+      "version": "2"
     },
     {
       "name": "result_quality",
@@ -578,7 +578,7 @@ Response 200:
       "version": "1"
     }
   ],
-  "created_at": "2026-10-29T23:36:43+00:00",
+  "created_at": "2026-10-30T12:50:07+00:00",
   "samples": [
     {
       "sample_id": 1,
@@ -620,7 +620,7 @@ Response 200:
         1,
         1
       ],
-      "latency_ms": 10.414,
+      "latency_ms": 0.385,
       "freshness": "fresh"
     },
     {
@@ -663,7 +663,7 @@ Response 200:
         1,
         1
       ],
-      "latency_ms": 13.912,
+      "latency_ms": 0.356,
       "freshness": "fresh"
     }
   ]
@@ -734,8 +734,8 @@ Response 200:
         "fresh_unknown_count": 0.0,
         "id_based_context_precision": 0.3333333333333333,
         "id_based_context_recall": 1.0,
-        "latency_p50_ms": 12.163036997662857,
-        "latency_p95_ms": 13.73708839819301,
+        "latency_p50_ms": 0.3707334981299937,
+        "latency_p95_ms": 0.38370114052668214,
         "mrr": 0.6666666666666666,
         "ndcg": 0.75,
         "precision_at_k": 0.2,
@@ -752,7 +752,7 @@ Response 200:
         },
         {
           "name": "id_retrieval",
-          "version": "1"
+          "version": "2"
         },
         {
           "name": "result_quality",
@@ -763,7 +763,7 @@ Response 200:
           "version": "1"
         }
       ],
-      "created_at": "2026-10-29T23:36:43+00:00"
+      "created_at": "2026-10-30T12:50:07+00:00"
     }
   ]
 }
@@ -863,7 +863,7 @@ Response 201:
       "version": null
     }
   ],
-  "created_at": "2026-10-29T23:36:44+00:00",
+  "created_at": "2026-10-30T12:50:07+00:00",
   "samples": [
     {
       "sample_id": 1,
@@ -1312,17 +1312,18 @@ Response 200:
   ],
   "could_not_re_anchor": [],
   "note": {
-    "at": "2026-10-29T23:36:44+00:00",
+    "at": "2026-10-30T12:50:07+00:00",
     "version": 1,
     "re_anchored": 2,
     "changed": 0,
     "stale": 0,
-    "stale_sample_ids": []
+    "stale_sample_ids": [],
+    "item_sha256": "3be578af166115f7f5f62f60c4d42f91d3da43441a7d5278b2b6b196f5bdf2b6"
   }
 }
 ```
 
-Status codes: 200; 401, 403, 404 `not_found`, 409 `not_indexed` (the item has no indexed chunks yet).
+Status codes: 200; 401, 403, 404 `not_found`, 409 `not_indexed` (the item has no indexed chunks yet), 409 `index_pending` (the item is being re-indexed; re-anchor when that is done).
 
 ## Errors
 

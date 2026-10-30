@@ -37,7 +37,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 import culture_library.eval.suites  # noqa: F401  # installs the registry-driven radar axes
-from culture_library.core import NotFoundError, Store, eval_radar, eval_store
+from culture_library.core import Store, eval_radar, eval_store
 from culture_library.server.auth import Principal, check, current_principal, get_store
 from culture_library.server.routes_eval import _flat, _visible_set
 
@@ -71,10 +71,13 @@ def _budget(budget_s: float) -> float:
 
 
 class _Loader:
-    """Loads runs for one request: one set lookup and visibility check per set, not per run.
+    """Loads runs for one request; each handler builds exactly one.
 
-    Set samples (questions and reference texts) are only read when ``with_samples`` is set,
-    since only the weakest-sources breakdown uses them.
+    A set's lookup and visibility check happen once per request whatever the number of runs
+    or sides. A group is read over one reader connection with two batched queries (runs,
+    then the visible runs' results), not one query per run. Set samples (questions and
+    reference texts) are only read when ``with_samples`` is set, since only the
+    weakest-sources breakdown uses them.
     """
 
     def __init__(self, store: Store, principal: Principal, *, with_samples: bool = False):
@@ -90,34 +93,25 @@ class _Loader:
             self._item_of[set_id] = None if found is None else found[0]["item_id"]
         return self._item_of[set_id]
 
+    def group(self, ids: list[int]) -> tuple[list[_Scored], int]:
+        """The visible runs among ``ids`` in the given order, and how many were left out."""
+        with self._store.reader() as conn:
+            runs = eval_store.get_runs(conn, ids)
+            visible = [runs[i] for i in ids if i in runs and self._item_id(runs[i]["set_id"])]
+            results = eval_store.list_runs_samples(conn, [r["id"] for r in visible])
+            if self._with_samples:
+                for sid in {r["set_id"] for r in visible} - self._samples_of.keys():
+                    self._samples_of[sid] = eval_store.list_samples(conn, sid)
+        scored = []
+        for run in visible:
+            run["item_id"] = self._item_of[run["set_id"]]
+            scored.append((run, results[run["id"]], self._samples_of.get(run["set_id"], [])))
+        return scored, len(ids) - len(scored)
+
     def load(self, run_id: int) -> _Scored | None:
         """The run's scored rows, or None when absent or its item is invisible."""
-        try:
-            with self._store.reader() as conn:
-                run = eval_store.get_run(conn, run_id)
-        except NotFoundError:
-            return None
-        item_id = self._item_id(run["set_id"])
-        if item_id is None:
-            return None
-        run["item_id"] = item_id
-        with self._store.reader() as conn:
-            results = eval_store.list_run_samples(conn, run_id)
-            if self._with_samples and run["set_id"] not in self._samples_of:
-                self._samples_of[run["set_id"]] = eval_store.list_samples(conn, run["set_id"])
-        return run, results, self._samples_of.get(run["set_id"], [])
-
-    def group(self, ids: list[int]) -> tuple[list[_Scored], int]:
-        loaded = [self.load(i) for i in ids]
-        return [x for x in loaded if x is not None], sum(1 for x in loaded if x is None)
-
-
-def _load(store: Store, principal: Principal, run_id: int) -> _Scored | None:
-    return _Loader(store, principal).load(run_id)
-
-
-def _load_group(store: Store, principal: Principal, ids: list[int]) -> tuple[list[_Scored], int]:
-    return _Loader(store, principal).group(ids)
+        scored, _ = self.group([run_id])
+        return scored[0] if scored else None
 
 
 def _shape(scored: list[_Scored], left_out: int, kind: str, budget_s: float) -> dict[str, Any]:
@@ -125,21 +119,14 @@ def _shape(scored: list[_Scored], left_out: int, kind: str, budget_s: float) -> 
     return {"kind": kind, **g, "left_out": left_out}
 
 
-def _single_or_404(store: Store, principal: Principal, run_id: int):
-    loaded = _load(store, principal, run_id)
+def _single_or_404(loader: _Loader, run_id: int):
+    loaded = loader.load(run_id)
     if loaded is None:
         return None, _flat(404, f"eval run {run_id} not found", "not_found")
     return loaded, None
 
 
-def _side(
-    store: Store,
-    principal: Principal,
-    run: str | None,
-    runs: str | None,
-    name: str,
-    budget_s: float,
-):
+def _side(loader: _Loader, run: str | None, runs: str | None, name: str, budget_s: float):
     """(shape, error response) for one radar side from ``run`` / ``runs`` params."""
     if (run is None) == (runs is None):
         raise _Bad(f"give exactly one of {name}run and {name}runs")
@@ -147,11 +134,11 @@ def _side(
         rid = _ids(run, "run")
         if len(rid) != 1:
             raise _Bad("run takes a single id; use runs for a group")
-        loaded, err = _single_or_404(store, principal, rid[0])
+        loaded, err = _single_or_404(loader, rid[0])
         if err:
             return None, err
         return _shape([loaded], 0, "run", budget_s), None
-    scored, left = _load_group(store, principal, _ids(runs, "runs"))
+    scored, left = loader.group(_ids(runs, "runs"))
     return _shape(scored, left, "group", budget_s), None
 
 
@@ -167,19 +154,20 @@ def get_radar(
     check(principal, "read")
     try:
         budget = _budget(budget_s)
-        a, err = _side(store, principal, run, runs, "", budget)
+        loader = _Loader(store, principal)
+        a, err = _side(loader, run, runs, "", budget)
         if err:
             return err
         if vs is None:
             return {**a, "budget_s": budget}
         ids = _ids(vs, "vs")
         if len(ids) == 1:
-            loaded, err = _single_or_404(store, principal, ids[0])
+            loaded, err = _single_or_404(loader, ids[0])
             if err:
                 return err
             b = _shape([loaded], 0, "run", budget)
         else:
-            scored, left = _load_group(store, principal, ids)
+            scored, left = loader.group(ids)
             b = _shape(scored, left, "group", budget)
         return {"kind": "pair", "a": a, "b": b, "budget_s": budget}
     except _Bad as exc:
@@ -239,17 +227,18 @@ def get_compare(
     except _Bad as exc:
         return _flat(422, exc.detail, "invalid")
     left = {"before": 0, "after": 0}
+    loader = _Loader(store, principal)
     if len(ids_b) == 1 and len(ids_a) == 1:
-        one_b, err = _single_or_404(store, principal, ids_b[0])
+        one_b, err = _single_or_404(loader, ids_b[0])
         if err:
             return err
-        one_a, err = _single_or_404(store, principal, ids_a[0])
+        one_a, err = _single_or_404(loader, ids_a[0])
         if err:
             return err
         out = eval_radar.compare(one_b[:2], one_a[:2], budget_s=budget)
     else:
-        grp_b, left["before"] = _load_group(store, principal, ids_b)
-        grp_a, left["after"] = _load_group(store, principal, ids_a)
+        grp_b, left["before"] = loader.group(ids_b)
+        grp_a, left["after"] = loader.group(ids_a)
         if not grp_b or not grp_a:
             side = "before" if not grp_b else "after"
             checks = {

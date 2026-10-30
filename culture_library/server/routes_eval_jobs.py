@@ -174,16 +174,18 @@ class InProcessClient:
 class _Progress:
     """Stores each question's retrieval as ``run_set`` reports it and advances ``completed``.
 
-    ``recorded`` counts the results stored, so a run that fails later is closed with a
-    ``completed`` that matches the results it keeps.
+    ``recorded`` is the one count: results stored and committed. It goes up only after the
+    commit, so ``completed`` never runs ahead of the stored results and never goes backwards
+    when a run fails. A failed retrieval is not a result; it is kept in ``errors`` (the same
+    ``{sample_id, error}`` shape as ``config.errors``) so a failed run still reports it.
     """
 
     def __init__(self, store: Store, run_id: int, version: int):
         self._store = store
         self._run_id = run_id
         self._version = version
-        self._done = 0
         self.recorded = 0
+        self.errors: list[dict[str, Any]] = []
 
     def __call__(
         self,
@@ -193,24 +195,25 @@ class _Progress:
         latency_ms: float | None,
         error: str | None,
     ) -> None:
-        self._done += 1
+        if passages is None:
+            self.errors.append({"sample_id": sample.id, "error": error or "retrieval failed"})
+            return
+        shas = [p.chunk_sha for p in passages]
         with self._store.connect() as conn:
-            if passages is not None:
-                shas = [p.chunk_sha for p in passages]
-                eval_store.add_run_sample(
-                    conn,
-                    self._run_id,
-                    sample.id,
-                    retrieved_chunk_shas=shas,
-                    scores=id_metrics(shas, sample.reference_chunk_shas),
-                    question=sample.question,
-                    reference_chunk_shas=list(sample.reference_chunk_shas),
-                    set_version=self._version,
-                    retrieved_item_ids=[p.item_id for p in passages],
-                    latency_ms=None if latency_ms is None else round(latency_ms, 3),
-                )
-                self.recorded += 1
-            eval_store.set_run_progress(conn, self._run_id, self._done)
+            eval_store.add_run_sample(
+                conn,
+                self._run_id,
+                sample.id,
+                retrieved_chunk_shas=shas,
+                scores=id_metrics(shas, sample.reference_chunk_shas),
+                question=sample.question,
+                reference_chunk_shas=list(sample.reference_chunk_shas),
+                set_version=self._version,
+                retrieved_item_ids=[p.item_id for p in passages],
+                latency_ms=None if latency_ms is None else round(latency_ms, 3),
+            )
+            eval_store.set_run_progress(conn, self._run_id, self.recorded + 1)
+        self.recorded += 1
 
 
 def _load_set(store: Store, set_id: int) -> EvalSet:
@@ -285,7 +288,11 @@ def _worker(
                 conn,
                 run_id,
                 status="failed",
-                config={**base_config, "error": str(exc) or type(exc).__name__},
+                config={
+                    **base_config,
+                    "error": str(exc) or type(exc).__name__,
+                    **({"errors": progress.errors} if progress.errors else {}),
+                },
                 # The per-question results stored so far stay attached; completed says so.
                 completed=progress.recorded,
             )

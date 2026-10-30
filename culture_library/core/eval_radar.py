@@ -107,15 +107,24 @@ def _question_metrics(sample: Result, k: int, item_id: Any = None) -> dict[str, 
     Every reference belongs to the set's own item, so when the result stored the
     retrieved item ids (one per rank) a passage only counts when item and sha both
     match; identical text in another book shares a sha and must not be credited.
+
+    A result with no reference snapshot (``None``, as a backfill leaves a run whose set was
+    re-anchored since) cannot be re-scored: its references are gone. It keeps the ID scores
+    the run stored when it was scored, and a metric the run never stored stays ``None``.
     """
     ids = sample.get("retrieved_item_ids")
-    return item_aware_metrics(
+    refs = sample.get("reference_chunk_shas")
+    out = item_aware_metrics(
         list(sample.get("retrieved_chunk_shas") or []),
         ids if isinstance(ids, list) else None,
-        list(sample.get("reference_chunk_shas") or []),
+        list(refs or []),
         sample.get("item_id", item_id),
         k,
     )
+    if refs is None and sample.get("question") is not None:
+        stored = sample.get("scores_json") or {}
+        out = {key: stored.get(key) if key != "depth" else val for key, val in out.items()}
+    return out
 
 
 def _failed_ids(run: Run) -> set[Any]:

@@ -17,6 +17,7 @@ succeeded -> ``failed`` with neither. ``error_rate`` is failures / questions.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol, Sequence
@@ -29,6 +30,8 @@ from .models import EvalRun, EvalSet, Passage, SampleResult, ScoreResult
 from .suites import SuiteContext, SuiteScore
 from .suites import freshness as freshness_suite
 from .suites.judged import JudgedSuite
+
+log = logging.getLogger(__name__)
 
 PRECISION = "id_based_context_precision"
 RECALL = "id_based_context_recall"
@@ -224,7 +227,8 @@ def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup, on_re
 
     Each call is timed client side with ``time.perf_counter`` (HTTP round trip plus JSON
     decode). ``warmup`` first makes one un-timed, unrecorded call so the first timed one is
-    not cold. ``on_retrieval`` (see :data:`OnRetrieval`) reports each question as it finishes.
+    not cold. ``on_retrieval`` (see :data:`OnRetrieval`) reports each question as it finishes;
+    an exception it raises is logged and the run goes on.
     """
     opts = {"k": k, "mode": mode, "rerank": rerank, "candidates": candidates}
     if warmup and samples:
@@ -239,14 +243,22 @@ def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup, on_re
         outcomes.append(done)
         errors.append(error)
         if on_retrieval is not None:
-            on_retrieval(
-                index,
-                sample,
-                done.passages if done else None,
-                done.latency_ms if done else None,
-                error,
-            )
+            _report(on_retrieval, index, sample, done, error)
     return outcomes, errors
+
+
+def _report(on_retrieval: OnRetrieval, index: int, sample, done, error) -> None:
+    """Call ``on_retrieval``; its failure is logged, never the run's end (it only reports)."""
+    try:
+        on_retrieval(
+            index,
+            sample,
+            done.passages if done else None,
+            done.latency_ms if done else None,
+            error,
+        )
+    except Exception:  # a progress reporter must not abort scoring
+        log.warning("on_retrieval failed for question %d", index, exc_info=True)
 
 
 def _build_run(

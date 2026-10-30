@@ -188,3 +188,34 @@ def test_partial_reanchor_keeps_the_old_set_sha(library):
     body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
     assert body["could_not_re_anchor"]  # the licence question is stale
     assert _set_sha(library, s["id"]) == "old"
+
+
+def test_reanchor_waits_while_the_item_is_being_re_indexed(library):
+    """Chunks may still be the old text until the indexer job is done, so nothing moves."""
+    texts = ["Moby", *STORY]
+    item = _index_item(library, texts)
+    s = _build_set(library, item, _chunks(texts)[1:])
+    with library.store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+        conn.execute(
+            "INSERT OR REPLACE INTO index_queue (item_id, state, enqueued_at) "
+            "VALUES (?, 'pending', 0)",
+            (item.id,),
+        )
+    r = library.http.post(f"/api/eval/sets/{s['id']}/reanchor")
+    assert r.status_code == 409
+    assert r.json()["code"] == "index_pending"
+    assert _set_sha(library, s["id"]) == "old"
+
+
+def test_moving_the_set_sha_bumps_the_version_even_with_no_reference_change(library):
+    """Runs before and after were pinned to different bytes; they are not the same set."""
+    texts = ["Moby", *STORY]
+    item = _index_item(library, texts)
+    s = _build_set(library, item, _chunks(texts)[1:])
+    with library.store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+    body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
+    assert body["note"]["changed"] == 0
+    assert body["version"] == 2
+    assert library.http.get(f"/api/eval/sets/{s['id']}").json()["version"] == 2

@@ -415,6 +415,11 @@ PY
 
 The command prints how many results it filled; running it again prints `0`.
 
+Upgrading to 0.18.2 or later, run it once more. It also repairs results that the 0.18.0
+and 0.18.1 backfill filled without a version check: references copied from a newer set
+version are withdrawn (the radar then keeps the run's stored scores), and the rest get their
+`set_version`. Repairs are not counted, so this run can print `0`.
+
 ## Rollback
 
 ```bash

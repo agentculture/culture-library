@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 
@@ -339,3 +340,66 @@ def test_warmup_server_run_stores_every_question(library, fixture_set):
     got = _wait(library, _start(library, set_id=fixture_set.id, warmup=True).json()["run_id"])
     assert got["status"] == "complete"
     assert [s["question"] for s in got["samples"]] == [s.question for s in fixture_set.samples]
+
+
+def test_a_failing_progress_reporter_does_not_end_the_run(library, fixture_set):
+    def boom(*_a):
+        raise RuntimeError("database is locked")
+
+    run = run_set(library.client, fixture_set, IdOnlyAdapter(), k=3, on_retrieval=boom)
+    assert run.status == "complete"
+    assert run.completed == len(fixture_set.samples)
+
+
+def _progress_run(library, fixture_set):
+    with library.store.connect() as conn:
+        return eval_store.create_run(
+            conn,
+            fixture_set.id,
+            status="partial",
+            config={},
+            total=len(fixture_set.samples),
+            completed=0,
+            running=True,
+        )
+
+
+def test_progress_counts_only_committed_results(library, fixture_set, monkeypatch):
+    run_id = _progress_run(library, fixture_set)
+    progress = jobs._Progress(library.store, run_id, fixture_set.version)
+    sample = fixture_set.samples[0]
+    progress(0, sample, None, None, "timeout")  # a failed retrieval is not a result
+    assert progress.recorded == 0
+    assert progress.errors == [{"sample_id": sample.id, "error": "timeout"}]
+
+    def locked(*_a, **_kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(eval_store, "set_run_progress", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        progress(0, sample, [], 1.0, None)
+    assert progress.recorded == 0  # rolled back, so not counted
+    with library.store.reader() as conn:
+        assert eval_store.list_run_samples(conn, run_id) == []
+
+
+def test_failed_run_keeps_the_questions_whose_retrieval_failed(library, fixture_set, monkeypatch):
+    real_retrieve, real_run_set = jobs.InProcessClient.retrieve, jobs.run_set
+    first = fixture_set.samples[0].question
+
+    def retrieve(self, query, *a, **kw):
+        if query == first:
+            raise jobs.EvalApiError("gateway down", status=503)
+        return real_retrieve(self, query, *a, **kw)
+
+    def retrieve_then_boom(*a, **kw):
+        real_run_set(*a, **kw)
+        raise RuntimeError("suite exploded")
+
+    monkeypatch.setattr(jobs.InProcessClient, "retrieve", retrieve)
+    monkeypatch.setattr(jobs, "run_set", retrieve_then_boom)
+    got = _wait(library, _start(library, set_id=fixture_set.id).json()["run_id"])
+    assert got["status"] == "failed"
+    assert got["completed"] == len(got["samples"]) == len(fixture_set.samples) - 1
+    errors = got["config"]["errors"]
+    assert [e["sample_id"] for e in errors] == [fixture_set.samples[0].id]

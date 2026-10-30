@@ -81,14 +81,15 @@ def apply_reanchor(
     chunks: Sequence[Chunk],
     item_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Re-anchor a set in place; bump its version once if any sample's shas changed.
+    """Re-anchor a set in place; bump its version once if any sample's shas or its sha changed.
 
     Sample ids are kept (UPDATE, not replace_samples). The summary is stored additively under
     ``generator_json["reanchor"]`` whether or not the version bumped, and returned. When every
     sample re-anchored and ``item_sha256`` (the item's current bytes) is given, the set now
     describes those bytes, so its ``item_sha256`` moves to them and later runs stop reporting
     ``item_changed``. With any stale sample left, the set still holds questions on the old
-    text and keeps its old sha.
+    text and keeps its old sha. The caller must pass chunks built from ``item_sha256``'s
+    bytes (the route refuses while the item's re-index is pending).
     """
     row = eval_store.get_set(conn, set_id)
     samples = eval_store.list_samples(conn, set_id)
@@ -103,10 +104,13 @@ def apply_reanchor(
             "UPDATE eval_samples SET reference_chunk_shas = ? WHERE id = ?",
             (eval_store._dumps(res.updates[sid]), sid),
         )
-    version = row["version"] + (1 if changed else 0)
     set_sha = row["item_sha256"]
     if item_sha256 and not res.stale and set_sha != item_sha256:
         set_sha = item_sha256
+    # A moved sha is a new set even when no reference changed: runs before and after were
+    # pinned to different bytes, so they must not compare as the same set version.
+    bumped = bool(changed) or set_sha != row["item_sha256"]
+    version = row["version"] + (1 if bumped else 0)
     note = {
         "at": now(),
         "version": version,

@@ -316,3 +316,28 @@ def test_compare_leaves_out_questions_that_failed_on_either_side():
     )
     out = er.compare((_run(1), before), (run_b, after))
     assert out["changed_questions"] == []
+
+
+def test_result_without_reference_snapshot_keeps_its_stored_id_scores():
+    """A backfill withdrew the references (set re-anchored since): use what the run stored."""
+    row = {
+        "sample_id": 1,
+        "question": "q",
+        "retrieved_chunk_shas": ["a", "b"],
+        "reference_chunk_shas": None,
+        "scores_json": {"found_at_1": 0.0, "found_at_5": 1.0, "mrr": 0.5},
+    }
+    got = er._question_metrics(row, 5)
+    assert (got["found_at_1"], got["found_at_5"], got["mrr"]) == (0.0, 1.0, 0.5)
+    assert got["ndcg"] is None  # never stored, so not measured
+
+
+def test_result_with_empty_references_is_still_rescored():
+    row = {
+        "sample_id": 1,
+        "question": "q",
+        "retrieved_chunk_shas": ["a"],
+        "reference_chunk_shas": [],
+        "scores_json": {"found_at_1": 1.0},
+    }
+    assert er._question_metrics(row, 5)["found_at_1"] is None

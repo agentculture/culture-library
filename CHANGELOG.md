@@ -10,10 +10,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Re-anchoring a set moves its `item_sha256` to the item's current bytes once every question re-anchored, so later runs stop reporting `item_changed`. With any stale question left, the set keeps its old sha, because it still holds questions on the old text.
-- `eval_store.backfill_snapshots` copies a result's reference shas (and records its `set_version`) only while the set is still at the version the run used. After a re-anchor it fills the question only, instead of pairing old retrievals with new references.
-- A server run that fails after some retrievals closes `failed` with `completed` equal to the results it keeps, not 0.
-- `run_set` takes an `on_retrieval` callback, called once per question as it finishes. The server records progress through it, instead of a client that matched results to questions by counting calls.
-- The radar, compare and weakest views check each set's visibility once per request, not once per run, and only the weakest view reads the set samples (once per set).
+- Re-anchoring returns 409 `index_pending` while the item's re-index is still queued, because its chunks may still be the old text, and anchoring to them would mark the set current against bytes nobody checked.
+- A re-anchor that moves the set's sha bumps the set version even when no reference changed, so runs pinned to different bytes no longer compare as the same set.
+- `eval_store.backfill_snapshots` copies a result's reference shas (and records its `set_version`) only while the set is still at the version the run used. After a re-anchor it fills the question only, instead of pairing old retrievals with new references. Running it again also repairs results that the unguarded 0.18.0/0.18.1 backfill filled: it withdraws references copied from a newer set version and stamps `set_version` on the rest.
+- The radar keeps a result's stored ID scores when its reference snapshot was withdrawn, instead of scoring it with no references. A metric the run never stored stays unmeasured.
+- A server run that fails after some retrievals closes `failed` with `completed` equal to the results it keeps, not 0, and keeps the questions whose retrieval failed in `config.errors`.
+- `run_set` takes an `on_retrieval` callback, called once per question as it finishes. The server records progress through it, instead of a client that matched results to questions by counting calls. A failing callback is logged and the run goes on. Progress counts only committed results, so `completed` never runs ahead of the stored results or goes backwards when a run fails.
+- The radar, compare and weakest views build one loader per request, so each set's visibility is checked once per request, including across both sides of a compare or radar pair. A group of runs is read over one connection with two batched queries instead of two connections and two queries per run, and only the weakest view reads the set samples (once per set).
 
 ### Changed
 

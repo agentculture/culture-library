@@ -334,13 +334,28 @@ def backfill_snapshots(conn: sqlite3.Connection) -> int:
     deleted (a regenerated set) cannot be filled. The question never changes, so it is always
     copied; the reference shas (and the result's ``set_version``) are copied only while the
     set is still at the version the run used, because a re-anchor since then rewrote them and
-    the current ones would not match what the run was scored against. Returns how many
-    results were filled.
+    the current ones would not match what the run was scored against. Rows an older,
+    unguarded backfill filled (a question but no ``set_version``) are repaired the same way.
+    Returns how many results were filled (repairs are not counted).
     """
     same_version = (
         "(SELECT r.set_version FROM eval_runs r WHERE r.id = eval_run_samples.run_id) = "
         "(SELECT st.version FROM eval_samples sm JOIN eval_sets st ON st.id = sm.set_id "
         "WHERE sm.id = eval_run_samples.sample_id)"
+    )
+    # 0.18.0/0.18.1 backfilled without the version guard and without set_version. Repair
+    # those rows first: references copied from a newer set version are withdrawn (the radar
+    # then keeps the run's stored scores), and same-version rows get their set_version.
+    conn.execute(
+        "UPDATE eval_run_samples SET "  # nosec B608 - fixed SQL, no user input
+        f"reference_chunk_shas = CASE WHEN {same_version} THEN reference_chunk_shas "
+        "ELSE NULL END, "
+        f"set_version = CASE WHEN {same_version} THEN "
+        "(SELECT r.set_version FROM eval_runs r WHERE r.id = eval_run_samples.run_id) "
+        "ELSE NULL END "
+        "WHERE question IS NOT NULL AND set_version IS NULL "
+        "AND reference_chunk_shas IS NOT NULL AND EXISTS "
+        "(SELECT 1 FROM eval_samples WHERE id = eval_run_samples.sample_id)"
     )
     cur = conn.execute(
         "UPDATE eval_run_samples SET "  # nosec B608 - fixed SQL, no user input
@@ -363,6 +378,35 @@ def get_run(conn: sqlite3.Connection, run_id: int) -> dict[str, Any]:
     if row is None:
         raise NotFoundError(f"eval run {run_id} not found")
     return _decode(row, _RUN_COLS, _JSON_RUN)
+
+
+def get_runs(conn: sqlite3.Connection, run_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+    """The runs that exist among ``run_ids``, by id, in one query (missing ids are absent)."""
+    ids = [int(i) for i in run_ids]
+    if not ids:
+        return {}
+    marks = ", ".join("?" * len(ids))
+    sql = f"SELECT {_RUN_COLS} FROM eval_runs WHERE id IN ({marks})"  # nosec B608
+    runs = [_decode(r, _RUN_COLS, _JSON_RUN) for r in conn.execute(sql, ids).fetchall()]
+    return {r["id"]: r for r in runs}
+
+
+def list_runs_samples(
+    conn: sqlite3.Connection, run_ids: Sequence[int]
+) -> dict[int, list[dict[str, Any]]]:
+    """``list_run_samples`` for several runs in one query, keyed by run id."""
+    ids = [int(i) for i in run_ids]
+    out: dict[int, list[dict[str, Any]]] = {i: [] for i in ids}
+    if not ids:
+        return out
+    marks = ", ".join("?" * len(ids))
+    sql = (
+        f"SELECT run_id, {_RUN_SAMPLE_COLS} FROM eval_run_samples "  # nosec B608
+        f"WHERE run_id IN ({marks}) ORDER BY run_id, sample_id"
+    )
+    for row in conn.execute(sql, ids).fetchall():
+        out[row[0]].append(_decode(row[1:], _RUN_SAMPLE_COLS, _JSON_RUN_SAMPLE))
+    return out
 
 
 def list_runs(
@@ -495,6 +539,8 @@ __all__ = [
     "add_run_sample",
     "add_samples",
     "backfill_snapshots",
+    "get_runs",
+    "list_runs_samples",
     "close_running_runs",
     "comparable",
     "create_run",

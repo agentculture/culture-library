@@ -318,3 +318,33 @@ def test_views_check_each_set_once_and_read_samples_only_for_weakest(library, mo
     assert seen == {"visible": 1, "samples": 0}
     assert library.http.get(f"/api/eval/weakest?runs={ids}").status_code == 200
     assert seen == {"visible": 2, "samples": 1}
+
+
+def test_compare_checks_a_shared_set_once_and_groups_read_in_batches(library, monkeypatch):
+    from culture_library.core import eval_store
+    from culture_library.server import routes_eval_views as views
+
+    s = _make_set(library, library.add_item(b"a"))
+    runs = [_make_run(library, s) for _ in range(4)]
+    seen = {"visible": 0, "per_run": 0}
+    real_visible = views._visible_set
+
+    def visible(*a, **kw):
+        seen["visible"] += 1
+        return real_visible(*a, **kw)
+
+    def per_run(*_a, **_kw):
+        seen["per_run"] += 1
+        raise AssertionError("views must read runs in batches")
+
+    monkeypatch.setattr(views, "_visible_set", visible)
+    monkeypatch.setattr(eval_store, "get_run", per_run)
+    monkeypatch.setattr(eval_store, "list_run_samples", per_run)
+    assert (
+        library.http.get(f"/api/eval/compare?before={runs[0]}&after={runs[1]}").status_code == 200
+    )
+    assert seen == {"visible": 1, "per_run": 0}
+    q = f"before={runs[0]},{runs[1]}&after={runs[2]},{runs[3]}"
+    assert library.http.get(f"/api/eval/compare?{q}").status_code == 200
+    assert library.http.get(f"/api/eval/radar?run={runs[0]}&vs={runs[1]}").status_code == 200
+    assert seen == {"visible": 3, "per_run": 0}  # one check per request
