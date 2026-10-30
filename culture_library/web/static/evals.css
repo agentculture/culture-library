@@ -171,7 +171,7 @@
 .ev-star .perfect { fill: none; stroke: var(--ink-2); stroke-width: 1.5; stroke-dasharray: 2 4; }
 .ev-star .ax { stroke: var(--rule); stroke-width: 1.2; }
 .ev-star .ax.gap { stroke: var(--muted); stroke-dasharray: 2 5; }
-.ev-star .gl { font-size: 13px; fill: var(--muted); }
+.ev-star .gl { font-size: 13px; fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 .ev-star .al { font-size: 17px; font-weight: 700; fill: var(--ink-2); }
 .ev-star .al.gap { fill: var(--muted); font-weight: 400; font-style: italic; }
 .ev-star .al.short { display: none; }
@@ -258,4 +258,67 @@
   .ev-star .under.sl { stroke-width: 4; }
   .ev-star.mini .over.sl { stroke-width: 2; }
   .ev-star.mini .grid, .ev-star.mini .perfect { stroke-width: 1.2; }
+}
+
+/* ---------- compare (plan task t18; canvas "Compare") ----------
+   Pickers in the intro, the checks card first and the verdict beside it, the shape of the
+   change (shared shape styles above), the change per metric with a centred bar, and the
+   changed questions, worse first. Worse is the warning amber, better the accent. */
+.ev-pick { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; max-width: 100%; }
+.ev-pick .ev-sel select { max-inline-size: 340px; }
+.ev-arrow { display: inline-flex; color: var(--ink-2); }
+.ev-cmprow { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin-top: 16px; }
+.ev-cmprow > .ev-card { margin-top: 0; flex: 1 1 520px; }
+.ev-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ev-checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; font-size: 14px; align-items: start; }
+.ev-checks .ic { display: inline-flex; padding-top: 2px; }
+.ev-checks .ic svg { inline-size: 18px; block-size: 18px; }
+.ev-checks small { display: block; color: var(--ink-2); font-size: 13px; }
+.ev-checks li.fail .tx { font-weight: 700; }
+.ev-checkcard.bad { border-inline-start: 4px solid var(--critical); }
+.ev-verdict .big { font-size: 44px; font-weight: 900; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ev-verdict .big small { font-size: 18px; font-weight: 700; color: var(--ink-2); }
+.ev-verdict p { margin: 6px 0 0; color: var(--ink-2); font-size: 14.5px; }
+.ev-tally { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.ev-tally .ev-pill { font-size: 13px; padding-inline: 8px 12px; padding-block: 3px; white-space: normal; }
+.ev-tally .ev-pill[data-tip] { cursor: help; }
+.ev-tally .ev-pill.ns { color: var(--ink-2); font-weight: 400; }
+.ev-cmp .ev-axl .d.m { color: var(--ev-warn); }
+
+.ev-ctable { inline-size: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ev-ctable th { text-align: start; font-size: 12.5px; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.ev-ctable td { padding: 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; overflow-wrap: normal; }
+.ev-ctable td.n, .ev-ctable th.n { text-align: end; white-space: nowrap; }
+.ev-ctable td.su { color: var(--ink-2); }
+.ev-ctable tr:hover td { background: var(--surface-2); }
+.ev-ctable tbody tr { cursor: help; }
+.ev-ctable .sr { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ev-delta { font-weight: 700; white-space: nowrap; }
+.ev-delta.p { color: var(--accent); }
+.ev-delta.m { color: var(--ev-warn); }
+.ev-dbar { position: relative; inline-size: 180px; block-size: 14px; }
+.ev-dbar::before { content: ""; position: absolute; inset-inline-start: 50%; inset-block: 0; inline-size: 1px; background: var(--ink-2); }
+.ev-dbar span { position: absolute; inset-block-start: 3px; block-size: 8px; border-radius: 4px; }
+.ev-dbar .p { inset-inline-start: 50%; background: var(--accent); }
+.ev-dbar .m { inset-inline-end: 50%; background: var(--ev-warn); }
+
+.ev-grp { font-size: 13.5px; font-weight: 700; color: var(--ink-2); margin: 16px 0 4px; display: flex; gap: 8px; align-items: center; }
+.ev-grp svg { flex: none; }
+.ev-q { list-style: none; margin: 0; padding: 0; }
+.ev-q li { display: grid; grid-template-columns: minmax(0, 1fr) 170px 190px; gap: 6px 14px; align-items: center; padding-block: 10px; border-top: 1px solid var(--rule); font-size: 14px; cursor: help; }
+.ev-q li[hidden] { display: none; }
+.ev-q .qt b { font-weight: 700; }
+.ev-q .qt small { display: block; color: var(--ink-2); font-size: 12.5px; }
+.ev-q .c { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ev-q .c b { color: var(--ink); }
+
+@media (max-width: 720px) {
+  .ev-pick { flex: 1 1 100%; }
+  .ev-pick .ev-sel select { max-inline-size: none; }
+  .ev-arrow { display: none; }
+  .ev-cmprow > .ev-card { flex-basis: 100%; }
+  .ev-verdict .big { font-size: 34px; }
+  .ev-ctable .su, .ev-ctable .br { display: none; }
+  .ev-ctable td, .ev-ctable th { padding-inline: 6px; }
+  .ev-q li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }

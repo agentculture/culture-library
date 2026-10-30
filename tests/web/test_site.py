@@ -31,6 +31,7 @@ MODULES = (
     "evals-geom",
     "evals-shape",
     "evals-radar",
+    "evals-compare",
 )
 STYLESHEETS = ("styles", "evals")
 CSP_PARTS = (
@@ -204,9 +205,13 @@ def test_evals_tab_and_sections(client: TestClient) -> None:
 
 def test_every_id_the_evals_module_uses_is_in_the_page() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    js = (STATIC / "evals.js").read_text(encoding="utf-8")
+    js = "".join(
+        (STATIC / f"{m}.js").read_text(encoding="utf-8")
+        for m in ("evals", "evals-radar", "evals-compare")
+    )
     ids = set(re.findall(r"\$\('([\w-]+)'\)", js))
     ids |= {f"evals-{p}" for p in ("overview", "radar", "compare")}
     assert ids >= {"ev-tiles", "ev-rerank", "ev-weak", "ev-suites", "ev-runs", "view-evals"}
+    assert ids >= {"ev-radar-body", "ev-compare-body", "ev-cmp-title", "ev-cmp-lede", "ev-cmp-pick"}
     for id_ in ids:
         assert f'id="{id_}"' in html, id_

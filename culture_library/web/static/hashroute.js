@@ -15,6 +15,15 @@
  *              comparable run of every set, when there is one. vs=none: lay nothing under.
  * IDS are positive integers joined by ","; anything else in the list is dropped, and a repeated
  * id counts once. Example: #evals/radar?runs=11,18,20,21,22&vs=none.
+ *
+ * Compare parameters (#evals/compare?...):
+ *   before=IDS  the run or group of runs on the before side (dashed, under);
+ *   after=IDS   the run or group on the after side (solid, over). Groups are paired by set id
+ *               (GET /api/eval/compare). Example: #evals/compare?before=19&after=11, or
+ *               #evals/compare?before=1,2,3&after=4,5,6.
+ *   With after but no before, the page compares after with the latest earlier comparable run
+ *   of each set; with neither (or before alone), it opens on its default pair (evals-model.js
+ *   defaultCompare: the book sets' rerank-off runs against their rerank-on runs).
  */
 export const EVAL_PAGES = ['radar', 'compare'];
 
@@ -58,4 +67,18 @@ export function radarHash({ runs, vs } = {}) {
   if (vs === 'none') parts.push('vs=none');
   else if (vs && vs.length) parts.push(`vs=${vs.join(',')}`);
   return evalsHash('radar') + (parts.length ? '?' + parts.join('&') : '');
+}
+
+/** The compare page's parameters from a params string: {before: [ids], after: [ids]}. */
+export function compareParams(params) {
+  const q = new URLSearchParams(String(params || ''));
+  return { before: ids(q.get('before')), after: ids(q.get('after')) };
+}
+
+/** The hash of a compare view: compareHash({before: [19], after: [11]}) is "#evals/compare?before=19&after=11". */
+export function compareHash({ before, after } = {}) {
+  const parts = [];
+  if (before && before.length) parts.push(`before=${before.join(',')}`);
+  if (after && after.length) parts.push(`after=${after.join(',')}`);
+  return evalsHash('compare') + (parts.length ? '?' + parts.join('&') : '');
 }

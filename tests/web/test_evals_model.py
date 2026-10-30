@@ -341,3 +341,226 @@ def test_default_view_prefers_books_and_the_config_most_sets_ran() -> None:
         "key": "hybrid|5|on",
     }
     assert _radar("m.defaultView([], [])") is None
+
+
+# ---------- compare (plan task t18) ----------
+
+
+@pytest.mark.parametrize(
+    "params,want",
+    [
+        ("", {"before": [], "after": []}),
+        ("before=19&after=11", {"before": [19], "after": [11]}),
+        ("after=3,4&before=1,2,2,x", {"before": [1, 2], "after": [3, 4]}),
+        ("before=5", {"before": [5], "after": []}),
+    ],
+)
+def test_compare_params(params: str, want: dict) -> None:
+    assert _js("hashroute.js", f"m.compareParams({json.dumps(params)})") == want
+
+
+def test_compare_hash_round_trips_through_parse_hash() -> None:
+    got = _js(
+        "hashroute.js",
+        "[m.compareHash({before: [19], after: [11]}),"
+        " m.compareHash({before: [1, 2], after: [3, 4]}), m.compareHash({})]",
+    )
+    assert got == [
+        "#evals/compare?before=19&after=11",
+        "#evals/compare?before=1,2&after=3,4",
+        "#evals/compare",
+    ]
+    back = _js(
+        "hashroute.js",
+        "m.compareParams(m.parseHash("
+        "m.compareHash({before: [7], after: [8, 9]}), () => false).params)",
+    )
+    assert back == {"before": [7], "after": [8, 9]}
+
+
+def test_compare_question_names_what_differs() -> None:
+    q = _radar("m.compareQuestion(byId([1]), byId([2]))")
+    assert q["question"] == "Did turning rerank on help?"
+    assert q["settings"] == "Only one setting differs: rerank off, then on"
+    assert _radar("m.compareQuestion(byId([2]), byId([1])).question") == (
+        "Did turning rerank off help?"
+    )
+    same = _radar("m.compareQuestion(byId([3]), byId([10]))")
+    assert same["question"] == "What changed since run 3?"
+    assert same["settings"] == "No setting differs: hybrid, k 5, rerank on"
+    assert _radar("m.compareQuestion(byId([3, 4]), byId([10, 11])).question") == (
+        "What changed since runs 3, 4?"
+    )
+    two = _radar(
+        "m.compareQuestion([{id: 1, set_id: 1, config: {mode: 'semantic', k: 5}}],"
+        " [{id: 2, set_id: 1, config: {mode: 'hybrid', k: 10}}])"
+    )
+    assert two["question"] == (
+        "Did switching from semantic to hybrid search and changing k from 5 to 10 help?"
+    )
+    assert two["settings"] == "2 settings differ: semantic, then hybrid search; k 5, then 10"
+    mixed = _radar("m.compareQuestion(byId([1, 3]), byId([2, 10]))")
+    assert mixed["question"] == "How do these runs compare?"
+    assert mixed["settings"] == "Mixed search settings on one side"
+    other_set = _radar("m.compareQuestion(byId([3]), byId([11])).question")
+    assert other_set == "How do these runs compare?"
+
+
+OK_CHECKS = {"comparable": True, "reasons": [], "warnings": []}
+NO_LEFT = {"before": 0, "after": 0}
+
+
+def test_check_rows_list_what_holds_then_warnings() -> None:
+    rows = _radar(
+        f"m.checkRows(byId([1]), byId([2]), {json.dumps(OK_CHECKS)}, {json.dumps(NO_LEFT)})"
+    )
+    assert rows == [
+        {"state": "ok", "text": "Same question set", "detail": "Set 1, 20 questions"},
+        {"state": "ok", "text": "Same suites and judge", "detail": "ID retrieval; no judge"},
+        {
+            "state": "ok",
+            "text": "Both complete",
+            "detail": "Only one setting differs: rerank off, then on",
+        },
+    ]
+    warned = {"comparable": True, "reasons": [], "warnings": ["set 1: suite version differs: a"]}
+    v = _radar(
+        "m.checkRows([{...byId([9])[0], set_version: 2, error_rate: 0}],"
+        " [{...byId([9])[0], id: 13, set_version: 2, error_rate: 0.05}],"
+        f" {json.dumps(warned)}, {{before: 0, after: 2}})"
+    )
+    assert v[0] == {
+        "state": "ok",
+        "text": "Same question set and version",
+        "detail": "Set 1, version 2, 20 questions",
+    }
+    assert v[1]["detail"] == "ID retrieval and judged retrieval; judge cortex"
+    assert v[2] == {
+        "state": "ok",
+        "text": "Both complete, 1 error",
+        "detail": "No setting differs: hybrid, k 5, rerank on",
+    }
+    assert v[3:] == [
+        {"state": "warn", "text": "Set 1: suite version differs: a", "detail": None},
+        {
+            "state": "warn",
+            "text": "2 runs left out on the after side",
+            "detail": "This key cannot see their items.",
+        },
+    ]
+
+
+def test_check_rows_put_reasons_first_and_drop_what_fails() -> None:
+    bad = {"comparable": False, "reasons": ["different suites: a vs b"], "warnings": []}
+    rows = _radar(f"m.checkRows(byId([1]), byId([9]), {json.dumps(bad)}, {json.dumps(NO_LEFT)})")
+    assert rows[0] == {"state": "fail", "text": "Different suites: a vs b", "detail": None}
+    assert [r["text"] for r in rows[1:]] == ["Same question set", "Both complete"]
+    group = _radar(
+        f"m.checkRows(byId([3, 4]), byId([10, 11]), {json.dumps(OK_CHECKS)}, {json.dumps(NO_LEFT)})"
+    )
+    assert group[0] == {
+        "state": "ok",
+        "text": "Same question sets",
+        "detail": "Sets 2, 3, 24 questions",
+    }
+    assert group[2]["text"] == "All complete"
+
+
+def test_tally_and_order_by_change() -> None:
+    setup = "const k = ['a', 'b', 'c', 'd', 'e'], d = {a: 0.2, b: -0.1, c: 0.001, d: null, e: 0.3};"
+    got = _radar(f"(() => {{ {setup} return [m.tally(k, d), m.byChange(k, d)]; }})()")
+    assert got[0] == {"better": ["a", "e"], "worse": ["b"], "same": ["c"], "unscored": ["d"]}
+    assert got[1] == ["e", "a", "c", "b", "d"]
+
+
+CHANGED = [
+    {
+        "question": "Q worse",
+        "before": {"found_at_1": 1, "found_at_3": 1, "found_at_5": 1, "mrr": 1},
+        "after": {"found_at_1": 0, "found_at_3": 1, "found_at_5": 1, "mrr": 0.5},
+        "delta": -0.375,
+    },
+    {
+        "question": "Q mixed",
+        "before": {"found_at_1": 0, "found_at_3": 1, "found_at_5": 1, "mrr": 0.5},
+        "after": {"found_at_1": 1, "found_at_3": 0, "found_at_5": 0, "mrr": 1},
+        "delta": -0.125,
+    },
+    {
+        "question": "Q better",
+        "before": {"found_at_1": 0, "found_at_3": 0, "found_at_5": 0, "mrr": 0},
+        "after": {"found_at_1": 0, "found_at_3": 1, "found_at_5": 1, "mrr": 0.3333},
+        "delta": 0.58,
+    },
+]
+
+
+def test_question_groups_found_shift_and_rank() -> None:
+    c = json.dumps(CHANGED)
+    groups = _radar(f"m.questionGroups({c})")
+    assert [q["question"] for q in groups["worse"]] == ["Q worse", "Q mixed"]
+    assert [q["question"] for q in groups["better"]] == ["Q better"]
+    assert _radar(f"m.foundShift({c})") == {"gained": 1, "lost": 1}
+    assert _radar("[1, 0.5, 0.3333, 0, null].map(m.rankOf)") == [1, 2, 3, None, None]
+
+
+def test_compare_options_for_the_pickers() -> None:
+    opts = _radar("m.compareOptions(runs, m.setGroups(sets, runs, info), info, sets)")
+    groups = [o for o in opts if o["value"].startswith("g:")]
+    assert groups[:2] == [
+        {
+            "value": "g:book:hybrid|5|on",
+            "label": "All books, hybrid, k 5, rerank on",
+            "ids": [9, 10],
+            "group": "Sets of documents",
+        },
+        {
+            "value": "g:book:hybrid|5|off",
+            "label": "All books, hybrid, k 5, rerank off (1 of 2 sets)",
+            "ids": [1],
+            "group": "Sets of documents",
+        },
+    ]
+    runs_ = [o for o in opts if o["value"].startswith("r:")]
+    assert [o["ids"] for o in runs_] == [
+        [11],
+        [10],
+        [9],
+        [4],
+        [3],
+        [2],
+        [1],
+    ]  # complete, newest first
+    assert runs_[0] == {
+        "value": "r:11",
+        "label": "Run 11, Paper C, hybrid, k 5, rerank on",
+        "ids": [11],
+        "group": "One run",
+    }
+    assert _radar(
+        "m.optionFor([10, 9], m.compareOptions(runs, m.setGroups(sets, runs, info), info, sets))"
+    ) == ("g:book:hybrid|5|on")
+    assert (
+        _radar(
+            "m.optionFor([1, 4], m.compareOptions(runs, m.setGroups(sets, runs, info), info, sets))"
+        )
+        is None
+    )
+
+
+def test_default_compare_prefers_a_rerank_pair_of_the_book_sets() -> None:
+    assert _radar("m.defaultCompare(runs, m.setGroups(sets, runs, info))") == {
+        "before": [1],
+        "after": [2],
+        "why": "rerank",
+        "group": "book",
+    }
+    # Without any rerank-off run: the newest complete run against its earlier comparable run.
+    no_off = "runs.filter(r => r.config.rerank)"
+    assert _radar(f"m.defaultCompare({no_off}, m.setGroups(sets, {no_off}, info))") == {
+        "before": [4],
+        "after": [11],
+        "why": "earlier",
+        "group": None,
+    }
+    assert _radar("m.defaultCompare([], [])") is None

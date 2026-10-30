@@ -12,8 +12,11 @@
  *       mean   {name, values}  dashed outline only (the mean behind a small multiple)
  *       mini   true for a small multiple: the MINI frame, no axis labels or vertices
  *       label  the chart's accessible name; the values are appended to it
+ *       was    what the under side is called in the vertex tips ('earlier', or 'before')
  *   shapeKey(entries)    the legend: [{mark: 'over' | 'under' | 'mean' | 'perfect', text}]
- *   shapeList(axes, over, under?)   per-axis readout beside the chart (value, earlier, change)
+ *   shapeList(axes, over, under?, words?)   per-axis readout beside the chart (value, earlier,
+ *       change) in the order of ``axes``; words {first, pair} rename the head ('Result',
+ *       'Earlier, now'), e.g. {first: 'Metric', pair: 'Before, after'} on the compare page
  *   shapeTable(axes, rows)          the numbers: rows [{name, num?, values, cls?, dir?}]
  *   shapeToggle(id)                 the Chart / Table segment. evals.js toggles the first
  *       .ev-viz / .ev-tbl inside the enclosing .ev-card, so a card holds the chart in .ev-viz
@@ -60,7 +63,7 @@ function shapeMarks(axes, side, g, cls) {
   ];
 }
 
-export function shapeChart({ axes, over, under, mean, mini, label }) {
+export function shapeChart({ axes, over, under, mean, mini, label, was = 'earlier' }) {
   const g = mini ? G.MINI : G.FULL, n = axes.length;
   const parts = [label || 'Shape chart', over ? `${over.name}: ${spoken(axes, over)}` : '',
     under ? `laid over ${under.name}: ${spoken(axes, under)}` : ''].filter(Boolean);
@@ -76,7 +79,11 @@ export function shapeChart({ axes, over, under, mean, mini, label }) {
   }
   kids.push(s('polygon', { class: 'perfect', points: G.ring(n, 1, g) }));
   if (!mini) {
-    kids.push(s('text', { class: 'gl', x: g.cx + 6, y: g.cy - g.r / 2 - 2 }, '0.5'), s('text', { class: 'gl', x: g.cx + 6, y: g.cy - g.r - 2 }, '1.0'));
+    // Ring values sit between the last axis and the first, off axis 0's data vertex.
+    for (const [v, text] of [[0.5, '0.5'], [1, '1.0']]) {
+      const p = G.ringLabelAt(v, n, g);
+      kids.push(s('text', { class: 'gl', x: p.x, y: p.y, 'text-anchor': p.anchor }, text));
+    }
     axes.forEach((a, i) => {
       const p = G.labelAt(i, n, g);
       const gap = val(over, a.key) === null;
@@ -102,8 +109,8 @@ export function shapeChart({ axes, over, under, mean, mini, label }) {
     if (under) kids.push(vertex(under, 'vb', (a, v) => `${under.name}: ${a.label} ${v.toFixed(2)}\n${a.tip}`));
     if (over) {
       kids.push(vertex(over, 'v', (a, v) => {
-        const was = val(under, a.key);
-        const tail = under ? (was === null ? ' (earlier: not scored)' : ` (earlier ${was.toFixed(2)}, ${sign(v - was)})`) : '';
+        const w = val(under, a.key);
+        const tail = under ? (w === null ? ` (${was}: not scored)` : ` (${was} ${w.toFixed(2)}, ${sign(v - w)})`) : '';
         return `${over.name}: ${a.label} ${v.toFixed(2)}${tail}\n${a.tip}`;
       }));
     }
@@ -118,8 +125,8 @@ export function shapeKey(entries, cls) {
 }
 
 /** Per-axis readout: label, value, and with an earlier shape its value and the change. */
-export function shapeList(axes, over, under) {
-  const head = h('li', { class: 'hd' }, h('b', {}, 'Result'), h('span', {}, under ? 'Earlier, now' : 'Score'), under ? h('span', {}, 'Change') : null);
+export function shapeList(axes, over, under, words = {}) {
+  const head = h('li', { class: 'hd' }, h('b', {}, words.first || 'Result'), h('span', {}, under ? words.pair || 'Earlier, now' : 'Score'), under ? h('span', {}, 'Change') : null);
   return h('ul', { class: under ? 'ev-axl two' : 'ev-axl' }, head, axes.map(a => {
     const v = val(over, a.key), w = val(under, a.key);
     const d = v !== null && w !== null ? v - w : null;

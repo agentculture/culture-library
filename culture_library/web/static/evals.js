@@ -1,7 +1,7 @@
 /* Evals tab (plan task t16; design canvas "Evals overview", desktop and phone boards).
  *
  * Pages: the overview (#evals), the radar (#evals/radar, evals-radar.js, plan task t17) and
- * the stub #evals/compare, which a later view fills. Run ids in the runs table and the rerank
+ * the compare page (#evals/compare, evals-compare.js, plan task t18). Run ids in the runs table and the rerank
  * dumbbell rows link to the radar (hashroute.js radarHash). The overview reads only the eval API:
  *   - GET /api/eval/runs and GET /api/eval/sets: every run and set this key can see;
  *   - GET /api/eval/radar?runs=...: per-run axes (found_at_5, judge_precision, judge_recall);
@@ -17,6 +17,7 @@
  * SVG strings. Positions are set with logical properties (inset-inline-start, inline-size).
  */
 import { $, SVG, api, byKey, chip, fill, fmtN, h, icon, kindKey } from './app.js';
+import * as compare from './evals-compare.js';
 import * as M from './evals-model.js';
 import * as radar from './evals-radar.js';
 import { radarHash } from './hashroute.js';
@@ -56,6 +57,7 @@ export function show(page, params = '') {
   shownPage = page;
   if (page === 'overview') void draw();
   if (page === 'radar') void radar.draw(params);
+  if (page === 'compare') void compare.draw(params);
 }
 
 /* ---------- data ---------- */
@@ -324,6 +326,7 @@ function drawRuns() {
 /* ---------- events ---------- */
 export function init() {
   radar.init();
+  compare.init();
   $('view-evals').addEventListener('click', e => {
     const t = e.target;
     const tog = t.closest('[data-evtog]');
