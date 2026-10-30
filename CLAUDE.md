@@ -11,8 +11,8 @@ it all, published at **library.culture.dev**.
 
 **Status: built and live.** library.culture.dev has served the library
 behind Cloudflare Access since 2026-10-24, from the compose stack on spark
-(`deploy/compose.yaml`). Spark runs 0.17.0 as of 2026-10-25, with
-embeddings and the reranker on. Machine clients reach it on spark's loopback
+(`deploy/compose.yaml`). Spark runs 0.18.0 (eval suites, shape radar and
+compare) as of 2026-10-30, with embeddings and the reranker on. Machine clients reach it on spark's loopback
 (`127.0.0.1:8796` for the API and site, `:8797` for MCP).
 
 - **Spec, plan and evidence.** The library was specified with devague:
@@ -162,8 +162,8 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
   `docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`.
 - **Not done yet:**
   - the question review queue (#30);
-  - the live deploy of the eval suites work and the re-approved visual
-    references are pending;
+  - runs 1-22 predate recorded suites, so the Evals overview's suite cards
+    count only newer runs;
   - the after-#27 signal is deferred until #27 ships;
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - search does not cover repo documents (#4);
@@ -396,8 +396,7 @@ open:
 - an embedding model comparison (#7). The eval harness can run it from config
   alone: rerun eval sets 1–5 under each embed config, then read the shape
   with `eval radar` and `eval compare`;
-- the eval question review queue (#30), the radar and compare pages of the
-  Evals tab, and the live deploy of the eval suites work;
+- the eval question review queue (#30);
 - faster passage retrieval, a multi-kind filter, and transcript timestamps in
   chunks (#25);
 - in-progress items that culture-rules grows (#22);
