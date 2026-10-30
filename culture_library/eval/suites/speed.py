@@ -7,7 +7,7 @@ concern, not this suite's.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 from .base import HIGHER, LOWER, Metric, SuiteContext, SuiteScore, mean
 
@@ -80,6 +80,19 @@ class SpeedSuite:
             ),
         )
 
+    def _row(self, lat: float | None, err: Any, have_errors: bool) -> dict[str, float | None]:
+        """One question's row; ``lat`` is None unless the retrieval was timed and succeeded."""
+        within: float | None = None
+        if lat is not None:
+            within = 1.0 if lat <= self.budget_ms else 0.0
+        return {
+            "latency_p50_ms": None,
+            "latency_p95_ms": None,
+            "within_budget": within,
+            "timeout_rate": float(is_timeout(err)) if have_errors else None,
+            "error_rate": float(bool(err)) if have_errors else None,
+        }
+
     def score(self, ctx: SuiteContext) -> SuiteScore:
         n = len(ctx.samples)
         lats = list(ctx.latencies_ms) if len(ctx.latencies_ms) == n else [None] * n
@@ -92,15 +105,7 @@ class SpeedSuite:
             usable = lat is not None and not err
             if usable:
                 good.append(lat)
-            per.append(
-                {
-                    "latency_p50_ms": None,
-                    "latency_p95_ms": None,
-                    "within_budget": (1.0 if lat <= self.budget_ms else 0.0) if usable else None,
-                    "timeout_rate": None if errs is None else float(is_timeout(err)),
-                    "error_rate": None if errs is None else float(bool(err)),
-                }
-            )
+            per.append(self._row(lat if usable else None, err, errs is not None))
         agg = {
             "latency_p50_ms": percentile(good, 50),
             "latency_p95_ms": percentile(good, 95),

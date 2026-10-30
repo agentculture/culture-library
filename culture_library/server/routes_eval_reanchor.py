@@ -9,6 +9,8 @@ a 404, an unindexed item a 409 ``not_indexed``.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 
 from culture_library.core import Store, eval_reanchor
@@ -22,14 +24,14 @@ router = APIRouter(tags=["eval"])
 @router.post("/api/eval/sets/{set_id}/reanchor")
 def reanchor_set(
     set_id: int,
-    principal: Principal = Depends(current_principal),
-    store: Store = Depends(get_store),
+    principal: Annotated[Principal, Depends(current_principal)],
+    store: Annotated[Store, Depends(get_store)],
 ):
     check(principal, "write")
     found = _visible_set(store, principal, set_id)
     if found is None:
         return _flat(404, f"eval set {set_id} not found", "not_found")
-    row, item = found
+    _, item = found
     check(principal, "write", item.kind)
     with store.connect() as conn:
         chunks = sr.item_chunks(conn, item.id, _vis(principal))

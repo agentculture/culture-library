@@ -31,6 +31,7 @@ New module for plan task t9.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -64,7 +65,7 @@ def _ids(raw: str | None, name: str) -> list[int]:
 
 
 def _budget(budget_s: float) -> float:
-    if not budget_s > 0:
+    if math.isnan(budget_s) or budget_s <= 0:
         raise _Bad("budget_s must be greater than 0")
     return budget_s
 

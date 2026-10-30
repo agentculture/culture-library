@@ -196,11 +196,8 @@ def _suites(run: Run) -> tuple[set[str], dict[str, Any]]:
     return names, versions
 
 
-def _checks(a: Run, b: Run) -> dict[str, Any]:
+def _hard_reasons(a: Run, b: Run, names_a: set[str], names_b: set[str]) -> list[str]:
     reasons: list[str] = []
-    warnings: list[str] = []
-    names_a, ver_a = _suites(a)
-    names_b, ver_b = _suites(b)
     if names_a != names_b:
         reasons.append(
             f"different suites: {sorted(names_a) or 'none'} vs {sorted(names_b) or 'none'}"
@@ -209,24 +206,37 @@ def _checks(a: Run, b: Run) -> dict[str, Any]:
     judge_b = (b.get("config_json") or {}).get("judge_model")
     if judge_a != judge_b:
         reasons.append(f"different judge: {judge_a!r} vs {judge_b!r}")
-    if not reasons:
-        if ver_a != ver_b:
-            warnings.append(f"suite version differs: {ver_a} vs {ver_b}")
-        if a.get("set_id") != b.get("set_id"):
-            warnings.append(f"different set: {a.get('set_id')} vs {b.get('set_id')}")
-        elif a.get("set_version") != b.get("set_version"):
-            warnings.append(
-                f"set version differs: {a.get('set_version')} vs {b.get('set_version')}"
-            )
-        for label, run in (("before", a), ("after", b)):
-            if run.get("status") != "complete":
-                warnings.append(
-                    f"{label} run is {run.get('status')}, not complete (partial scores)"
-                )
-        ka = (a.get("config_json") or {}).get("k")
-        kb = (b.get("config_json") or {}).get("k")
-        if ka != kb:
-            warnings.append(f"depth differs: k={ka} vs k={kb}; MRR is over min(10, k) ranks")
+    return reasons
+
+
+def _set_warnings(a: Run, b: Run) -> list[str]:
+    if a.get("set_id") != b.get("set_id"):
+        return [f"different set: {a.get('set_id')} vs {b.get('set_id')}"]
+    if a.get("set_version") != b.get("set_version"):
+        return [f"set version differs: {a.get('set_version')} vs {b.get('set_version')}"]
+    return []
+
+
+def _soft_warnings(a: Run, b: Run, ver_a: dict[str, Any], ver_b: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    if ver_a != ver_b:
+        warnings.append(f"suite version differs: {ver_a} vs {ver_b}")
+    warnings.extend(_set_warnings(a, b))
+    for label, run in (("before", a), ("after", b)):
+        if run.get("status") != "complete":
+            warnings.append(f"{label} run is {run.get('status')}, not complete (partial scores)")
+    ka = (a.get("config_json") or {}).get("k")
+    kb = (b.get("config_json") or {}).get("k")
+    if ka != kb:
+        warnings.append(f"depth differs: k={ka} vs k={kb}; MRR is over min(10, k) ranks")
+    return warnings
+
+
+def _checks(a: Run, b: Run) -> dict[str, Any]:
+    names_a, ver_a = _suites(a)
+    names_b, ver_b = _suites(b)
+    reasons = _hard_reasons(a, b, names_a, names_b)
+    warnings = [] if reasons else _soft_warnings(a, b, ver_a, ver_b)
     return {"comparable": not reasons, "reasons": reasons, "warnings": warnings}
 
 

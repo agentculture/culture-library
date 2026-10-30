@@ -19,11 +19,10 @@ from __future__ import annotations
 import dataclasses
 import time
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Protocol, Sequence
 
 from . import suites as registry
 from .adapter import ChatLLM, EvalAdapter
-from .client import LibraryClient
 from .config import JudgeConfig
 from .errors import EvalApiError, EvalError
 from .models import EvalRun, EvalSet, Passage, SampleResult, ScoreResult
@@ -57,6 +56,21 @@ class SuiteSampleResult(SampleResult):
     retrieved_item_ids: list[int] | None = None  # one per rank, aligned with the chunk shas
     latency_ms: float | None = None  # None when the retrieval failed
     freshness: str | None = None  # fresh | stale | unknown | not_applicable
+
+
+class RetrievalClient(Protocol):
+    """The client methods the runner calls: ``LibraryClient`` over HTTP, or the server's
+    in-process client."""
+
+    def status(self) -> dict: ...
+
+    def get_item(self, item_id: int) -> dict: ...
+
+    def request(self, method: str, path: str) -> Any: ...
+
+    def retrieve(
+        self, query: str, k: int = 5, mode: str = "hybrid", **opts: Any
+    ) -> list[Passage]: ...
 
 
 @dataclass
@@ -99,7 +113,7 @@ def id_metrics(retrieved: Sequence[str], reference: Sequence[str]) -> dict[str, 
     }
 
 
-def _precheck(client: LibraryClient, eval_set: EvalSet) -> tuple[dict, str | None]:
+def _precheck(client: RetrievalClient, eval_set: EvalSet) -> tuple[dict, str | None]:
     iid = eval_set.item_id
     try:
         item = client.get_item(iid)
@@ -122,7 +136,7 @@ def _precheck(client: LibraryClient, eval_set: EvalSet) -> tuple[dict, str | Non
     return item, info.get("item_sha256") or item.get("sha256")
 
 
-def precheck(client: LibraryClient, eval_set: EvalSet) -> dict:
+def precheck(client: RetrievalClient, eval_set: EvalSet) -> dict:
     """Refuse a run whose item was archived/removed or is not fully indexed.
 
     A changed item (bytes differ from the set's ``item_sha256``) no longer refuses: the run
@@ -139,7 +153,7 @@ def _mean(values: list) -> float | None:
 class _Visibility:
     """Per-item visibility lookups, cached; unknown/unreadable counts as non-public."""
 
-    def __init__(self, client: LibraryClient, seed: dict[int, str] | None = None):
+    def __init__(self, client: RetrievalClient, seed: dict[int, str] | None = None):
         self._client = client
         self._cache: dict[int, str | None] = dict(seed or {})
 
@@ -217,8 +231,60 @@ def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup):
     return outcomes, errors
 
 
+def _build_run(
+    eval_set: EvalSet,
+    samples: list,
+    config: dict[str, Any],
+    outcomes: list,
+    errors: list,
+    k: int,
+) -> SuiteRun:
+    """The unscored run: one result per sample with its retrieval and ID metrics."""
+    retrieved: list[list[Passage]] = [o.passages if o else [] for o in outcomes]
+    n_failed = sum(1 for e in errors if e)
+    run = SuiteRun(
+        set_id=eval_set.id,
+        config=config,
+        total=len(samples),
+        completed=sum(1 for o in outcomes if o is not None),
+        error_rate=(n_failed / len(samples)) if samples else None,
+    )
+    for i, sample in enumerate(samples):
+        shas = [p.chunk_sha for p in retrieved[i]]
+        run.samples.append(
+            SuiteSampleResult(
+                sample_id=sample.id,
+                retrieved_chunk_shas=shas,
+                scores=(
+                    id_metrics(shas, sample.reference_chunk_shas) if outcomes[i] is not None else {}
+                ),
+                question=sample.question,
+                reference_chunk_shas=list(sample.reference_chunk_shas),
+                set_version=eval_set.version,
+                retrieved_item_ids=[p.item_id for p in retrieved[i]],
+                latency_ms=round(outcomes[i].latency_ms, 3) if outcomes[i] else None,
+            )
+        )
+    return run
+
+
+def _merge_score(
+    run: SuiteRun, suite, score: SuiteScore, rows: list[int], aggregates: dict[str, float | None]
+) -> None:
+    """Fold one suite's per-sample scores and aggregates into the run."""
+    for i, row in zip(rows, score.per_sample):
+        run.samples[i].scores.update({k_: v for k_, v in row.items() if k_ not in _ID_KEYS})
+    aggregates.update({k_: v for k_, v in score.aggregate.items() if k_ not in _ID_KEYS})
+    run.suites.append({"name": suite.name, "version": suite.version})
+    if suite.name == freshness_suite.SUITE.name:
+        for res, row in zip(run.samples, score.per_sample):
+            res.freshness = next(
+                (st for key, st in _FRESHNESS_STATE.items() if (row.get(key) or 0) >= 1.0), None
+            )
+
+
 def run_set(
-    client: LibraryClient,
+    client: RetrievalClient,
     eval_set: EvalSet,
     adapter: EvalAdapter,
     *,
@@ -258,35 +324,13 @@ def run_set(
         client, samples, k=k, mode=mode, rerank=rerank, candidates=candidates, warmup=warmup
     )
     ok = [i for i, o in enumerate(outcomes) if o is not None]
-    ok_set = set(ok)
     retrieved: list[list[Passage]] = [o.passages if o else [] for o in outcomes]
     failed = [{"sample_id": samples[i].id, "error": errors[i]} for i, e in enumerate(errors) if e]
     if failed:
         config["error"] = failed[0]["error"]
         config["errors"] = failed
 
-    run = SuiteRun(
-        set_id=eval_set.id,
-        config=config,
-        total=len(samples),
-        completed=len(ok),
-        error_rate=(len(failed) / len(samples)) if samples else None,
-    )
-    for i, sample in enumerate(samples):
-        shas = [p.chunk_sha for p in retrieved[i]]
-        run.samples.append(
-            SuiteSampleResult(
-                sample_id=sample.id,
-                retrieved_chunk_shas=shas,
-                scores=id_metrics(shas, sample.reference_chunk_shas) if i in ok_set else {},
-                question=sample.question,
-                reference_chunk_shas=list(sample.reference_chunk_shas),
-                set_version=eval_set.version,
-                retrieved_item_ids=[p.item_id for p in retrieved[i]],
-                latency_ms=round(outcomes[i].latency_ms, 3) if outcomes[i] else None,
-            )
-        )
-
+    run = _build_run(eval_set, samples, config, outcomes, errors, k)
     vis = _Visibility(client, {int(eval_set.item_id): item.get("visibility")})
     whole = SuiteContext(
         samples=samples,
@@ -310,9 +354,9 @@ def run_set(
     aggregates: dict[str, float | None] = {}
     skipped: dict[str, str] = {}
     for suite in chosen:
-        rows = list(range(len(samples))) if suite.name in ALL_QUESTION_SUITES else ok
-        ctx = whole if suite.name in ALL_QUESTION_SUITES else succeeded
-        score = _score_suite(suite, ctx, adapter, run)
+        in_all = suite.name in ALL_QUESTION_SUITES
+        rows = list(range(len(samples))) if in_all else ok
+        score = _score_suite(suite, whole if in_all else succeeded, adapter, run)
         if score is None:
             continue
         if score.skipped:
@@ -320,15 +364,7 @@ def run_set(
             if suite.name == JUDGED:
                 run.config["llm_metrics_skipped"] = score.skipped
             continue
-        for i, row in zip(rows, score.per_sample):
-            run.samples[i].scores.update({k_: v for k_, v in row.items() if k_ not in _ID_KEYS})
-        aggregates.update({k_: v for k_, v in score.aggregate.items() if k_ not in _ID_KEYS})
-        run.suites.append({"name": suite.name, "version": suite.version})
-        if suite.name == freshness_suite.SUITE.name:
-            for res, row in zip(run.samples, score.per_sample):
-                res.freshness = next(
-                    (st for key, st in _FRESHNESS_STATE.items() if row.get(key) == 1.0), None
-                )
+        _merge_score(run, suite, score, rows, aggregates)
     if skipped:
         run.config["suites_skipped"] = skipped
 
