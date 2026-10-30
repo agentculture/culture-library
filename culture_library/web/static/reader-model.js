@@ -74,7 +74,7 @@ export function inlineTokens(s) {
   return out;
 }
 
-const FENCE = /^```/;
+const isFence = (line) => line.startsWith('```');
 const BULLET = /^\s*[-*] +(.*)/;
 const NUMBERED = /^\s*\d+[.)] +(.*)/;
 const QUOTE = /^>\s?(.*)/;
@@ -101,7 +101,7 @@ function fencedCode(st, lines, start) {
   flushMd(st);
   const code = [];
   let n = start + 1;
-  while (n < lines.length && !FENCE.test(lines[n])) { code.push(lines[n].trimEnd()); n++; }
+  while (n < lines.length && !isFence(lines[n])) { code.push(lines[n].trimEnd()); n++; }
   st.blocks.push({ type: 'code', text: code.join('\n') });
   return n;
 }
@@ -143,10 +143,15 @@ function mdLine(st, line) {
 export function markdownBlocks(md) {
   const st = { blocks: [], para: [], list: null, quote: null };
   const lines = String(md).split('\n');
-  for (let n = 0; n < lines.length; n++) {
+  let n = 0;
+  while (n < lines.length) {
     const line = lines[n].trimEnd();
-    if (FENCE.test(line)) n = fencedCode(st, lines, n);
-    else mdLine(st, line);
+    if (isFence(line)) {
+      n = fencedCode(st, lines, n) + 1; // resume after the closing fence
+    } else {
+      mdLine(st, line);
+      n += 1;
+    }
   }
   flushMd(st);
   return st.blocks;
