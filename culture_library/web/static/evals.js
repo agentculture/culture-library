@@ -79,7 +79,7 @@ async function shapes(ids) {
   for (let n = 0; n < ids.length; n += 200) parts.push(ids.slice(n, n + 200));
   const replies = await Promise.all(parts.map(p => api(`/api/eval/radar?runs=${p.join(',')}`).catch(() => null)));
   for (const r of replies) {
-    for (const d of (r && r.documents) || []) { axes.set(d.run_id, d.axes || {}); questions.set(d.run_id, d.questions); }
+    for (const d of r?.documents || []) { axes.set(d.run_id, d.axes || {}); questions.set(d.run_id, d.questions); }
   }
   return { axes, questions };
 }
@@ -166,45 +166,58 @@ function table(cols, rows) {
 /* ---------- rerank dumbbell ---------- */
 /** The radar for a dumbbell row: rerank on laid over rerank off, or the one side there is. */
 const dbLink = r => (r.on && r.off ? radarHash({ runs: [r.on.run], vs: [r.off.run] }) : radarHash({ runs: [(r.on || r.off).run] }));
-function dbRow(r, pos) {
-  const off = r.off && r.off.v, on = r.on && r.on.v;
-  const has = v => v !== null && v !== undefined;
+const has = v => v !== null && v !== undefined;
+function dbTip(r, off, on) {
   const found = v => `${fmtN(r.questions - M.missed(r.questions, v))} of ${fmtN(r.questions)}`;
   const runs = [r.off ? `run ${r.off.run} (off)` : 'no rerank-off run', r.on ? `run ${r.on.run} (on)` : 'no rerank-on run'].join(' vs ');
   let tip = `Set ${r.set_id}, ${runs}`;
   if (has(off) && has(on)) tip += `: ${found(off)} found without rerank, ${found(on)} with`;
   else if (has(on) || has(off)) tip += `: ${found(has(on) ? on : off)} found`;
+  return tip;
+}
+/** The dumbbell's marks and its value text for one row. */
+function dbMarks(off, on, pos) {
   const marks = [0, 1, 2, 3].map(i => h('i', { class: 'g', style: { 'inset-inline-start': `${i * 100 / 3}%` } }));
-  let val;
   if (has(off) && has(on) && off === on) {
     marks.push(h('i', { class: 'd both', style: { 'inset-inline-start': `${pos(on)}%` } }));
-    val = `${f2(on)}, same`;
-  } else {
-    if (has(off) && has(on)) {
-      const a = Math.min(pos(off), pos(on)), b = Math.max(pos(off), pos(on));
-      marks.push(h('i', { class: 'ln', style: { 'inset-inline-start': `${a}%`, 'inline-size': `${b - a}%` } }));
-    }
-    if (has(off)) marks.push(h('i', { class: 'd off', style: { 'inset-inline-start': `${pos(off)}%` } }));
-    if (has(on)) marks.push(h('i', { class: 'd on', style: { 'inset-inline-start': `${pos(on)}%` } }));
-    if (has(off) && has(on)) val = [`${f2(off)} → `, h('b', {}, f2(on))];
-    else val = has(on) ? [h('b', {}, f2(on)), ', rerank on only'] : `${f2(off)}, rerank off only`;
+    return { marks, val: `${f2(on)}, same` };
   }
+  if (has(off) && has(on)) {
+    const a = Math.min(pos(off), pos(on)), b = Math.max(pos(off), pos(on));
+    marks.push(h('i', { class: 'ln', style: { 'inset-inline-start': `${a}%`, 'inline-size': `${b - a}%` } }));
+  }
+  if (has(off)) marks.push(h('i', { class: 'd off', style: { 'inset-inline-start': `${pos(off)}%` } }));
+  if (has(on)) marks.push(h('i', { class: 'd on', style: { 'inset-inline-start': `${pos(on)}%` } }));
+  let val;
+  if (has(off) && has(on)) val = [`${f2(off)} → `, h('b', {}, f2(on))];
+  else val = has(on) ? [h('b', {}, f2(on)), ', rerank on only'] : `${f2(off)}, rerank off only`;
+  return { marks, val };
+}
+function dbRow(r, pos) {
+  const off = r.off?.v, on = r.on?.v;
+  const tip = dbTip(r, off, on);
+  const { marks, val } = dbMarks(off, on, pos);
   return h('div', { class: 'ev-dbrow', 'data-tip': tip },
     h('div', { class: 'who' }, h('a', { class: 'ev-go', href: dbLink(r) }, h('b', { class: 't', dir: 'auto' }, r.title)), h('small', {}, `Set ${r.set_id}, ${plural(r.questions, 'question', 'questions')}`)),
     h('div', { class: 'ev-track' }, marks),
     h('div', { class: 'val' }, val));
 }
+const gainText = gain => (gain === null ? '–' : (gain >= 0 ? '+' : '') + gain.toFixed(2));
 function rerankCard(d) {
   const rows = d.rows;
   const used = [...d.picked.values()].flatMap(p => [p.off, p.on]);
   const label = M.searchLabel(used);
+  const labelText = label ? ` ${human(label)}.` : '';
   const top = head('ev-rerank-h', 'What the reranker adds, per set',
-    `Share of questions found in the top 5, without and with rerank.${label ? ` ${human(label)}.` : ''}`, rows.length ? seg('rerank', 'View') : null);
+    `Share of questions found in the top 5, without and with rerank.${labelText}`, rows.length ? seg('rerank', 'View') : null);
   if (!rows.length) return [top, h('p', { class: 'empty' }, 'No set has a complete run yet. Score one with culture-library eval run.')];
-  const [lo] = M.domain(rows.flatMap(r => [r.off && r.off.v, r.on && r.on.v]));
+  const [lo] = M.domain(rows.flatMap(r => [r.off?.v, r.on?.v]));
   const pos = v => (v - lo) / (1 - lo) * 100;
   const ticks = [0, 1, 2, 3].map(i => lo + (1 - lo) * i / 3);
   const smallest = Math.min(...rows.map(r => r.questions).filter(n => n > 0));
+  const smallNote = Number.isFinite(smallest) && smallest < 10
+    ? ` The smallest set has ${plural(smallest, 'question', 'questions')}, so one question moves its score by ${f2(1 / smallest)}.`
+    : '';
   return [
     top,
     h('div', { class: 'ev-viz' },
@@ -214,9 +227,9 @@ function rerankCard(d) {
           h('div', { class: 'ev-scale' }, ticks.map((t, i) => h('span', { style: { 'inset-inline-start': `${i * 100 / 3}%` } }, t.toFixed(2)))), h('div', { class: 'val' })),
         rows.map(r => dbRow(r, pos)))),
     h('div', { class: 'ev-tbl', hidden: true }, table(['Set', 'Questions', 'Rerank off', 'Rerank on', 'Change', 'Runs (off, on)'],
-      rows.map(r => [`${r.title} (set ${r.set_id})`, fmtN(r.questions), f2(r.off && r.off.v), f2(r.on && r.on.v),
-        r.gain === null ? '–' : (r.gain >= 0 ? '+' : '') + r.gain.toFixed(2), `${r.off ? r.off.run : '–'}, ${r.on ? r.on.run : '–'}`]))),
-    src(`Source: GET /api/eval/runs, the latest complete run per set and rerank setting, scored by GET /api/eval/radar (found at 5). Sorted by gain.${Number.isFinite(smallest) && smallest < 10 ? ` The smallest set has ${plural(smallest, 'question', 'questions')}, so one question moves its score by ${f2(1 / smallest)}.` : ''}`),
+      rows.map(r => [`${r.title} (set ${r.set_id})`, fmtN(r.questions), f2(r.off?.v), f2(r.on?.v),
+        gainText(r.gain), `${r.off ? r.off.run : '–'}, ${r.on ? r.on.run : '–'}`]))),
+    src(`Source: GET /api/eval/runs, the latest complete run per set and rerank setting, scored by GET /api/eval/radar (found at 5). Sorted by gain.${smallNote}`),
   ];
 }
 
@@ -234,12 +247,13 @@ function weakCard(d) {
   const which = d.weakOn ? 'rerank-on' : 'rerank-off';
   const top = head('ev-weak-h', 'Weakest sources', `Most questions missed in the top 5, in the latest complete ${which} run per set.`, d.weak ? seg('weak', 'View') : null);
   if (!d.weak) return [top, h('p', { class: 'empty' }, 'No complete run to rank yet.')];
-  const scored = r => r.axes && r.axes.found_at_5 !== null && r.axes.found_at_5 !== undefined;
+  const scored = r => has(r.axes?.found_at_5);
   const items = d.weak.items.filter(scored), urls = d.weak.sources.filter(scored);
   const weakItems = items.filter(r => M.missed(r.questions, r.axes.found_at_5) > 0).slice(0, 5);
   const weakUrls = urls.filter(r => M.missed(r.questions, r.axes.found_at_5) > 0).slice(0, 3);
   const clean = items.length - items.filter(r => M.missed(r.questions, r.axes.found_at_5) > 0).length;
-  const itemName = r => (info(r.item_id) || {}).title || `Item ${r.item_id}`;
+  const cleanText = clean ? `${plural(clean, 'more set misses', 'more sets miss')} nothing. ` : '';
+  const itemName = r => info(r.item_id)?.title || `Item ${r.item_id}`;
   const tbl = [...weakItems.map(r => [itemName(r), r]), ...weakUrls.map(r => [r.url, r])];
   return [
     top,
@@ -248,7 +262,7 @@ function weakCard(d) {
       weakUrls.length ? [h('h3', { class: 'ev-h3' }, 'Newspaper sources'), rankList(weakUrls, r => r.url, 'u')] : null),
     h('div', { class: 'ev-tbl', hidden: true }, table(['Source', 'Missed', 'Questions', 'Found at 5', 'Run'],
       tbl.map(([name, r]) => [name, fmtN(M.missed(r.questions, r.axes.found_at_5)), fmtN(r.questions), f2(r.axes.found_at_5), String(r.run_id)]))),
-    src(`${clean ? `${plural(clean, 'more set misses', 'more sets miss')} nothing. ` : ''}Bars show the share found. Source: GET /api/eval/weakest.`),
+    src(`${cleanText}Bars show the share found. Source: GET /api/eval/weakest.`),
   ];
 }
 
@@ -269,12 +283,16 @@ function suiteCard(s, runsWith) {
       return h('span', { class: 'ev-metric', tabindex: '0', 'data-tip': `${m.name}: ${m.definition} ${range}` }, metricLabel(m.name));
     })));
 }
+function suitesShown(all, scored, used) {
+  if (ui.suites === 'scored') return scored;
+  return ui.suites === 'unrun' ? all.filter(s => !used.get(s.name)) : all;
+}
 function drawSuites() {
   if (!last) return;
   const used = new Map();
   for (const r of last.runs) for (const s of r.suites || []) used.set(s.name, (used.get(s.name) || 0) + 1);
   const all = last.suites, scored = all.filter(s => used.get(s.name));
-  const shown = ui.suites === 'scored' ? scored : ui.suites === 'unrun' ? all.filter(s => !used.get(s.name)) : all;
+  const shown = suitesShown(all, scored, used);
   fill($('ev-suites'),
     head('ev-suites-h', 'Suites', 'Each suite is a plugin. A run records every suite it scored, so runs stay comparable as suites are added. Hover a metric for its definition.',
       filterSeg('data-evsuites', 'Filter suites', ui.suites, [['all', `All ${all.length}`], ['scored', `Scored ${scored.length}`], ['unrun', `Not run yet ${all.length - scored.length}`]])),
@@ -287,10 +305,14 @@ function drawSuites() {
 // initialised yet while this module is evaluated.
 const STATUS_LABELS = { complete: 'Complete', partial: 'Partial', failed: 'Failed', running: 'Running' };
 const statusIcon = s => ({ complete: SVG.good, partial: SVG.warning, failed: SVG.critical })[s] || RUNNING;
+function statusWhy(c) {
+  if (c.llm_metrics_failed) return `Judge scoring failed: ${c.llm_metrics_failed}`;
+  return c.error ? `Retrieval error: ${c.error}` : null;
+}
 function status(r) {
   const svg = statusIcon(r.status), label = STATUS_LABELS[r.status] || String(r.status);
   const c = r.config || {};
-  const why = c.llm_metrics_failed ? `Judge scoring failed: ${c.llm_metrics_failed}` : c.error ? `Retrieval error: ${c.error}` : null;
+  const why = statusWhy(c);
   return h('span', { class: `ev-st ${r.status}`, 'data-tip': why, dir: why ? 'auto' : null }, icon(svg), label);
 }
 function runRow(r) {
@@ -311,6 +333,8 @@ function runRow(r) {
     td('Judge recall', score(ax.judge_recall), 'n'),
     td('Recorded', utc(r.created_at)));
 }
+const noRunsText = () => (last.runs.length ? 'No run with this status.' : 'No eval run yet. Score a set with culture-library eval run.');
+const moreLabel = n => (ui.allRuns ? 'Show the newest only' : `Show all ${fmtN(n)} runs`);
 function drawRuns() {
   if (!last) return;
   const c = M.runCounts(last.runs);
@@ -326,9 +350,9 @@ function drawRuns() {
       ? h('div', { class: 'ev-tablewrap' }, h('table', { class: 'ev-table' },
         h('thead', {}, h('tr', {}, cols.map((t, i) => h('th', { class: i >= 4 && i <= 7 ? 'n' : null }, t)))),
         h('tbody', {}, shown.map(runRow))))
-      : h('p', { class: 'empty' }, last.runs.length ? 'No run with this status.' : 'No eval run yet. Score a set with culture-library eval run.'),
+      : h('p', { class: 'empty' }, noRunsText()),
     h('div', { class: 'ev-more' }, h('span', {}, `Showing ${fmtN(shown.length)} of ${plural(list.length, 'run', 'runs')}, newest first. Source: GET /api/eval/runs and GET /api/eval/radar.`),
-      list.length > RUNS_SHOWN ? h('button', { type: 'button', class: 'btn', 'data-evmore': '' }, ui.allRuns ? 'Show the newest only' : `Show all ${fmtN(list.length)} runs`) : null));
+      list.length > RUNS_SHOWN ? h('button', { type: 'button', class: 'btn', 'data-evmore': '' }, moreLabel(list.length)) : null));
 }
 
 /* ---------- events ---------- */
