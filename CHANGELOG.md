@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3] - 2026-10-30
+
+### Changed
+
+- CLAUDE.md: spark runs 0.18.2. It was restarted onto it on 2026-10-30, and the snapshot backfill was rerun, which stamped `set_version` on the 344 older results.
+
 ## [0.18.2] - 2026-10-30
 
 ### Fixed
