@@ -18,6 +18,15 @@ The site's visual and interaction design. The operator approved it on
     newspaper, spec and frame readers, the hidden list, the list drawer, the
     send menu and the sent state, site state and upload.
   - The operator approved these screenshots on 2026-10-24.
+  - The eval suites run (#28) adds 12 Evals screenshots (overview, radar and
+    compare; desktop and phone; light and dark), taken full page from the
+    deterministic eval fixture in `tests/visual/seed.py`. The operator approves
+    them, and the re-rendered 30 (which now show the Evals tab), from
+    `reference-candidates/` before they replace anything in `reference/`.
+- **Evals design:** the [Evals design canvas](https://claude.ai/artifact/JSkBwBrSGJUYCbq7R1C7FP)
+  is the visual reference for the Evals tab (boards: overview, radar, compare,
+  phone; the review board belongs to #30). Like the prototype, it is a private
+  Claude artifact and this file wins where they disagree.
 - **Obligations o1–o7 on claim c32** in the devague frame tie the build to
   these files.
 
@@ -130,6 +139,34 @@ dark-mode diary are below 3:1 contrast against the surface. Status colors
   - Every chart has a hover tooltip, a *Table* toggle, and a source line.
   - Single-series marks use `--accent`.
   - Kind charts use the kind colors with direct labels.
+
+- **Evals**: a third tab, routed as `#evals`, `#evals/radar?runs=IDS[&vs=IDS|none]`
+  and `#evals/compare?before=IDS&after=IDS` (these never collide with item keys).
+  - **Overview**: four tiles (books and newspapers found in the top 5 with
+    rerank, and without underneath; judge precision; runs by status with the
+    retrieval error count), a rerank dumbbell (one hue in two shades, off to
+    on, per set), weakest sources, the suite catalog (each metric's definition
+    is its hover tip) and the latest runs.
+  - **Shape (radar)**: one axis per result, 0 at the centre and 1 at the edge,
+    higher always better, in the order found at 1, 3, 5, MRR, judge
+    precision, judge recall, no errors, then newer suites' axes in registry
+    order. A perfect run fills the dotted outline. A later shape is drawn
+    solid over the earlier comparable run's dashed shape. An unscored axis is
+    a labelled gap ("not scored"), never a 0. Small multiples show each
+    document over the group mean. Phone labels are short (F1, F3, F5, MRR, JP,
+    JR, OK).
+  - **Compare**: the comparability checks come first and, when the runs are
+    not comparable, alone. Then the headline change and a better/worse/same
+    tally, the shape of the change with its list sorted by change, the change
+    per metric (no ring column), and the questions that changed, worse first.
+  - Question text, titles, URLs and reasons are text nodes with `dir="auto"`.
+    Every chart has a hover tip, a *Table* toggle and a source line.
+  - **Deviation from the canvas:** the canvas's illustrative numbers and its
+    "Planned" suite cards are not drawn; the site shows only registered suites
+    ("Not run yet" when no run used one) and live numbers. The compare page
+    puts the checks card before the verdict (the canvas had the verdict
+    first), and its question rows show found and first-rank changes (the API
+    has no per-question judge scores). The review queue is #30.
 
 ## Behaviors
 

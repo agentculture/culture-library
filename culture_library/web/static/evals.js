@@ -35,6 +35,14 @@ const f2 = v => (v === null || v === undefined || Number.isNaN(v) ? '–' : v.to
 const score = v => (v === null || v === undefined ? 'no score' : v.toFixed(2));
 const plural = (n, one, many) => `${fmtN(n)} ${n === 1 ? one : many}`;
 const human = name => { const s = String(name).replaceAll('_', ' '); return s.charAt(0).toUpperCase() + s.slice(1); };
+// Metric names a plain "snake case to words" turns into the wrong word (acronyms, counts).
+const METRIC_LABELS = {
+  mrr: 'MRR', ndcg: 'nDCG', precision_at_k: 'Precision at k',
+  latency_p50_ms: 'Latency p50 (ms)', latency_p95_ms: 'Latency p95 (ms)',
+  fresh_count: 'Fresh', stale_count: 'Stale', fresh_unknown_count: 'Unknown',
+  fresh_na_count: 'Not applicable',
+};
+const metricLabel = name => METRIC_LABELS[name] || human(name);
 const utc = iso => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -258,7 +266,7 @@ function suiteCard(s, runsWith) {
     h('div', { class: 'ev-metrics' }, (s.metrics || []).map(m => {
       const [lo, hi] = m.range || [];
       const range = `Range ${lo ?? '?'} to ${hi ?? 'no upper bound'}, ${m.direction === 'lower' ? 'lower' : 'higher'} is better.`;
-      return h('span', { class: 'ev-metric', tabindex: '0', 'data-tip': `${m.name}: ${m.definition} ${range}` }, human(m.name));
+      return h('span', { class: 'ev-metric', tabindex: '0', 'data-tip': `${m.name}: ${m.definition} ${range}` }, metricLabel(m.name));
     })));
 }
 function drawSuites() {
