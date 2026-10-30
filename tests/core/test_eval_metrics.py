@@ -108,3 +108,20 @@ def test_sha_only_when_either_side_lacks_item_ids():
     r = id_metrics(["shared"], [(1, "shared")], 5)
     assert r["found_at_1"] == 1.0
     assert r["sha_only"] is True
+
+
+def test_ndcg_short_result_list_is_not_perfect():
+    """The ideal fills min(10, k) ranks, so one relevant passage of three is not nDCG 1."""
+    r = id_metrics(["a"], ["a", "b", "c"], 5)
+    ideal = 1 + 1 / math.log2(3) + 1 / 2
+    assert r["ndcg"] == pytest.approx(1 / ideal)
+
+
+def test_item_aware_metrics_falls_back_to_sha_only():
+    from culture_library.core.eval_metrics import item_aware_metrics
+
+    assert item_aware_metrics(["s"], [70], ["s"], 68, 5)["found_at_1"] == 0.0
+    assert item_aware_metrics(["s"], [68], ["s"], 68, 5)["found_at_1"] == 1.0
+    assert item_aware_metrics(["s"], [None], ["s"], 68, 5)["sha_only"] is True
+    assert item_aware_metrics(["s"], None, ["s"], 68, 5)["found_at_1"] == 1.0
+    assert item_aware_metrics(["s"], [70], ["s"], None, 5)["found_at_1"] == 1.0

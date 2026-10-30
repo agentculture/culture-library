@@ -406,7 +406,7 @@ def _compare_text(data: dict[str, Any]) -> str:
         if data.get("left_out"):
             lines.append(f"left out: {data['left_out']}")
         return "\n".join(lines)
-    before, after = (data.get(k, {}).get("axes", {}) for k in ("before", "after"))
+    before, after = (data.get(k) or {} for k in ("before", "after"))
     deltas = data.get("deltas", {})
     lines.append("axis: before -> after (delta)")
     for axis in after or before:
@@ -416,8 +416,12 @@ def _compare_text(data: dict[str, Any]) -> str:
         )
     for c in data.get("changed_questions", []):
         lines.append(
-            f"  q: {c.get('question')}: {_fmt(c.get('before'))} -> {_fmt(c.get('after'))} "
-            f"({_fmt(c.get('delta'))})"
+            f"  q: {c.get('question')} ({_fmt(c.get('delta'))}): "
+            + ", ".join(
+                f"{a} {_fmt(v)} -> {_fmt((c.get('after') or {}).get(a))}"
+                for a, v in (c.get("before") or {}).items()
+                if _fmt(v) != _fmt((c.get("after") or {}).get(a))
+            )
         )
     if data.get("left_out"):
         lines.append(f"left out: {data['left_out']}")

@@ -371,7 +371,7 @@ def test_runs_only_the_requested_suites(lib):
         FakeAdapter(),
         suites=["id_retrieval"],
     )
-    assert run.suites == [{"name": "id_retrieval", "version": "1"}]
+    assert run.suites == [{"name": "id_retrieval", "version": "2"}]
     assert set(run.samples[0].scores) == {PRECISION, RECALL} | {
         "found_at_1",
         "found_at_3",

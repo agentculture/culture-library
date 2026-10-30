@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from culture_library.core.eval_metrics import id_metrics
+from culture_library.core.eval_metrics import item_aware_metrics
 
 from .base import HIGHER, Metric, SuiteContext, SuiteScore, mean
 
@@ -19,7 +19,7 @@ def _found(depth: int) -> Metric:
 
 class IdRetrievalSuite:
     name = "id_retrieval"
-    version = "1"
+    version = "2"  # 2: item-aware matching, nDCG ideal over min(10, k) ranks
     needs_judge = False
     metrics = (
         _found(1),
@@ -51,8 +51,12 @@ class IdRetrievalSuite:
         keys = [m.name for m in self.metrics]
         per: list[dict[str, float | None]] = []
         for sample, passages in zip(ctx.samples, ctx.retrieved):
-            got = id_metrics(
-                [p.chunk_sha for p in passages], list(sample.reference_chunk_shas), ctx.k
+            got = item_aware_metrics(
+                [p.chunk_sha for p in passages],
+                [p.item_id for p in passages],
+                list(sample.reference_chunk_shas),
+                ctx.item_id,
+                ctx.k,
             )
             per.append({key: got.get(key) for key in keys})
         return SuiteScore(per, {key: mean([row[key] for row in per]) for key in keys})
