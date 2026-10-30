@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-30T17:43:01Z",
-  "updated": "2026-10-30T18:39:59Z",
+  "updated": "2026-10-30T18:46:51Z",
   "claims": [
     {
       "id": "c1",
@@ -1246,7 +1246,20 @@
       "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "t3 (spec links core): tests were written before the implementation but never run against the missing module, so the red phase of TDD was not observed",
+      "skipped_check": "run the new tests and see them fail before implementing",
+      "refs": [
+        "plan task t3",
+        "devague-work/t3 e7fd71a"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": [
     {
       "id": "o1",
