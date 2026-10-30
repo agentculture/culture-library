@@ -24,6 +24,7 @@ MODULES = (
     "send",
     "state",
     "checklist",
+    "reader-model",
     "links",
     "hashroute",
     "evals",
