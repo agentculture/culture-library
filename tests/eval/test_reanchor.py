@@ -155,3 +155,67 @@ def test_reanchor_needs_write_scope(library):
     p = Principal(key_id="r", scopes=frozenset({"read"}), private=True)
     library.app.dependency_overrides[current_principal] = lambda: p
     assert library.http.post(f"/api/eval/sets/{s['id']}/reanchor").status_code == 403
+
+
+def _set_sha(library, set_id):
+    from culture_library.core import eval_store
+
+    with library.store.reader() as conn:
+        return eval_store.get_set(conn, set_id)["item_sha256"]
+
+
+def test_full_reanchor_moves_the_set_to_the_items_current_bytes(library):
+    texts = ["Moby", *STORY]
+    item = _index_item(library, texts)
+    s = _build_set(library, item, _chunks(texts)[1:])
+    with library.store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+    body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
+    assert body["could_not_re_anchor"] == []
+    assert body["note"]["item_sha256"] == item.sha256
+    assert _set_sha(library, s["id"]) == item.sha256
+
+
+def test_partial_reanchor_keeps_the_old_set_sha(library):
+    before = ["Moby\nHerman", LICENCE, *STORY]
+    item = _index_item(library, before)
+    s = _build_set(library, item, _chunks(before)[1:])
+    with library.store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+    after = ["Moby\nHerman", STORY[0] + "\n\n" + STORY[1]]
+    with library.store.connect() as conn:
+        sr.set_embeddings(conn, item.id, after, [[1.0, 0.0]] * len(after), "m")
+    body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
+    assert body["could_not_re_anchor"]  # the licence question is stale
+    assert _set_sha(library, s["id"]) == "old"
+
+
+def test_reanchor_waits_while_the_item_is_being_re_indexed(library):
+    """Chunks may still be the old text until the indexer job is done, so nothing moves."""
+    texts = ["Moby", *STORY]
+    item = _index_item(library, texts)
+    s = _build_set(library, item, _chunks(texts)[1:])
+    with library.store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+        conn.execute(
+            "INSERT OR REPLACE INTO index_queue (item_id, state, enqueued_at) "
+            "VALUES (?, 'pending', 0)",
+            (item.id,),
+        )
+    r = library.http.post(f"/api/eval/sets/{s['id']}/reanchor")
+    assert r.status_code == 409
+    assert r.json()["code"] == "index_pending"
+    assert _set_sha(library, s["id"]) == "old"
+
+
+def test_moving_the_set_sha_bumps_the_version_even_with_no_reference_change(library):
+    """Runs before and after were pinned to different bytes; they are not the same set."""
+    texts = ["Moby", *STORY]
+    item = _index_item(library, texts)
+    s = _build_set(library, item, _chunks(texts)[1:])
+    with library.store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+    body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
+    assert body["note"]["changed"] == 0
+    assert body["version"] == 2
+    assert library.http.get(f"/api/eval/sets/{s['id']}").json()["version"] == 2

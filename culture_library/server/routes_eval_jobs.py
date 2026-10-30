@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import re
 import threading
-import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated, Any, AsyncIterator, Literal
@@ -172,49 +171,49 @@ class InProcessClient:
         return [Passage.from_dict(p) for p in data["passages"]]
 
 
-class _ProgressClient(InProcessClient):
-    """Stores each question's retrieval as it finishes and advances ``completed``."""
+class _Progress:
+    """Stores each question's retrieval as ``run_set`` reports it and advances ``completed``.
 
-    def __init__(self, app, store, principal, run_id: int, eval_set: EvalSet, warmup: bool):
-        super().__init__(app, store, principal)
+    ``recorded`` is the one count: results stored and committed. It goes up only after the
+    commit, so ``completed`` never runs ahead of the stored results and never goes backwards
+    when a run fails. A failed retrieval is not a result; it is kept in ``errors`` (the same
+    ``{sample_id, error}`` shape as ``config.errors``) so a failed run still reports it.
+    """
+
+    def __init__(self, store: Store, run_id: int, version: int):
+        self._store = store
         self._run_id = run_id
-        self._samples = list(eval_set.samples)
-        self._version = eval_set.version
-        self._skip = 1 if warmup and self._samples else 0  # run_set's un-timed warmup call
-        self._done = 0
+        self._version = version
+        self.recorded = 0
+        self.errors: list[dict[str, Any]] = []
 
-    def retrieve(self, query: str, k: int = 5, mode: str = "hybrid", **opts: Any) -> list[Passage]:
-        if self._skip:
-            self._skip -= 1
-            return super().retrieve(query, k, mode, **opts)
-        start = time.perf_counter()
-        passages: list[Passage] | None = None
-        try:
-            passages = super().retrieve(query, k, mode, **opts)
-            return passages
-        finally:
-            self._record(query, passages, (time.perf_counter() - start) * 1000.0)
-
-    def _record(self, query: str, passages: list[Passage] | None, latency_ms: float) -> None:
-        index = self._done
-        self._done += 1
+    def __call__(
+        self,
+        index: int,
+        sample: Any,
+        passages: list[Passage] | None,
+        latency_ms: float | None,
+        error: str | None,
+    ) -> None:
+        if passages is None:
+            self.errors.append({"sample_id": sample.id, "error": error or "retrieval failed"})
+            return
+        shas = [p.chunk_sha for p in passages]
         with self._store.connect() as conn:
-            sample = self._samples[index] if index < len(self._samples) else None
-            if passages is not None and sample is not None and sample.question == query:
-                shas = [p.chunk_sha for p in passages]
-                eval_store.add_run_sample(
-                    conn,
-                    self._run_id,
-                    sample.id,
-                    retrieved_chunk_shas=shas,
-                    scores=id_metrics(shas, sample.reference_chunk_shas),
-                    question=sample.question,
-                    reference_chunk_shas=list(sample.reference_chunk_shas),
-                    set_version=self._version,
-                    retrieved_item_ids=[p.item_id for p in passages],
-                    latency_ms=round(latency_ms, 3),
-                )
-            eval_store.set_run_progress(conn, self._run_id, self._done)
+            eval_store.add_run_sample(
+                conn,
+                self._run_id,
+                sample.id,
+                retrieved_chunk_shas=shas,
+                scores=id_metrics(shas, sample.reference_chunk_shas),
+                question=sample.question,
+                reference_chunk_shas=list(sample.reference_chunk_shas),
+                set_version=self._version,
+                retrieved_item_ids=[p.item_id for p in passages],
+                latency_ms=None if latency_ms is None else round(latency_ms, 3),
+            )
+            eval_store.set_run_progress(conn, self._run_id, self.recorded + 1)
+        self.recorded += 1
 
 
 def _load_set(store: Store, set_id: int) -> EvalSet:
@@ -267,7 +266,8 @@ def _worker(
     suites: list[str],
     base_config: dict,
 ) -> None:
-    client = _ProgressClient(app, store, principal, run_id, eval_set, body.warmup)
+    client = InProcessClient(app, store, principal)
+    progress = _Progress(store, run_id, eval_set.version)
     try:
         run = run_set(
             client,
@@ -279,6 +279,7 @@ def _worker(
             candidates=body.candidates,
             suites=suites,
             warmup=body.warmup,
+            on_retrieval=progress,
         )
     except Exception as exc:  # any failure closes the run; nothing escapes the thread
         log.exception("eval run %d failed", run_id)
@@ -287,8 +288,13 @@ def _worker(
                 conn,
                 run_id,
                 status="failed",
-                config={**base_config, "error": str(exc) or type(exc).__name__},
-                completed=0,
+                config={
+                    **base_config,
+                    "error": str(exc) or type(exc).__name__,
+                    **({"errors": progress.errors} if progress.errors else {}),
+                },
+                # The per-question results stored so far stay attached; completed says so.
+                completed=progress.recorded,
             )
         return
     config = {**run.config, "latency_source": LATENCY_SOURCE}

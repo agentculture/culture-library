@@ -11,8 +11,9 @@ it all, published at **library.culture.dev**.
 
 **Status: built and live.** library.culture.dev has served the library
 behind Cloudflare Access since 2026-10-24, from the compose stack on spark
-(`deploy/compose.yaml`). Spark runs 0.18.0 (eval suites, shape radar and
-compare) as of 2026-10-30, with embeddings and the reranker on. Machine clients reach it on spark's loopback
+(`deploy/compose.yaml`). Spark runs 0.18.1 (eval suites, shape radar and
+compare, plus the review fixes) as of 2026-10-30, with embeddings and the
+reranker on. Machine clients reach it on spark's loopback
 (`127.0.0.1:8796` for the API and site, `:8797` for MCP).
 
 - **Spec, plan and evidence.** The library was specified with devague:

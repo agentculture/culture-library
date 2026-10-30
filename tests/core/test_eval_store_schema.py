@@ -257,3 +257,68 @@ def test_backfill_snapshots_fills_missing_and_is_idempotent(tmp_path):
         ]
         assert eval_store.backfill_snapshots(conn) == 0
     assert db.exists()
+
+
+def test_backfill_does_not_copy_references_from_a_newer_set_version(tmp_path):
+    """After a re-anchor the current shas are not what the old run was scored against."""
+    data = tmp_path / "data"
+    _old_db_with_eval(data)
+    store = Store(data)
+    with store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET version = 2 WHERE id = 1")
+        assert eval_store.backfill_snapshots(conn) == 2
+        rows = eval_store.list_run_samples(conn, 1)
+        assert [r["question"] for r in rows] == ["q1", "q2"]  # questions never change
+        assert [r["reference_chunk_shas"] for r in rows] == [None, None]
+        assert [r["set_version"] for r in rows] == [None, None]
+
+
+def test_backfill_records_the_set_version_it_copied_from(tmp_path):
+    data = tmp_path / "data"
+    _old_db_with_eval(data)
+    store = Store(data)
+    with store.connect() as conn:
+        eval_store.backfill_snapshots(conn)
+        assert [r["set_version"] for r in eval_store.list_run_samples(conn, 1)] == [1, 1]
+
+
+def _unguarded_backfill(conn):
+    """What 0.18.0/0.18.1 left: the current question and references, no set_version."""
+    conn.execute(
+        "UPDATE eval_run_samples SET "
+        "question = (SELECT question FROM eval_samples WHERE id = sample_id), "
+        "reference_chunk_shas = (SELECT reference_chunk_shas FROM eval_samples "
+        "WHERE id = sample_id)"
+    )
+
+
+def test_backfill_repairs_an_older_backfill_from_a_newer_set_version(tmp_path):
+    data = tmp_path / "data"
+    _old_db_with_eval(data)
+    store = Store(data)
+    with store.connect() as conn:
+        conn.execute("UPDATE eval_sets SET version = 2 WHERE id = 1")
+        _unguarded_backfill(conn)
+        assert eval_store.backfill_snapshots(conn) == 0  # repairs are not counted
+        rows = eval_store.list_run_samples(conn, 1)
+        assert [r["question"] for r in rows] == ["q1", "q2"]
+        assert [r["reference_chunk_shas"] for r in rows] == [None, None]
+        eval_store.backfill_snapshots(conn)  # idempotent
+        assert [r["reference_chunk_shas"] for r in eval_store.list_run_samples(conn, 1)] == [
+            None,
+            None,
+        ]
+
+
+def test_backfill_stamps_the_version_on_an_older_same_version_backfill(tmp_path):
+    data = tmp_path / "data"
+    _old_db_with_eval(data)
+    store = Store(data)
+    with store.connect() as conn:
+        _unguarded_backfill(conn)
+        eval_store.backfill_snapshots(conn)
+        rows = eval_store.list_run_samples(conn, 1)
+        assert [(r["reference_chunk_shas"], r["set_version"]) for r in rows] == [
+            (["ref1"], 1),
+            (["ref2"], 1),
+        ]
