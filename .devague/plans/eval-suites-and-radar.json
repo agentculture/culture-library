@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-29T05:19:06Z",
-  "updated": "2026-10-30T00:41:48Z",
+  "updated": "2026-10-30T00:44:57Z",
   "targets": [
     {
       "id": "c1",
@@ -1039,8 +1039,8 @@
       "text": "culture-rules needs to learn the eval API contract (t14): an issue on culture-rules pointing at docs/api/eval.md, posted with the user's go-ahead",
       "kind": "follow_up",
       "task_id": "t14",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "docs/api/eval.md (t14) linked on agentculture/culture-rules#121 on 2026-10-30, with PR #31; the shapes and set-generation questions are left to culture-rules"
     }
   ],
   "obligations": []
