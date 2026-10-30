@@ -2,7 +2,7 @@
   "plan_slug": "eval-suites-and-radar",
   "schema_version": 2,
   "created": "2026-10-29T23:08:52Z",
-  "updated": "2026-10-30T00:22:05Z",
+  "updated": "2026-10-30T00:33:30Z",
   "deviations": [
     {
       "id": "d1",
@@ -14,7 +14,7 @@
         "c41"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 1
     },
@@ -29,7 +29,7 @@
         "t7"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 2
     },
@@ -45,9 +45,23 @@
         "t9"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "MRR and nDCG labels on the Evals pages get an (i) icon whose hover text names the depth they were measured at (@5, @10, ...), from the run's k (extends d2)",
+      "task_ref": "t17",
+      "reason": "user request 2026-10-30: make d2's explicit depth visible on the site",
+      "affects": [
+        "t18",
+        "c39"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 31
     }
   ],
   "evidence": [

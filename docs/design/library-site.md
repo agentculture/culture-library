@@ -23,6 +23,8 @@ The site's visual and interaction design. The operator approved it on
     deterministic eval fixture in `tests/visual/seed.py`. The operator approves
     them, and the re-rendered 30 (which now show the Evals tab), from
     `reference-candidates/` before they replace anything in `reference/`.
+    The operator approved all 42 on 2026-10-30, and `reference/` now holds
+    them.
 - **Evals design:** the [Evals design canvas](https://claude.ai/artifact/JSkBwBrSGJUYCbq7R1C7FP)
   is the visual reference for the Evals tab (boards: overview, radar, compare,
   phone; the review board belongs to #30). Like the prototype, it is a private
