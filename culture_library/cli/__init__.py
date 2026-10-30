@@ -71,6 +71,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from culture_library.cli._commands import keys as _keys_cmd
     from culture_library.cli._commands import learn as _learn_cmd
     from culture_library.cli._commands import migrate as _migrate_cmd
+    from culture_library.cli._commands import mirror as _mirror_cmd
     from culture_library.cli._commands import overview as _overview_cmd
     from culture_library.cli._commands import server as _server_cmd
     from culture_library.cli._commands import whoami as _whoami_cmd
@@ -100,6 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _backup_cmd.register(sub)
     _deploy_cmd.register(sub)
     _eval_cmd.register(sub)
+    _mirror_cmd.register(sub)
     # Register your own noun groups here:
     #   from culture_library.cli._commands import my_noun as _my_noun_group
     #   _my_noun_group.register(sub)
