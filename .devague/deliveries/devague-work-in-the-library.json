@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-30T19:34:30Z",
+  "updated": "2026-10-30T19:42:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -283,6 +283,19 @@
       "status": "proposed",
       "classification": "needs-follow-up",
       "seq": 22
+    },
+    {
+      "id": "d23",
+      "what": "The Projects and Domains tabs are hidden below the phone breakpoint so the phone header matches its operator-approved references; phone users reach the views through a project link on repo-document pages and by URL (#projects, #domains)",
+      "task_ref": "t20",
+      "reason": "CI visual: every view scrolled sideways 12px at 400px and all 18 phone reference screenshots failed (desktop all pass); decider (general/clef, 2026-10-30) leaned hide_new_tabs_on_phone 0.566 over scrolling_tab_row 0.338, P(still reachable)=0.944 \u2014 the state text assumed the operator prefers not waiting on new screenshot approvals",
+      "affects": [
+        "t21"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 56
     }
   ],
   "evidence": [
