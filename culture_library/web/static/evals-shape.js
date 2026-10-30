@@ -45,10 +45,16 @@ function s(tag, attrs, ...kids) {
 }
 
 const val = (side, key) => {
-  const v = side && side.values ? side.values[key] : null;
+  const v = side?.values?.[key];
   return typeof v === 'number' && !Number.isNaN(v) ? v : null;
 };
-const sign = d => (d > 0.005 ? '+' : d < -0.005 ? '−' : '') + Math.abs(d).toFixed(2);
+/** The sign mark of a change: '+', the minus sign, or nothing inside the 0.005 dead band. */
+function signMark(d) {
+  if (d > 0.005) return '+';
+  if (d < -0.005) return '−';
+  return '';
+}
+const sign = d => signMark(d) + Math.abs(d).toFixed(2);
 
 /** "found at 1 0.73, ..., judge precision not scored" for an accessible name. */
 function spoken(axes, side) {
@@ -63,12 +69,10 @@ function shapeMarks(axes, side, g, cls) {
   ];
 }
 
-export function shapeChart({ axes, over, under, mean, mini, label, was = 'earlier' }) {
-  const g = mini ? G.MINI : G.FULL, n = axes.length;
-  const parts = [label || 'Shape chart', over ? `${over.name}: ${spoken(axes, over)}` : '',
-    under ? `laid over ${under.name}: ${spoken(axes, under)}` : ''].filter(Boolean);
+/** The grid: rings at 0.25, 0.5, 0.75 (one at 0.5 on a small multiple), the axes, the perfect outline. */
+function gridKids(axes, over, under, mini, g) {
+  const n = axes.length;
   const kids = [];
-  // Grid: rings at 0.25, 0.5, 0.75 (one at 0.5 on a small multiple), the axes, the perfect outline.
   for (const v of mini ? [0.5] : [0.25, 0.5, 0.75]) kids.push(s('polygon', { class: 'grid', points: G.ring(n, v, g) }));
   if (!mini) {
     axes.forEach((a, i) => {
@@ -78,45 +82,77 @@ export function shapeChart({ axes, over, under, mean, mini, label, was = 'earlie
     });
   }
   kids.push(s('polygon', { class: 'perfect', points: G.ring(n, 1, g) }));
-  if (!mini) {
-    // Ring values sit between the last axis and the first, off axis 0's data vertex.
-    for (const [v, text] of [[0.5, '0.5'], [1, '1.0']]) {
-      const p = G.ringLabelAt(v, n, g);
-      kids.push(s('text', { class: 'gl', x: p.x, y: p.y, 'text-anchor': p.anchor }, text));
-    }
-    axes.forEach((a, i) => {
-      const p = G.labelAt(i, n, g);
-      const gap = val(over, a.key) === null;
-      const tip = gap ? `${a.label}: not scored${over ? ` by ${over.name}` : ''}.\n${a.tip}` : `${a.label}\n${a.tip}`;
-      const cls = gap ? 'al gap' : 'al';
-      kids.push(s('g', { class: 'axl', 'data-tip': tip },
-        s('text', { class: `${cls} long`, x: p.x, y: p.y, 'text-anchor': p.anchor }, a.label),
-        s('text', { class: `${cls} short`, x: p.x, y: p.y, 'text-anchor': p.anchor }, a.short),
-        gap ? s('text', { class: 'gn', x: p.x, y: p.y + (p.y < g.cy - g.r ? -18 : 18), 'text-anchor': p.anchor }, 'not scored') : null));
-    });
+  return kids;
+}
+
+/** The hover tip of an axis label. */
+function axisTip(a, over, gap) {
+  if (!gap) return `${a.label}\n${a.tip}`;
+  const by = over ? ` by ${over.name}` : '';
+  return `${a.label}: not scored${by}.\n${a.tip}`;
+}
+
+/** Ring values and the axis labels (a full chart only). */
+function labelKids(axes, over, g) {
+  const n = axes.length;
+  const kids = [];
+  // Ring values sit between the last axis and the first, off axis 0's data vertex.
+  for (const [v, text] of [[0.5, '0.5'], [1, '1.0']]) {
+    const p = G.ringLabelAt(v, n, g);
+    kids.push(s('text', { class: 'gl', x: p.x, y: p.y, 'text-anchor': p.anchor }, text));
   }
+  axes.forEach((a, i) => {
+    const p = G.labelAt(i, n, g);
+    const gap = val(over, a.key) === null;
+    const cls = gap ? 'al gap' : 'al';
+    kids.push(s('g', { class: 'axl', 'data-tip': axisTip(a, over, gap) },
+      s('text', { class: `${cls} long`, x: p.x, y: p.y, 'text-anchor': p.anchor }, a.label),
+      s('text', { class: `${cls} short`, x: p.x, y: p.y, 'text-anchor': p.anchor }, a.short),
+      gap ? s('text', { class: 'gn', x: p.x, y: p.y + (p.y < g.cy - g.r ? -18 : 18), 'text-anchor': p.anchor }, 'not scored') : null));
+  });
+  return kids;
+}
+
+/** One side's hoverable vertices. */
+function vertexKids(axes, side, cls, tipOf, g) {
+  const n = axes.length;
+  return axes.map((a, i) => {
+    const v = val(side, a.key);
+    if (v === null) return null;
+    const [x, y] = G.polar(i, n, v, g);
+    return s('g', { class: 'vx', 'data-tip': tipOf(a, v) },
+      s('circle', { class: 'hit', cx: x, cy: y, r: 12 }), s('circle', { class: cls, cx: x, cy: y, r: 5 }));
+  });
+}
+
+/** What the over vertex tip says about the under side's value. */
+function overTail(w, was, v, hasUnder) {
+  if (!hasUnder) return '';
+  if (w === null) return ` (${was}: not scored)`;
+  return ` (${was} ${w.toFixed(2)}, ${sign(v - w)})`;
+}
+
+export function shapeChart({ axes, over, under, mean, mini, label, was = 'earlier' }) {
+  const g = mini ? G.MINI : G.FULL;
+  const parts = [label || 'Shape chart', over ? `${over.name}: ${spoken(axes, over)}` : '',
+    under ? `laid over ${under.name}: ${spoken(axes, under)}` : ''].filter(Boolean);
+  const kids = gridKids(axes, over, under, mini, g);
+  if (!mini) kids.push(...labelKids(axes, over, g));
   if (mean) kids.push(shapeMarks(axes, mean, g, 'mean'));
   if (under) kids.push(shapeMarks(axes, under, g, 'under'));
   if (over) kids.push(shapeMarks(axes, over, g, 'over'));
   if (!mini) {
-    const vertex = (side, cls, tipOf) => axes.map((a, i) => {
-      const v = val(side, a.key);
-      if (v === null) return null;
-      const [x, y] = G.polar(i, n, v, g);
-      return s('g', { class: 'vx', 'data-tip': tipOf(a, v) },
-        s('circle', { class: 'hit', cx: x, cy: y, r: 12 }), s('circle', { class: cls, cx: x, cy: y, r: 5 }));
-    });
-    if (under) kids.push(vertex(under, 'vb', (a, v) => `${under.name}: ${a.label} ${v.toFixed(2)}\n${a.tip}`));
+    if (under) kids.push(vertexKids(axes, under, 'vb', (a, v) => `${under.name}: ${a.label} ${v.toFixed(2)}\n${a.tip}`, g));
     if (over) {
-      kids.push(vertex(over, 'v', (a, v) => {
-        const w = val(under, a.key);
-        const tail = under ? (w === null ? ` (${was}: not scored)` : ` (${was} ${w.toFixed(2)}, ${sign(v - w)})`) : '';
+      kids.push(vertexKids(axes, over, 'v', (a, v) => {
+        const tail = overTail(val(under, a.key), was, v, Boolean(under));
         return `${over.name}: ${a.label} ${v.toFixed(2)}${tail}\n${a.tip}`;
-      }));
+      }, g));
     }
   }
   return s('svg', { class: mini ? 'ev-star mini' : 'ev-star', viewBox: g.viewBox, role: 'img', 'aria-label': parts.join('; ') + '.' }, kids);
 }
+
 
 /** The legend under a chart. */
 export function shapeKey(entries, cls) {
@@ -129,17 +165,35 @@ export function infoIcon(a) {
   return a.info ? h('span', { class: 'ev-info', tabindex: '0', role: 'img', 'aria-label': a.info, 'data-tip': a.info }, 'i') : null;
 }
 
+/** The class of a change cell: plus, minus, or plain inside the dead band. */
+function changeClass(d) {
+  if (d === null) return 'd';
+  if (d > 0.005) return 'd p';
+  if (d < -0.005) return 'd m';
+  return 'd';
+}
+
+/** One readout row of shapeList. */
+function listRow(a, over, under) {
+  const v = val(over, a.key), w = val(under, a.key);
+  const d = v !== null && w !== null ? v - w : null;
+  return h('li', { 'data-tip': `${a.label}\n${a.tip}` },
+    h('span', { class: v === null ? 'k gap' : 'k' }, a.label, infoIcon(a)),
+    h('span', { class: G.isLow(v) ? 'n low' : 'n' }, under ? `${G.f2(w)}, ${G.f2(v)}` : G.f2(v)),
+    under ? h('span', { class: changeClass(d) }, d === null ? '–' : sign(d)) : null);
+}
+
 /** Per-axis readout: label, value, and with an earlier shape its value and the change. */
 export function shapeList(axes, over, under, words = {}) {
   const head = h('li', { class: 'hd' }, h('b', {}, words.first || 'Result'), h('span', {}, under ? words.pair || 'Earlier, now' : 'Score'), under ? h('span', {}, 'Change') : null);
-  return h('ul', { class: under ? 'ev-axl two' : 'ev-axl' }, head, axes.map(a => {
-    const v = val(over, a.key), w = val(under, a.key);
-    const d = v !== null && w !== null ? v - w : null;
-    return h('li', { 'data-tip': `${a.label}\n${a.tip}` },
-      h('span', { class: v === null ? 'k gap' : 'k' }, a.label, infoIcon(a)),
-      h('span', { class: G.isLow(v) ? 'n low' : 'n' }, under ? `${G.f2(w)}, ${G.f2(v)}` : G.f2(v)),
-      under ? h('span', { class: d === null ? 'd' : d > 0.005 ? 'd p' : d < -0.005 ? 'd m' : 'd' }, d === null ? '–' : sign(d)) : null);
-  }));
+  return h('ul', { class: under ? 'ev-axl two' : 'ev-axl' }, head, axes.map(a => listRow(a, over, under)));
+}
+
+/** A table cell: the value, marked when low, or "not scored". */
+function tableCell(n) {
+  if (G.isLow(n)) return h('span', { class: 'low' }, G.f2(n));
+  if (n === null) return h('span', { class: 'ns' }, 'not scored');
+  return G.f2(n);
 }
 
 /** The numbers behind the shapes: one row per shape, values under 0.70 marked. */
@@ -149,9 +203,9 @@ export function shapeTable(axes, rows) {
     h('tbody', {}, rows.map(r => h('tr', { class: r.cls || null },
       h('td', {}, r.num ? h('span', { class: 'ev-num' }, String(r.num)) : null, h('span', { class: 't', dir: 'auto' }, r.name)),
       axes.map(a => {
-        const v = r.values ? r.values[a.key] : null;
+        const v = r.values?.[a.key];
         const n = typeof v === 'number' ? v : null;
-        return h('td', {}, G.isLow(n) ? h('span', { class: 'low' }, G.f2(n)) : n === null ? h('span', { class: 'ns' }, 'not scored') : G.f2(n));
+        return h('td', {}, tableCell(n));
       })))));
 }
 
