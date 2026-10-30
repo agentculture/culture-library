@@ -32,7 +32,7 @@ class Chunk:
 class Passage:
     """One retrieved passage from ``POST /api/rag/retrieve``."""
 
-    item_id: int
+    item_id: int | None
     chunk_sha: str
     text: str = ""
     title: str = ""
@@ -41,11 +41,15 @@ class Passage:
     score: float | None = None
     rerank_score: float | None = None
     source: str = ""
+    corpus: str = "item"  # "item" | "repodoc" (deviation d8)
+    doc_id: int | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> Passage:
+        item_id = d.get("item_id")
+        doc_id = d.get("doc_id")
         return cls(
-            item_id=int(d["item_id"]),
+            item_id=None if item_id is None else int(item_id),
             chunk_sha=d["chunk_sha"],
             text=d.get("text", ""),
             title=d.get("title", ""),
@@ -54,6 +58,8 @@ class Passage:
             score=d.get("score"),
             rerank_score=d.get("rerank_score"),
             source=d.get("source", ""),
+            corpus=d.get("corpus", "item"),
+            doc_id=None if doc_id is None else int(doc_id),
         )
 
     def to_dict(self) -> dict:
