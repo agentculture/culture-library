@@ -237,7 +237,6 @@ def _build_run(
     config: dict[str, Any],
     outcomes: list,
     errors: list,
-    k: int,
 ) -> SuiteRun:
     """The unscored run: one result per sample with its retrieval and ID metrics."""
     retrieved: list[list[Passage]] = [o.passages if o else [] for o in outcomes]
@@ -315,10 +314,7 @@ def run_set(
         "judge_model": judge.model if judge is not None else None,
         "server": (client.status() or {}).get("retrieval", {}),
     }
-    if current_sha != eval_set.item_sha256:
-        config["item_changed"] = {"set_sha256": eval_set.item_sha256, "item_sha256": current_sha}
-    if warmup:
-        config["warmup"] = True
+    _note_item_and_warmup(config, eval_set, current_sha, warmup)
 
     outcomes, errors = _retrieve_all(
         client, samples, k=k, mode=mode, rerank=rerank, candidates=candidates, warmup=warmup
@@ -330,7 +326,7 @@ def run_set(
         config["error"] = failed[0]["error"]
         config["errors"] = failed
 
-    run = _build_run(eval_set, samples, config, outcomes, errors, k)
+    run = _build_run(eval_set, samples, config, outcomes, errors)
     vis = _Visibility(client, {int(eval_set.item_id): item.get("visibility")})
     whole = SuiteContext(
         samples=samples,
@@ -351,11 +347,41 @@ def run_set(
         latencies_ms=[whole.latencies_ms[i] for i in ok],
         errors=[None for _ in ok],
     )
+    aggregates = _score_all(chosen, whole, succeeded, ok, adapter, run)
+    aggregates[PRECISION] = _mean([run.samples[i].scores.get(PRECISION) for i in ok])
+    aggregates[RECALL] = _mean([run.samples[i].scores.get(RECALL) for i in ok])
+    _set_status(run, aggregates, ok, len(samples))
+    return run
+
+
+def _note_item_and_warmup(
+    config: dict[str, Any], eval_set: EvalSet, current_sha: str | None, warmup: bool
+) -> None:
+    """Record a changed item (freshness reports its questions) and an untimed warm-up."""
+    if current_sha != eval_set.item_sha256:
+        config["item_changed"] = {"set_sha256": eval_set.item_sha256, "item_sha256": current_sha}
+    if warmup:
+        config["warmup"] = True
+
+
+def _score_all(
+    chosen: Sequence,
+    whole: SuiteContext,
+    succeeded: SuiteContext,
+    ok: list[int],
+    adapter: EvalAdapter,
+    run: SuiteRun,
+) -> dict[str, float | None]:
+    """Score every chosen suite into ``run``; return the merged aggregates.
+
+    Speed and freshness see every question; the other suites see only the questions whose
+    retrieval succeeded. A skipped suite's reason goes to ``config.suites_skipped``.
+    """
     aggregates: dict[str, float | None] = {}
     skipped: dict[str, str] = {}
     for suite in chosen:
         in_all = suite.name in ALL_QUESTION_SUITES
-        rows = list(range(len(samples))) if in_all else ok
+        rows = list(range(len(whole.samples))) if in_all else ok
         score = _score_suite(suite, whole if in_all else succeeded, adapter, run)
         if score is None:
             continue
@@ -367,16 +393,17 @@ def run_set(
         _merge_score(run, suite, score, rows, aggregates)
     if skipped:
         run.config["suites_skipped"] = skipped
+    return aggregates
 
-    aggregates[PRECISION] = _mean([run.samples[i].scores.get(PRECISION) for i in ok])
-    aggregates[RECALL] = _mean([run.samples[i].scores.get(RECALL) for i in ok])
-    if not samples or len(ok) == len(samples):
+
+def _set_status(run: SuiteRun, aggregates: dict, ok: list[int], total: int) -> None:
+    """complete (aggregates), partial (partial aggregates over ``ok``) or failed (none)."""
+    if not total or len(ok) == total:
         run.status, run.aggregates = "complete", aggregates
     elif ok:
         run.status, run.aggregates, run.partial_aggregates = "partial", None, aggregates
     else:
         run.status, run.aggregates = "failed", None
-    return run
 
 
 def _score_suite(suite, ctx: SuiteContext, adapter: EvalAdapter, run: SuiteRun):

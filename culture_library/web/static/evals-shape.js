@@ -180,7 +180,13 @@ function listRow(a, over, under) {
   return h('li', { 'data-tip': `${a.label}\n${a.tip}` },
     h('span', { class: v === null ? 'k gap' : 'k' }, a.label, infoIcon(a)),
     h('span', { class: G.isLow(v) ? 'n low' : 'n' }, under ? `${G.f2(w)}, ${G.f2(v)}` : G.f2(v)),
-    under ? h('span', { class: changeClass(d) }, d === null ? '–' : sign(d)) : null);
+    under ? changeCell(d) : null);
+}
+
+/** The change column of a per-axis row: the signed change, or a dash when either side is unscored. */
+function changeCell(d) {
+  const text = d === null ? '–' : sign(d);
+  return h('span', { class: changeClass(d) }, text);
 }
 
 /** Per-axis readout: label, value, and with an earlier shape its value and the change. */

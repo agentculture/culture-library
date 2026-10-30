@@ -101,12 +101,16 @@ class FreshnessSuite:
     def score(self, ctx: SuiteContext) -> SuiteScore:
         current: Sequence[str] | None = None
         gone = False
-        if ctx.current_chunks is not None:
+        try:
+            item_id: int | None = int(ctx.item["id"])
+        except (KeyError, TypeError, ValueError):
+            item_id = None  # no item id: every question is unknown, never stale
+        if ctx.current_chunks is not None and item_id is not None:
             try:
-                current = ctx.current_chunks(int(ctx.item["id"]))
+                current = ctx.current_chunks(item_id)
             except LookupError:
                 gone = True
-            except (KeyError, TypeError, ValueError):
+            except (TypeError, ValueError):
                 current = None
         per: list[dict[str, float | None]] = []
         counts = dict.fromkeys(_COUNT_KEYS.values(), 0)

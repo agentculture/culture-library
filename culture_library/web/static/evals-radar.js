@@ -70,6 +70,33 @@ const noRunsText = p => (p.runs.length
   ? `This key cannot see run ${p.runs.join(', ')}, or it does not exist. Pick documents on the Evals overview.`
   : 'No set has a complete run yet. Score one with culture-library eval run.');
 
+/** The earlier run(s) to lay under ``picked`` and the compare checks behind that choice. */
+async function overlayFor(p, all, picked, after) {
+  let { under, note, overlay } = chooseUnder(p, all, picked);
+  let checks = null;
+  if (under) {
+    checks = await api(`/api/eval/compare?before=${under.join(',')}&after=${after.join(',')}`).then(r => r.checks).catch(() => null);
+    if (overlay === 'auto' && !checks?.comparable) {
+      note = notComparableNote(under, checks);
+      under = null;
+    }
+  }
+  return { under, note, overlay, checks };
+}
+
+/** Axis keys of shape ``a``, then any only shape ``b`` has. */
+function axisKeys(a, b) {
+  const own = a.axes || {};
+  return [...Object.keys(own), ...Object.keys(b?.axes || {}).filter(k => !(k in own))];
+}
+
+/** Metric name to definition, from GET /api/eval/suites. */
+function metricDefs(suites) {
+  const metrics = {};
+  for (const su of suites.suites || []) for (const m of su.metrics || []) metrics[m.name] = m.definition;
+  return metrics;
+}
+
 /** Draw the radar for the route's params string. */
 export async function draw(params) {
   const my = ++drawing;
@@ -91,16 +118,8 @@ export async function draw(params) {
     fill(body, h('p', { class: 'empty' }, noRunsText(p)));
     return;
   }
-  let { under, note, overlay } = chooseUnder(p, all, picked);
-  let checks = null;
   const after = picked.map(r => r.id);
-  if (under) {
-    checks = await api(`/api/eval/compare?before=${under.join(',')}&after=${after.join(',')}`).then(r => r.checks).catch(() => null);
-    if (overlay === 'auto' && !checks?.comparable) {
-      note = notComparableNote(under, checks);
-      under = null;
-    }
-  }
+  const { under, note, overlay, checks } = await overlayFor(p, all, picked, after);
   const q = after.length === 1 ? `run=${after[0]}` : `runs=${after.join(',')}`;
   const vsQuery = under ? `&vs=${under.join(',')}` : '';
   let shape;
@@ -113,9 +132,8 @@ export async function draw(params) {
   if (my !== drawing) return;
   const a = shape.kind === 'pair' ? shape.a : shape;
   const b = shape.kind === 'pair' ? shape.b : null;
-  const keys = [...Object.keys(a.axes || {}), ...Object.keys(b?.axes || {}).filter(k => !(k in (a.axes || {})))];
-  const metrics = {};
-  for (const su of suites.suites || []) for (const m of su.metrics || []) metrics[m.name] = m.definition;
+  const keys = axisKeys(a, b);
+  const metrics = metricDefs(suites);
   const underRuns = under ? under.map(id => all.find(r => r.id === id)).filter(Boolean) : [];
   cur = { all, allSets, groups, picked, sel, overlay, vs: p.vs };
   const view = { axes: G.axisList(keys, metrics, M.rankDepth([...(picked || []), ...underRuns])), a, b, picked, underRuns, under, checks, note, unknown, budget: shape.budget_s };
@@ -194,7 +212,8 @@ function runsLine(v) {
   const cfg = M.configText(M.configKey(v.picked[0]));
   const mixed = new Set(v.picked.map(M.configKey)).size > 1;
   const who = n === 1 ? `Run ${v.picked[0].id}, set ${v.picked[0].set_id}, ${plural(qs, 'question', 'questions')}.` : `Mean of ${plural(n, 'document', 'documents')}, ${plural(qs, 'question', 'questions')}. Runs ${idList(v.picked)}.`;
-  const over = v.under ? ` Laid over run${v.under.length === 1 ? '' : 's'} ${v.under.join(', ')}.` : '';
+  const runWord = v.under?.length === 1 ? 'run' : 'runs';
+  const over = v.under ? ` Laid over ${runWord} ${v.under.join(', ')}.` : '';
   const setting = mixed ? 'Mixed search settings' : cfg.charAt(0).toUpperCase() + cfg.slice(1);
   return `${who} ${setting}.${over}`;
 }
@@ -228,8 +247,7 @@ function mainCard(v) {
   const key = [];
   if (under) key.push({ mark: 'under', text: `Under: ${underName}` });
   const thisRun = 'This run' + (n === 1 ? '' : ', mean of its documents');
-  key.push({ mark: 'over', text: under ? `Over: ${overName}` : thisRun });
-  key.push({ mark: 'perfect', text: 'Perfect: 1 on every result' });
+  key.push({ mark: 'over', text: under ? `Over: ${overName}` : thisRun }, { mark: 'perfect', text: 'Perfect: 1 on every result' });
   const gapText = gaps.length ? `Not scored, drawn as gaps: ${gaps.join(', ')}. ` : '';
   const rows = [{ name: overName, values: v.a.axes, cls: 'mean' }];
   if (under) rows.push({ name: underName, values: v.b.axes, cls: 'under' });

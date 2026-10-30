@@ -202,7 +202,11 @@ function dbRow(r, pos) {
     h('div', { class: 'ev-track' }, marks),
     h('div', { class: 'val' }, val));
 }
-const gainText = gain => (gain === null ? '–' : (gain >= 0 ? '+' : '') + gain.toFixed(2));
+function gainText(gain) {
+  if (gain === null) return '–';
+  const sign = gain >= 0 ? '+' : '';
+  return sign + gain.toFixed(2);
+}
 function rerankCard(d) {
   const rows = d.rows;
   const used = [...d.picked.values()].flatMap(p => [p.off, p.on]);
