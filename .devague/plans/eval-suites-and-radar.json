@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-29T05:19:06Z",
-  "updated": "2026-10-29T23:24:30Z",
+  "updated": "2026-10-30T00:41:48Z",
   "targets": [
     {
       "id": "c1",
@@ -1007,16 +1007,16 @@
       "text": "CI's visual job runs on every PR (.github/workflows/tests.yml:91-111): the Evals tab (t16) fails all 30 parity checks until the approved references (t19) land, so t16-t19 must ship in one PR and the operator approves candidates before merge",
       "kind": "unknown_nonblocking",
       "task_id": "t19",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "t16-t19 ship in one PR; the operator approved all 42 candidates on 2026-10-30 (244681a), Evals renders refreshed for d4 (3fd1d2c); pytest -m visual passes"
     },
     {
       "id": "r2",
       "text": "The live deploy adds columns to eval tables: take a pre-deploy snapshot and keep the previous image for rollback, as for 0.16.1 and 0.17.0",
       "kind": "unknown_nonblocking",
       "task_id": "t20",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "pre-deploy snapshot ~/backups/culture-library-pre-0.18.0/snapshots/20261030T003841Z (verify OK, 100 items) and rollback image culture-library:0.17.0 taken before the 0.18.0 restart on 2026-10-30; row counts unchanged after"
     },
     {
       "id": "r3",

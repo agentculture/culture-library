@@ -2,7 +2,7 @@
   "plan_slug": "eval-suites-and-radar",
   "schema_version": 2,
   "created": "2026-10-29T23:08:52Z",
-  "updated": "2026-10-30T00:33:30Z",
+  "updated": "2026-10-30T00:41:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -577,6 +577,101 @@
       "status": "proposed",
       "superseded": false,
       "seq": 30
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o8",
+      "test_ref": "live GET /api/eval/compare?before=19&after=11 on 127.0.0.1:8796 (0.18.0)",
+      "behavior_text": "comparing stored runs 19 and 11 without re-running returned checks comparable with no warnings, found at 1 0.20 -> 0.45, MRR 0.435 -> 0.618, found at 5 0.70 -> 0.85, 10 changed questions worst first",
+      "contract_text": "comparing run 19 with run 11 without re-running returns found at 1 0.20 -> 0.45 and MRR 0.44 -> 0.62",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live API call on the deployed 0.18.0 build after the backfill, read with a temporary key (14, revoked after)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T00:41:41",
+        "commit": "fb52f03"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o11",
+      "test_ref": "tests/visual/test_parity.py (42 views incl. 12 Evals: overview, radar, compare x desktop/phone x light/dark) and tests/visual/test_checks.py; live headless render of #evals, #evals/radar and #evals/compare?before=19&after=11 on 0.18.0",
+      "behavior_text": "the three Evals views render from the eval API in light and dark at desktop and phone widths within 1% of the operator-approved references, no sideways scroll at 400px, no console errors on live data",
+      "contract_text": "overview, radar and compare render from the eval API in light and dark at desktop and phone widths and match the canvas boards except recorded deviations",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest -m visual: 70 passed at the committed references; live render had scrollWidth 1680/400 and no page errors; deviations from the canvas are recorded in docs/design/library-site.md",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T00:41:41",
+        "commit": "fb52f03"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o23",
+      "test_ref": "git log docs/design/reference (244681a, 3fd1d2c); tests/visual/test_parity.py",
+      "behavior_text": "the 30 re-rendered views and 12 Evals views were committed to docs/design/reference only after the operator approved the candidates on 2026-10-30 (Evals renders refreshed for the user-requested d4 icon); library-site.md records the Evals section and the deviations",
+      "contract_text": "the 30 re-rendered views plus the Evals views are committed only after operator approval, with the deviation in library-site.md",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "candidates stayed uncommitted in reference-candidates/ until the user's 'screenshots approved'; visual parity passes against the committed set",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T00:41:41",
+        "commit": "fb52f03"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o25",
+      "test_ref": "live eval_store.backfill_snapshots on 0.18.0",
+      "behavior_text": "on live the backfill filled 344 of 344 run results (runs 1-22), a second call filled 0, and no result lacks its question text",
+      "contract_text": "every run keeps its question text and reference shas after its set is replaced, and runs 1-22 are backfilled",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "ran in the live library container after the upgrade; row counts of every eval table equal the pre-upgrade counts",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T00:41:41",
+        "commit": "fb52f03"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o29",
+      "test_ref": "live POST /api/eval/runs/start {set_id: 6, k: 5, rerank: true}, polled GET /api/eval/runs/23",
+      "behavior_text": "a judge-free server run on live returned run 23 at once with status running, polled 0 -> 1 -> 4 of 4 to complete with four suites, error_rate 0 and latency_source in-process",
+      "contract_text": "a judge-free run started over the API returns its id at once, can be polled to complete, and matches a CLI run of the same set and config; judged suites are refused with a hint",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "live API on the deployed 0.18.0 build with a temporary key (revoked after); CLI parity itself is covered by e24",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-30T00:41:41",
+        "commit": "fb52f03"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 36
     }
   ],
   "deltas": [
