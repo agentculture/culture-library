@@ -209,6 +209,16 @@ class _Retrieval:
     latency_ms: float
 
 
+def _retrieve_one(client, question: str, opts: dict) -> tuple[_Retrieval | None, str | None]:
+    """One timed retrieval: (outcome, None) on success, (None, error string) on failure."""
+    start = time.perf_counter()
+    try:
+        passages = client.retrieve(question, **opts)
+    except _RETRIEVAL_ERRORS as exc:
+        return None, str(exc) or type(exc).__name__
+    return _Retrieval(passages, (time.perf_counter() - start) * 1000.0), None
+
+
 def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup, on_retrieval=None):
     """Retrieve every question; a failure is that question's error, never the run's end.
 
@@ -225,23 +235,16 @@ def _retrieve_all(client, samples, *, k, mode, rerank, candidates, warmup, on_re
     outcomes: list[_Retrieval | None] = []
     errors: list[str | None] = []
     for index, sample in enumerate(samples):
-        start = time.perf_counter()
-        try:
-            passages = client.retrieve(sample.question, **opts)
-        except _RETRIEVAL_ERRORS as exc:
-            outcomes.append(None)
-            errors.append(str(exc) or type(exc).__name__)
-        else:
-            outcomes.append(_Retrieval(passages, (time.perf_counter() - start) * 1000.0))
-            errors.append(None)
+        done, error = _retrieve_one(client, sample.question, opts)
+        outcomes.append(done)
+        errors.append(error)
         if on_retrieval is not None:
-            done = outcomes[-1]
             on_retrieval(
                 index,
                 sample,
                 done.passages if done else None,
                 done.latency_ms if done else None,
-                errors[-1],
+                error,
             )
     return outcomes, errors
 
