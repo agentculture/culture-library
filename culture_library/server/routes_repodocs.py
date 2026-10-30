@@ -42,6 +42,7 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+import mimetypes
 import os
 import sqlite3
 from dataclasses import asdict
@@ -385,28 +386,90 @@ def list_repodocs(
 def get_repodoc(
     doc_id: int,
     principal: Principal = Depends(current_principal),
-    docs: RepoDocs = Depends(get_repodocs),
+    store: Store = Depends(get_store),
 ) -> dict:
+    """``doc`` and ``versions`` as before, plus ``current`` (the current version or null),
+    ``draft`` (``{visibility, sha256, size, pushed_at, ahead}`` or null), ``removed``
+    (``{removed, removed_at, removed_commit}``; a removed doc is still returned) and
+    ``spec_links`` (:meth:`SpecLinks.links`, an empty structure when none)."""
     check(principal, "read")
+    docs = RepoDocs(store)
     doc = docs.get(doc_id, include_private=principal.private)
     if doc is None:
         raise _absent(f"repo doc {doc_id}")
     versions = docs.versions(doc_id, include_private=principal.private)
-    return {"doc": asdict(doc), "versions": [asdict(v) for v in versions]}
+    draft = docs.draft(doc_id, include_private=principal.private)
+    current = next((v for v in versions if v.commit == doc.current_commit), None)
+    return {
+        "doc": asdict(doc),
+        "versions": [asdict(v) for v in versions],
+        "current": asdict(current) if current else None,
+        "draft": asdict(draft) if draft else None,
+        "removed": {
+            "removed": doc.removed_at is not None,
+            "removed_at": doc.removed_at,
+            "removed_commit": doc.removed_commit,
+        },
+        "spec_links": SpecLinks(store).links(doc_id),
+    }
+
+
+# Types that are active content when opened on this origin: served sandboxed, as a download.
+_ACTIVE_TYPES = {"text/html", "application/xhtml+xml", "image/svg+xml"}
+_TEXT = "text/plain; charset=utf-8"
+
+
+def _served_type(path: str, data: bytes) -> str:
+    """The Content-Type for a doc's bytes: images and PDF as themselves, HTML/SVG as their
+    own type (neutralised by the caller), Markdown/JSON/text as ``text/plain``, anything
+    else binary as ``application/octet-stream``."""
+    if path.endswith(".md"):
+        return mirror._content_type(path).replace("text/markdown", "text/plain")
+    guess = mimetypes.guess_type(path)[0] or ""
+    if guess in _ACTIVE_TYPES or guess == "application/pdf" or guess.startswith("image/"):
+        return guess
+    if guess.startswith("text/") or guess == "application/json":
+        return _TEXT
+    if guess:
+        return "application/octet-stream"
+    try:  # unknown extension: text if it decodes, else a binary download
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return "application/octet-stream"
+    return _TEXT
+
+
+def _attachment_name(path: str) -> str:
+    name = path.rsplit("/", 1)[-1]
+    safe = "".join(c if c.isascii() and c.isalnum() or c in "._-" else "_" for c in name)
+    return safe or "download"
 
 
 @router.get("/api/repodocs/{doc_id}/content")
 def get_repodoc_content(
     doc_id: int,
     commit: str | None = None,
+    version: str | None = None,
     principal: Principal = Depends(current_principal),
     docs: RepoDocs = Depends(get_repodocs),
 ) -> Response:
+    """Bytes of one version: ``commit=`` or ``version=`` (a sha, or ``working`` for the
+    draft; ``version`` wins). The Content-Type follows the file; HTML and SVG are served
+    with ``Content-Security-Policy: sandbox`` and as an attachment, never as same-origin
+    active content."""
     check(principal, "read")
+    want = version if version is not None else commit
+    doc = docs.get(doc_id, include_private=principal.private)
     try:
-        data = docs.content(doc_id, commit, include_private=principal.private)
+        data = docs.content(doc_id, want, include_private=principal.private)
     except ValidationError as exc:
         raise _bad(exc) from exc
     except NotFoundError as exc:
         raise _absent(f"repo doc {doc_id} version") from exc
-    return Response(data, media_type="text/plain; charset=utf-8")
+    path = doc.path if doc else ""
+    ctype = _served_type(path, data)
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if ctype.split(";")[0] in _ACTIVE_TYPES or ctype == "application/octet-stream":
+        headers["Content-Security-Policy"] = "sandbox"
+        headers["Content-Disposition"] = f'attachment; filename="{_attachment_name(path)}"'
+    return Response(data, media_type=ctype, headers=headers)
