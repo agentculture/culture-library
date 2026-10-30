@@ -20,7 +20,8 @@ def test_no_json_noise_lines(p):
     out = text_for(str(p), json.loads(p.read_text()))
     assert out.strip()
     for line in out.splitlines():
-        assert line.strip() and not BAD.match(line), line
+        assert line.strip(), line
+        assert not BAD.match(line), line
         assert not line.lstrip().startswith(('{"', '["'))
 
 
@@ -69,5 +70,6 @@ def test_delivery():
 def test_unknown_shape_strings_only():
     out = text_for("x.json", {"alpha": {"beta": ["hello world", 3, None]}, "n": 1})
     assert out.strip() == "hello world"
-    assert "alpha" not in out and "{" not in out
+    assert "alpha" not in out
+    assert "{" not in out
     assert text_for("x.json", [1, 2]).strip() == ""

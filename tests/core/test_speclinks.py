@@ -19,8 +19,10 @@ def sl(store: Store) -> SpecLinks:
 
 def test_no_links_is_empty_structure(sl):
     got = sl.links(7)
-    assert got["pr"] is None and got["merge_commit"] is None
-    assert got["code_paths"] == [] and got["trailer_commits"] == []
+    assert got["pr"] is None
+    assert got["merge_commit"] is None
+    assert got["code_paths"] == []
+    assert got["trailer_commits"] == []
 
 
 def test_set_and_read(sl):
@@ -47,7 +49,8 @@ def test_newer_replaces_older_never_regresses(sl):
     sl.set_links(1, code_paths=["renamed.py"], at_commit="c3", at_committed_at=T3)
     assert sl.links(1)["code_paths"] == ["renamed.py"]
     got = sl.set_links(1, code_paths=["old.py"], at_commit="c2", at_committed_at=T1)
-    assert got["code_paths"] == ["renamed.py"] and got["at_commit"] == "c3"
+    assert got["code_paths"] == ["renamed.py"]
+    assert got["at_commit"] == "c3"
     # equal time, different commit: not newer
     sl.set_links(1, code_paths=["x.py"], at_commit="cx", at_committed_at=T3)
     assert sl.links(1)["code_paths"] == ["renamed.py"]
@@ -58,7 +61,8 @@ def test_pr_and_merge_without_paths_keep_paths(sl):
     sl.set_links(1, pr=12, merge_commit="abc")
     got = sl.links(1)
     assert got["pr"] == {"url": None, "number": 12}
-    assert got["merge_commit"] == "abc" and got["code_paths"] == ["a.py"]
+    assert got["merge_commit"] == "abc"
+    assert got["code_paths"] == ["a.py"]
 
 
 def test_validation(sl):

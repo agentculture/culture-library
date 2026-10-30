@@ -95,7 +95,8 @@ def test_odd_delivery_values_do_not_raise():
 
 def test_unknown_schema_delivery_is_raw_with_notice():
     out = render({"schema_version": 9, "plan_slug": "p", "deviations": []})
-    assert "dv-raw" in out and "dv-notice" in out
+    assert "dv-raw" in out
+    assert "dv-notice" in out
 
 
 def _corpus_files() -> list[Path]:

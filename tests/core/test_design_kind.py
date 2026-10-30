@@ -124,7 +124,9 @@ def test_pre_design_db_migrates_with_row_counts_unchanged(tmp_path, capsys) -> N
     store = Store(data)
 
     lines = capsys.readouterr().err.splitlines()
-    assert len(lines) == 1 and "design" in lines[0] and "4 rows" in lines[0]
+    assert len(lines) == 1
+    assert "design" in lines[0]
+    assert "4 rows" in lines[0]
     assert "'design'" in _items_sql(db)
     assert store_mod._KIND_CHECK in " ".join(_items_sql(db).split())
     assert _counts(db) == counts

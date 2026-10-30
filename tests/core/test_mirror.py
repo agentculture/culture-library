@@ -49,7 +49,8 @@ def test_key_for():
     )
     assert key_for("r", "p.md", None).endswith("@working")
     assert key_for("r", "p.md", "working") == "r/p.md@working"
-    assert key_for("r", "p.md", A) == key_for("r", "p.md", A)
+    first = key_for("r", "p.md", A)
+    assert key_for("r", "p.md", A) == first
 
 
 def test_fake_backend_satisfies_protocol():
@@ -79,10 +80,14 @@ def test_enqueue_and_drain_success(store: Store):
 
 def test_enqueue_is_on_callers_connection_and_rolls_back(store: Store):
     sha = store.write_blob(b"x")
-    with pytest.raises(RuntimeError):
+
+    def enqueue_then_fail():
         with store.connect() as conn:
             enqueue(conn, "k", sha)
             raise RuntimeError
+
+    with pytest.raises(RuntimeError):
+        enqueue_then_fail()
     assert _rows(store) == []
 
 
@@ -109,11 +114,14 @@ def test_drain_failure_records_and_does_not_raise(store: Store):
     assert drain(store, backend) == {"done": 0, "failed": 1}
     assert drain(store, backend)["failed"] == 1
     row = _rows(store)[0]
-    assert row["state"] == "pending" and row["attempts"] == 2 and "boom" in row["last_error"]
+    assert row["state"] == "pending"
+    assert row["attempts"] == 2
+    assert "boom" in row["last_error"]
     backend.fail = None
     assert drain(store, backend)["done"] == 1
     row = _rows(store)[0]
-    assert row["state"] == "done" and row["last_error"] == ""
+    assert row["state"] == "done"
+    assert row["last_error"] == ""
 
 
 def test_drain_missing_blob_is_recorded(store: Store):
@@ -175,6 +183,7 @@ def test_pending_stats(store: Store):
         enqueue(conn, "k2", sha)
     later = datetime.now(UTC) + timedelta(seconds=100)
     stats = pending_stats(store, at=later)
-    assert stats["count"] == 2 and 99 <= stats["oldest_age_seconds"] <= 102
+    assert stats["count"] == 2
+    assert 99 <= stats["oldest_age_seconds"] <= 102
     drain(store, FakeBackend())
     assert pending_stats(store)["count"] == 0
