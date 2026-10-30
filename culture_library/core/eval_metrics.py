@@ -65,9 +65,12 @@ def id_metrics(
         out[f"found_at_{d}"] = None if d > k_run else float(any(rel[:d]))
     out["precision_at_k"] = sum(rel) / k_run if k_run > 0 else None
     depth = rel[:MRR_DEPTH]
+    # The ideal ranking fills min(10, k) ranks, not just the ranks the server returned, so a
+    # short result list cannot score a perfect nDCG.
+    n_ideal = min(len(refs), out["depth"])
     first = next((i for i, r in enumerate(depth, 1) if r), None)
     out["mrr"] = 1.0 / first if first else 0.0
     dcg = sum(r / math.log2(i + 1) for i, r in enumerate(depth, 1))
-    ideal = sum(1 / math.log2(i + 1) for i in range(1, min(len(refs), len(depth)) + 1))
+    ideal = sum(1 / math.log2(i + 1) for i in range(1, n_ideal + 1))
     out["ndcg"] = dcg / ideal if ideal else 0.0
     return out

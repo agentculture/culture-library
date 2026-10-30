@@ -17,6 +17,13 @@ def _found(depth: int) -> Metric:
     )
 
 
+def _item_id(ctx: SuiteContext) -> int | None:
+    try:
+        return int(ctx.item["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 class IdRetrievalSuite:
     name = "id_retrieval"
     version = "1"
@@ -50,10 +57,19 @@ class IdRetrievalSuite:
     def score(self, ctx: SuiteContext) -> SuiteScore:
         keys = [m.name for m in self.metrics]
         per: list[dict[str, float | None]] = []
+        item_id = _item_id(ctx)
         for sample, passages in zip(ctx.samples, ctx.retrieved):
-            got = id_metrics(
-                [p.chunk_sha for p in passages], list(sample.reference_chunk_shas), ctx.k
-            )
+            refs = list(sample.reference_chunk_shas)
+            if item_id is not None and all(p.item_id is not None for p in passages):
+                # References belong to the set's item; identical text in another item shares
+                # its sha and must not count (the radar scores the same way).
+                got = id_metrics(
+                    [(p.item_id, p.chunk_sha) for p in passages],
+                    [(item_id, r) for r in refs],
+                    ctx.k,
+                )
+            else:
+                got = id_metrics([p.chunk_sha for p in passages], refs, ctx.k)
             per.append({key: got.get(key) for key in keys})
         return SuiteScore(per, {key: mean([row[key] for row in per]) for key in keys})
 

@@ -406,7 +406,7 @@ def _compare_text(data: dict[str, Any]) -> str:
         if data.get("left_out"):
             lines.append(f"left out: {data['left_out']}")
         return "\n".join(lines)
-    before, after = (data.get(k, {}).get("axes", {}) for k in ("before", "after"))
+    before, after = (data.get(k) or {} for k in ("before", "after"))
     deltas = data.get("deltas", {})
     lines.append("axis: before -> after (delta)")
     for axis in after or before:

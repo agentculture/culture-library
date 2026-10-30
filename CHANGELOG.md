@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-10-30
+
+### Fixed
+
+- `culture-library eval compare` text output prints every axis again: it read `before.axes`/`after.axes`, but the API sends flat axis dicts, so only the heading printed.
+- nDCG is no longer inflated when the server returns fewer passages than k: the ideal ranking now fills min(10, k) ranks, not just the ranks returned.
+- The `id_retrieval` suite scores item-aware (item id and sha) when the set's item is known, so stored found-at/MRR/nDCG aggregates agree with the radar; identical text in another item no longer counts as found.
+- The compare page's changed questions are scored item-aware, like the axes above them.
+- Radar ID axes leave out failed retrievals, which already count on `no_errors`, so a failure is not penalised twice and the radar agrees with the run's partial aggregates.
+
 ## [0.18.0] - 2026-10-30
 
 ### Added

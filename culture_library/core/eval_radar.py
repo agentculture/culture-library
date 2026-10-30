@@ -117,6 +117,11 @@ def _question_metrics(sample: Result, k: int, item_id: Any = None) -> dict[str, 
     return id_metrics(retrieved, refs, k)
 
 
+def _failed(sample: Result) -> bool:
+    """True when the runner recorded this question's retrieval as an error."""
+    return (sample.get("scores_json") or {}).get("error_rate") == 1.0
+
+
 def _judge(run: Run, samples: Sequence[Result], key: str, whole_run: bool) -> float | None:
     if whole_run:
         for col in ("aggregates_json", "partial_aggregates_json"):
@@ -130,7 +135,9 @@ def _axes(
     run: Run, samples: Sequence[Result], budget_s: float, whole_run: bool
 ) -> dict[str, float | None]:
     k = _k(run, samples)
-    rows = [_question_metrics(s, k, run.get("item_id")) for s in samples]
+    # A failed retrieval already counts against no_errors; scoring its empty ranks as misses
+    # too would penalise it twice and disagree with the run's own (partial) aggregates.
+    rows = [_question_metrics(s, k, run.get("item_id")) for s in samples if not _failed(s)]
     out: dict[str, float | None] = {a: _mean(r[a] for r in rows) for a in _ID_AXES}
     for axis, key in _JUDGE.items():
         out[axis] = _judge(run, samples, key, whole_run)
@@ -244,8 +251,8 @@ def _qkey(sample: Result) -> Any:
     return sample.get("question") or ("sample", sample.get("sample_id"))
 
 
-def _summary(sample: Result, k: int) -> dict[str, float | None]:
-    m = _question_metrics(sample, k)
+def _summary(sample: Result, k: int, item_id: Any = None) -> dict[str, float | None]:
+    m = _question_metrics(sample, k, item_id)
     return {a: m[a] for a in _ID_AXES}
 
 
@@ -280,7 +287,8 @@ def compare(before: Scored, after: Scored, *, budget_s: float = DEFAULT_BUDGET_S
         old = prior.get(_qkey(s))
         if old is None:
             continue
-        sb, sa = _summary(old, k_a), _summary(s, k_b)
+        sb = _summary(old, k_a, run_a.get("item_id"))
+        sa = _summary(s, k_b, run_b.get("item_id"))
         if sb != sa:
             changed.append(
                 {"question": s.get("question"), "before": sb, "after": sa, "delta": _delta(sb, sa)}

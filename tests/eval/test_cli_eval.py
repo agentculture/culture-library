@@ -319,6 +319,22 @@ def test_compare_not_comparable_prints_checks_only(capsys):
     assert "different sets" in text
 
 
+def test_compare_text_prints_every_axis_value():
+    """The API sends before/after as flat axis dicts; each axis gets its own line."""
+    text = eval_cmd._compare_text(
+        {
+            "checks": {"comparable": True, "reasons": [], "warnings": []},
+            "before": {"found_at_1": 0.2, "mrr": 0.435},
+            "after": {"found_at_1": 0.45, "mrr": 0.618},
+            "deltas": {"found_at_1": 0.25, "mrr": 0.183},
+            "changed_questions": [],
+        }
+    )
+    assert "found_at_1:" in text
+    assert "mrr:" in text
+    assert "0.45" in text
+
+
 def test_reanchor(cli, capsys):
     item = _item(cli)
     _, out, _ = _run(capsys, "eval", "generate", str(item.id), "--samples", "2", "--json")
