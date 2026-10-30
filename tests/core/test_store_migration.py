@@ -129,7 +129,12 @@ def _snapshot(db):
             "embeddings": conn.execute(
                 "SELECT * FROM embeddings ORDER BY item_id, chunk_no"
             ).fetchall(),
-            "index_queue": conn.execute("SELECT * FROM index_queue ORDER BY item_id").fetchall(),
+            # The old columns only: later additive columns (index_queue.priority, t11/d7)
+            # are added on open and are not what this rebuild test is about.
+            "index_queue": conn.execute(
+                "SELECT item_id, state, body_done, attempts, next_attempt_at, enqueued_at, "
+                "last_error FROM index_queue ORDER BY item_id"
+            ).fetchall(),
             "seq": conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'items'").fetchone(),
         }
     finally:
