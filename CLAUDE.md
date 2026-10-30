@@ -127,8 +127,13 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
     retried once, then skipped, because a search engine can't answer it.
   - `web/static/`: the site. A `todo` item opens as a read-only checklist
     (`checklist.js`). An Evals tab (`evals.js`, `evals-model.js`,
-    `evals.css`; `#evals`) shows the eval overview. The `#evals/radar`
-    shape view and `#evals/compare` are routed but still stubs (planned).
+    `evals.css`; `#evals`) shows the eval overview. `#evals/radar?runs=IDS`
+    (`evals-radar.js`, drawn by `evals-shape.js`/`evals-geom.js`) shows a run's
+    or a set group's shape, one axis per result, over the earlier comparable
+    run, with small multiples per document. `#evals/compare?before=IDS&after=IDS`
+    (`evals-compare.js`) shows the comparability checks first, then the shape of
+    the change, the change per metric and the questions that changed, worse
+    first.
   - `render/`: the devague renderer.
   - `migrate/`: the xteink migration.
   - `cli/_commands/deploy.py`: `culture-library deploy restart` recreates the live
@@ -157,7 +162,6 @@ embeddings and the reranker on. Machine clients reach it on spark's loopback
   `docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`.
 - **Not done yet:**
   - the question review queue (#30);
-  - the Evals tab's radar and compare pages are stubs (planned);
   - the live deploy of the eval suites work and the re-approved visual
     references are pending;
   - the after-#27 signal is deferred until #27 ships;
