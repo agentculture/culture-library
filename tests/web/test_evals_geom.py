@@ -140,3 +140,15 @@ def test_format_and_low_marks() -> None:
         "not scored",
     ]
     assert _geom("[m.isLow(0.69), m.isLow(0.7), m.isLow(null)]") == [True, False, False]
+
+
+def test_ring_labels_sit_between_the_last_and_first_axis() -> None:
+    # Plan task t18: the 0.5 / 1.0 ring labels moved off axis 0 (where a data vertex sits) into
+    # the wedge between the last axis and the first, on the ring's edge.
+    half = _geom("m.ringLabelAt(0.5, 7, m.FULL)")
+    assert half == {"x": 206.8, "y": 175.4, "anchor": "middle"}
+    one = _geom("m.ringLabelAt(1, 7, m.FULL)")
+    assert one["x"] < 240 and one["y"] < half["y"]
+    # Never on axis 0 (x = cx), for any axis count.
+    xs = _geom("[3, 4, 5, 6, 7, 10].map(n => m.ringLabelAt(0.5, n, m.FULL).x)")
+    assert all(x < 240 for x in xs)

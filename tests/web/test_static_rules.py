@@ -29,11 +29,13 @@ EVALS_JS = [
         "evals-geom.js",
         "evals-shape.js",
         "evals-radar.js",
+        "evals-compare.js",
     )
 ]
 PURE_JS = ("evals-model.js", "hashroute.js", "evals-geom.js")
-# Modules in the app.js import cycle: app.js -> evals.js -> evals-radar.js -> evals-shape.js.
-CYCLE_JS = ("evals.js", "evals-radar.js", "evals-shape.js")
+# Modules in the app.js import cycle: app.js -> evals.js -> evals-radar.js / evals-compare.js
+# -> evals-shape.js.
+CYCLE_JS = ("evals.js", "evals-radar.js", "evals-compare.js", "evals-shape.js")
 
 _HANDLER = re.compile(r"\bon[a-z]+\s*=", re.I)
 _PHYSICAL = [
@@ -214,3 +216,22 @@ def test_shape_chart_draws_gaps_tips_and_a_table() -> None:
     assert "radarHash({ runs: [r.on.run], vs: [r.off.run] })" in evals  # dumbbell rows
     css = (STATIC / "evals.css").read_text(encoding="utf-8")
     assert ".ev-star .perfect" in css and "stroke-dasharray: 2 4" in css
+
+
+def test_compare_page_shows_checks_first_and_question_text_as_text() -> None:
+    """Plan task t18: the compare page puts the comparability checks before any delta, lays the
+    after shape over the before shape with the results sorted by change, and renders question
+    text and reasons as text nodes with dir=auto."""
+    js = (STATIC / "evals-compare.js").read_text(encoding="utf-8")
+    assert "/api/eval/compare?before=" in js and "checks.comparable" in js
+    # Checks come first in the row, before the verdict (the first delta on the page).
+    assert "checksCard(rows, true), verdict(view)" in js
+    assert "shapeChart({ axes, over, under, was: 'before'" in js
+    assert "M.byChange(" in js and "shapeList(sorted, over, under" in js
+    assert "M.questionGroups(" in js and "'Questions that changed'" in js
+    assert "h('b', { class: 't', dir: 'auto' }, q.question" in js
+    assert "h('span', { class: 'tx', dir: 'auto' }, r.text" in js
+    assert "compareHash({ before, after })" in js
+    assert "ev-src" in js and "shapeToggle(" in js and "'data-tip'" in js
+    hr = (STATIC / "hashroute.js").read_text(encoding="utf-8")
+    assert "#evals/compare?before=19&after=11" in hr

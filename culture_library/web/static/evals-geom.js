@@ -43,7 +43,8 @@ const words = key => String(key).split('_').filter(Boolean);
 const human = key => { const s = words(key).join(' '); return s.charAt(0).toUpperCase() + s.slice(1); };
 
 /**
- * The axes to draw, in the given order (the radar reply's order): [{key, label, short, tip}].
+ * The axes to draw, in the given order (the radar reply's order): [{key, label, short, tip, metric,
+ * inverse}]; ``metric`` is the suite metric behind the axis (the axis is 1 - metric when inverse).
  * ``metrics`` maps a suite metric name to its definition (GET /api/eval/suites).
  */
 export function axisList(keys, metrics) {
@@ -51,13 +52,13 @@ export function axisList(keys, metrics) {
   return (keys || []).map(key => {
     const a = AXES[key];
     if (!a) {
-      return { key, label: human(key), short: words(key).map(w => w[0].toUpperCase()).join('').slice(0, 3), tip: def(key) || human(key) };
+      return { key, label: human(key), short: words(key).map(w => w[0].toUpperCase()).join('').slice(0, 3), tip: def(key) || human(key), metric: key, inverse: false };
     }
     const d = def(a.metric);
     let tip = FALLBACK[key];
     if (d && a.inverse) tip = `One minus ${a.metric}. ${a.metric}: ${d}`;
     else if (d) tip = a.metric === key ? d : `${a.metric}: ${d}`;
-    return { key, label: a.label, short: a.short, tip };
+    return { key, label: a.label, short: a.short, tip, metric: a.metric, inverse: Boolean(a.inverse) };
   });
 }
 
@@ -125,6 +126,17 @@ export function labelAt(i, n, g) {
     y: r1(g.cy - d * c + (6 - 10 * c) * k),
     anchor: Math.abs(s) < 0.05 ? 'middle' : s > 0 ? 'start' : 'end',
   };
+}
+
+/**
+ * Where a grid ring's value label (0.5, 1.0) goes: on the ring's edge between the last axis and
+ * axis 0, so it never sits on axis 0, where a data vertex often is. {x, y, anchor}; ``y`` is the
+ * text baseline, a little below the edge so the label is centred on it.
+ */
+export function ringLabelAt(v, n, g) {
+  const a = -Math.PI / Math.max(n, 3), d = clamp(v) * g.r * Math.cos(Math.PI / Math.max(n, 3));
+  const k = g.r / 170;
+  return { x: r1(g.cx + d * Math.sin(a)), y: r1(g.cy - d * Math.cos(a) + 4.4 * k), anchor: 'middle' };
 }
 
 /** A score to two decimals, or "not scored". */

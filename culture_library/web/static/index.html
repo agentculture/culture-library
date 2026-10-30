@@ -107,8 +107,8 @@
   </section>
   <section id="view-evals" class="wrap evals" hidden>
     <!-- Evals (plan task t16; design canvas "Evals overview"). Routes: #evals, #evals/radar,
-         #evals/compare (hashroute.js). evals.js fills the overview from the eval API and
-         evals-radar.js the radar (plan task t17). -->
+         #evals/compare (hashroute.js). evals.js fills the overview from the eval API,
+         evals-radar.js the radar (plan task t17) and evals-compare.js the compare page (t18). -->
     <div id="evals-overview" class="ev-page">
       <section class="ev-intro">
         <div>
@@ -153,7 +153,13 @@
     </div>
     <div id="evals-compare" class="ev-page" hidden>
       <div class="ev-crumb"><a href="#evals">Evals</a> / Compare</div>
-      <section class="ev-intro"><div><h1 class="ev-title">Compare runs</h1></div></section>
+      <section class="ev-intro">
+        <div>
+          <h1 class="ev-title" id="ev-cmp-title" dir="auto">Compare runs</h1>
+          <p id="ev-cmp-lede" dir="auto">Lay one run, or a set of runs, over another and see what changed: checks first, then the shape of the change and the questions that moved.</p>
+        </div>
+        <div class="ev-pick" id="ev-cmp-pick"></div>
+      </section>
       <div id="ev-compare-body"></div>
     </div>
   </section>
