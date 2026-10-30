@@ -83,7 +83,7 @@
 
 ## Success signals
 
-- For at least 5 sampled repos, 100% of committed docs/{specs,plans,deliveries}/\*.md, docs/design/\*\* and .devague/\*\* files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file
+- For at least 5 sampled repos, 100% of committed `docs/{specs,plans,deliveries}/*.md`, `docs/design/**` and `.devague/**` files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file
 - A working-draft edit to a frame reaches the library within 1 culture-rules cycle and replaces the previous draft without adding a version (versions count unchanged, draft sha256 updated)
 - Filtering by one domain or one project (with connected projects) returns exactly the documents of the repos declaring it — 0 from others — in the API, MCP and site
 

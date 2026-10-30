@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-30T17:43:01Z",
-  "updated": "2026-10-30T18:03:02Z",
+  "updated": "2026-10-30T18:39:59Z",
   "claims": [
     {
       "id": "c1",
@@ -619,7 +619,7 @@
     {
       "id": "c36",
       "kind": "success_signal",
-      "text": "For at least 5 sampled repos, 100% of committed docs/{specs,plans,deliveries}/*.md, docs/design/** and .devague/** files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
+      "text": "For at least 5 sampled repos, 100% of committed `docs/{specs,plans,deliveries}/*.md`, `docs/design/**` and `.devague/**` files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -633,7 +633,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "For at least 5 sampled repos, 100% of committed docs/{specs,plans,deliveries}/*.md, docs/design/** and .devague/** files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
+          "kind": "success_signal",
+          "reason": "lint: backtick glob paths (MD037), wording unchanged; operator-approved at gate 2"
+        }
+      ]
     },
     {
       "id": "c37",
