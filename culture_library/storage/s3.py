@@ -2,7 +2,7 @@
 
 boto3 is imported lazily, only when a real client is built. Bucket, region and key prefix come
 from ``CULTURE_LIBRARY_S3_BUCKET`` / ``_REGION`` / ``_PREFIX``; credentials come from the standard
-AWS environment variables. The backend only writes and reads metadata: it has no way to remove objects.
+AWS environment variables. The backend only writes and reads metadata; it cannot remove objects.
 """
 
 from __future__ import annotations
