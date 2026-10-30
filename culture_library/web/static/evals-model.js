@@ -128,6 +128,21 @@ export function runCounts(runs) {
 export const missed = (questions, found5) => (found5 === null || found5 === undefined ? null : questions - Math.round(found5 * questions));
 
 /** Newest first (highest id first). */
+/**
+ * The rank depth MRR and nDCG were measured at for these runs (deviation d2/d4): min(10, k) per
+ * run. One depth for all of them gives that number, different depths give 'mixed', and runs
+ * without a recorded k give null.
+ */
+export function rankDepth(runs) {
+  const depths = new Set();
+  for (const r of runs || []) {
+    const k = r && r.config ? r.config.k : null;
+    if (typeof k === 'number' && k > 0) depths.add(Math.min(10, k));
+  }
+  if (!depths.size) return null;
+  return depths.size === 1 ? [...depths][0] : 'mixed';
+}
+
 export const newestFirst = runs => [...(runs || [])].sort((a, b) => b.id - a.id);
 
 /* ---------- radar (plan task t17) ---------- */

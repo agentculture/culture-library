@@ -25,7 +25,7 @@ import { $, SVG, api, byKey, fill, fmtN, h, icon } from './app.js';
 import * as G from './evals-geom.js';
 import * as M from './evals-model.js';
 import { compareHash, compareParams } from './hashroute.js';
-import { shapeChart, shapeKey, shapeList, shapeTable, shapeToggle } from './evals-shape.js';
+import { infoIcon, shapeChart, shapeKey, shapeList, shapeTable, shapeToggle } from './evals-shape.js';
 
 const UP = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const DOWN = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6" fill="none" stroke="var(--ev-warn)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -115,7 +115,7 @@ export async function draw(params) {
     return;
   }
   const keys = [...Object.keys(cmp.after || {}), ...Object.keys(cmp.before || {}).filter(k => !(k in (cmp.after || {})))];
-  const view = { axes: G.axisList(keys, metrics), suiteOf, cmp, before, after, q };
+  const view = { axes: G.axisList(keys, metrics, M.rankDepth([...before, ...after])), suiteOf, cmp, before, after, q };
   pickers();
   fill(body, notes,
     h('div', { class: 'ev-cmprow' }, checksCard(rows, true), verdict(view)),
@@ -269,7 +269,7 @@ function metricCard(v) {
       h('tbody', {}, axes.map(a => {
         const d = typeof cmp.deltas[a.key] === 'number' ? cmp.deltas[a.key] : null;
         return h('tr', { 'data-tip': `${a.label}\n${a.tip}` },
-          h('td', {}, a.label), h('td', { class: 'su' }, suite(a)),
+          h('td', {}, a.label, infoIcon(a)), h('td', { class: 'su' }, suite(a)),
           h('td', { class: 'n' }, G.f2(cmp.before[a.key])), h('td', { class: 'n' }, G.f2(cmp.after[a.key])),
           h('td', { class: 'n' }, d === null ? '–' : h('span', { class: `ev-delta ${cls(d)}` }, sign(d))),
           h('td', { class: 'br' }, bar(d)));

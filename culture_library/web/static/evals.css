@@ -322,3 +322,7 @@
   .ev-ctable td, .ev-ctable th { padding-inline: 6px; }
   .ev-q li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+
+/* (i) note on depth metrics (MRR@5 ...): deviation d4 */
+.evals .ev-info { display: inline-grid; place-items: center; inline-size: 15px; block-size: 15px; margin-inline-start: 6px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 10.5px; font-weight: 700; font-style: normal; line-height: 1; color: var(--muted); cursor: help; vertical-align: 1px; }
+.evals .ev-info:hover, .evals .ev-info:focus-visible { color: var(--accent); }

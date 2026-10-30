@@ -564,3 +564,17 @@ def test_default_compare_prefers_a_rerank_pair_of_the_book_sets() -> None:
         "group": None,
     }
     assert _radar("m.defaultCompare([], [])") is None
+
+
+def test_rank_depth_is_min_10_k_per_run_or_mixed() -> None:
+    """Deviation d4: the depth MRR/nDCG were measured at, from the runs' recorded k."""
+
+    def depth(ks: list) -> object:
+        runs = json.dumps([{"id": i, "config": {"k": k}} for i, k in enumerate(ks)])
+        return _js("evals-model.js", f"m.rankDepth({runs})")
+
+    assert depth([5, 5]) == 5
+    assert depth([20]) == 10
+    assert depth([5, 10]) == "mixed"
+    assert depth([None]) is None
+    assert _js("evals-model.js", "m.rankDepth([])") is None

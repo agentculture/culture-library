@@ -47,7 +47,7 @@ const human = key => { const s = words(key).join(' '); return s.charAt(0).toUppe
  * inverse}]; ``metric`` is the suite metric behind the axis (the axis is 1 - metric when inverse).
  * ``metrics`` maps a suite metric name to its definition (GET /api/eval/suites).
  */
-export function axisList(keys, metrics) {
+export function axisList(keys, metrics, depth = null) {
   const def = name => (metrics && Object.prototype.hasOwnProperty.call(metrics, name) ? metrics[name] : null);
   return (keys || []).map(key => {
     const a = AXES[key];
@@ -58,8 +58,29 @@ export function axisList(keys, metrics) {
     let tip = FALLBACK[key];
     if (d && a.inverse) tip = `One minus ${a.metric}. ${a.metric}: ${d}`;
     else if (d) tip = a.metric === key ? d : `${a.metric}: ${d}`;
-    return { key, label: a.label, short: a.short, tip, metric: a.metric, inverse: Boolean(a.inverse) };
+    const info = DEPTH_METRICS[key] ? depthInfo(DEPTH_METRICS[key], depth) : null;
+    return { key, label: a.label, short: a.short, tip, metric: a.metric, inverse: Boolean(a.inverse), info };
   });
+}
+
+// Axes measured over a rank depth (deviation d2): they carry an (i) note naming it (d4).
+const DEPTH_METRICS = { mrr: 'MRR', ndcg: 'nDCG' };
+
+/**
+ * The (i) note for a depth metric: which top it was measured over (``MRR@5``, ``MRR@10``).
+ * ``depth`` is a number, 'mixed' (runs with different k) or null (no recorded k).
+ */
+export function depthInfo(name, depth) {
+  if (typeof depth === 'number') {
+    const why = depth < 10
+      ? ` These runs retrieved ${depth} passages per question (k ${depth}), so ranks below ${depth} were never seen; a k 10 run reports ${name}@10.`
+      : '';
+    return `${name}@${depth}: measured over the top ${depth} ranks.${why}`;
+  }
+  if (depth === 'mixed') {
+    return `${name} depth differs between these runs: each is measured over the top min(10, k) ranks it retrieved (${name}@5 for k 5, ${name}@10 for k 10 or more).`;
+  }
+  return `${name} is measured over the top min(10, k) ranks a run retrieved (${name}@5 for k 5, ${name}@10 for k 10 or more).`;
 }
 
 const r1 = v => Math.round(v * 10) / 10;

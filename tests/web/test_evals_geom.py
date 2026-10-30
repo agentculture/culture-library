@@ -152,3 +152,18 @@ def test_ring_labels_sit_between_the_last_and_first_axis() -> None:
     # Never on axis 0 (x = cx), for any axis count.
     xs = _geom("[3, 4, 5, 6, 7, 10].map(n => m.ringLabelAt(0.5, n, m.FULL).x)")
     assert all(x < 240 for x in xs)
+
+
+def test_depth_metrics_carry_an_info_note_naming_the_top() -> None:
+    """Deviation d4: MRR's (i) note says which top it was measured over (MRR@5, MRR@10)."""
+    keys = json.dumps(["found_at_1", "mrr"])
+    at5 = _geom(f"m.axisList({keys}, {{}}, 5)")
+    assert at5[0]["info"] is None
+    assert at5[1]["info"].startswith("MRR@5: measured over the top 5 ranks.")
+    assert "k 5" in at5[1]["info"] and "MRR@10" in at5[1]["info"]
+    assert _geom(f"m.axisList({keys}, {{}}, 10)")[1]["info"] == (
+        "MRR@10: measured over the top 10 ranks."
+    )
+    assert "depth differs" in _geom(f"m.axisList({keys}, {{}}, 'mixed')")[1]["info"]
+    assert "min(10, k)" in _geom(f"m.axisList({keys}, {{}})")[1]["info"]
+    assert _geom('m.depthInfo("nDCG", 5)').startswith("nDCG@5:")

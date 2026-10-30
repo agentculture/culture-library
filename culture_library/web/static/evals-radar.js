@@ -98,7 +98,7 @@ export async function draw(params) {
   for (const su of suites.suites || []) for (const m of su.metrics || []) metrics[m.name] = m.definition;
   const underRuns = under ? under.map(id => all.find(r => r.id === id)).filter(Boolean) : [];
   cur = { all, allSets, groups, picked, sel, overlay, vs: p.vs };
-  const view = { axes: G.axisList(keys, metrics), a, b, picked, underRuns, under, checks, note, unknown, budget: shape.budget_s };
+  const view = { axes: G.axisList(keys, metrics, M.rankDepth([...(picked || []), ...underRuns])), a, b, picked, underRuns, under, checks, note, unknown, budget: shape.budget_s };
   fill(body, controls(cur), mainCard(view), minis(view), numbers(view));
   const cmp = $('ev-radar-compare');
   if (cmp) cmp.setAttribute('href', under ? `#evals/compare?before=${under.join(',')}&after=${after.join(',')}` : '#evals/compare');

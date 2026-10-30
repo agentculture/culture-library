@@ -124,6 +124,11 @@ export function shapeKey(entries, cls) {
     h('span', {}, e.mark ? h('i', { class: `ev-lnk ${e.mark}`, 'aria-hidden': 'true' }) : null, e.text)));
 }
 
+/** The (i) icon after a depth metric's label (MRR@5 ...); its hover tip names the depth (d4). */
+export function infoIcon(a) {
+  return a.info ? h('span', { class: 'ev-info', tabindex: '0', role: 'img', 'aria-label': a.info, 'data-tip': a.info }, 'i') : null;
+}
+
 /** Per-axis readout: label, value, and with an earlier shape its value and the change. */
 export function shapeList(axes, over, under, words = {}) {
   const head = h('li', { class: 'hd' }, h('b', {}, words.first || 'Result'), h('span', {}, under ? words.pair || 'Earlier, now' : 'Score'), under ? h('span', {}, 'Change') : null);
@@ -131,7 +136,7 @@ export function shapeList(axes, over, under, words = {}) {
     const v = val(over, a.key), w = val(under, a.key);
     const d = v !== null && w !== null ? v - w : null;
     return h('li', { 'data-tip': `${a.label}\n${a.tip}` },
-      h('span', { class: v === null ? 'k gap' : 'k' }, a.label),
+      h('span', { class: v === null ? 'k gap' : 'k' }, a.label, infoIcon(a)),
       h('span', { class: G.isLow(v) ? 'n low' : 'n' }, under ? `${G.f2(w)}, ${G.f2(v)}` : G.f2(v)),
       under ? h('span', { class: d === null ? 'd' : d > 0.005 ? 'd p' : d < -0.005 ? 'd m' : 'd' }, d === null ? '–' : sign(d)) : null);
   }));
@@ -140,7 +145,7 @@ export function shapeList(axes, over, under, words = {}) {
 /** The numbers behind the shapes: one row per shape, values under 0.70 marked. */
 export function shapeTable(axes, rows) {
   return h('table', { class: 'ev-ntable' },
-    h('thead', {}, h('tr', {}, h('th', {}, 'Document'), axes.map(a => h('th', { 'data-tip': a.tip }, a.label)))),
+    h('thead', {}, h('tr', {}, h('th', {}, 'Document'), axes.map(a => h('th', { 'data-tip': a.tip }, a.label, infoIcon(a))))),
     h('tbody', {}, rows.map(r => h('tr', { class: r.cls || null },
       h('td', {}, r.num ? h('span', { class: 'ev-num' }, String(r.num)) : null, h('span', { class: 't', dir: 'auto' }, r.name)),
       axes.map(a => {
