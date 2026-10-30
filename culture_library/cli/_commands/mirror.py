@@ -115,12 +115,12 @@ def _render_age(age) -> str:
     return "-" if age is None else f"{age:.0f}s"
 
 
-def cmd_status(args: argparse.Namespace) -> int:
+def cmd_status(args: argparse.Namespace) -> None:
     bucket = os.environ.get(BUCKET_ENV, "")
     body = {"configured": bool(bucket), "bucket": bucket or None, **_outbox(_store(args))}
     if _json(args):
         emit_result(body, json_mode=True)
-        return 0
+        return
     lines = [
         f"backend: {'s3://' + bucket if bucket else f'not configured ({BUCKET_ENV} unset)'}",
         f"pending: {body['pending']} (oldest {_render_age(body['oldest_pending_age_s'])})",
@@ -128,7 +128,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"last error: {body['last_error'] or '-'}",
     ]
     emit_result("\n".join(lines), json_mode=False)
-    return 0
 
 
 def cmd_reconcile(args: argparse.Namespace) -> int:
@@ -138,7 +137,8 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     store = _store(args)
     try:
         enqueued = mr.reconcile(store, backend)
-    except Exception as exc:  # noqa: BLE001 - head() failures are the bucket's, not the user's
+    # head() failures are the bucket's, not the user's
+    except Exception as exc:  # noqa: BLE001
         raise CliError(
             EXIT_ENV_ERROR,
             f"reconcile failed: {type(exc).__name__}: {exc}",

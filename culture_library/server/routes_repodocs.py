@@ -40,7 +40,6 @@ pushes of devague work for the devague-work plan task t10.
 from __future__ import annotations
 
 import base64
-import binascii
 import logging
 import mimetypes
 import os
@@ -190,7 +189,7 @@ def _content(body: RepoDocPush) -> bytes:
     if body.content_b64 is not None:
         try:
             data = base64.b64decode(body.content_b64, validate=True)
-        except (binascii.Error, ValueError) as exc:
+        except ValueError as exc:  # binascii.Error is a ValueError
             raise _bad("content_b64 is not valid base64") from exc
     else:
         data = (body.content or "").encode("utf-8")
@@ -417,6 +416,7 @@ def get_repodoc(
 # Types that are active content when opened on this origin: served sandboxed, as a download.
 _ACTIVE_TYPES = {"text/html", "application/xhtml+xml", "image/svg+xml"}
 _TEXT = "text/plain; charset=utf-8"
+_BINARY = "application/octet-stream"
 
 
 def _served_type(path: str, data: bytes) -> str:
@@ -431,11 +431,11 @@ def _served_type(path: str, data: bytes) -> str:
     if guess.startswith("text/") or guess == "application/json":
         return _TEXT
     if guess:
-        return "application/octet-stream"
+        return _BINARY
     try:  # unknown extension: text if it decodes, else a binary download
         data.decode("utf-8")
     except UnicodeDecodeError:
-        return "application/octet-stream"
+        return _BINARY
     return _TEXT
 
 
@@ -469,7 +469,7 @@ def get_repodoc_content(
     path = doc.path if doc else ""
     ctype = _served_type(path, data)
     headers = {"X-Content-Type-Options": "nosniff"}
-    if ctype.split(";")[0] in _ACTIVE_TYPES or ctype == "application/octet-stream":
+    if ctype.split(";")[0] in _ACTIVE_TYPES or ctype == _BINARY:
         headers["Content-Security-Policy"] = "sandbox"
         headers["Content-Disposition"] = f'attachment; filename="{_attachment_name(path)}"'
     return Response(data, media_type=ctype, headers=headers)

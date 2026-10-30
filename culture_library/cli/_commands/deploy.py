@@ -177,6 +177,14 @@ def check_settings(values: dict[str, str], source: str) -> None:
     """Refuse a missing, empty or placeholder setting, send targets that do not parse, or a
     secret written into the (secret-free) env file."""
     _refuse_secrets(values, source)
+    _check_required(values, source)
+    for key in S3_SETTINGS:
+        if _PLACEHOLDER.search(values.get(key, "")):
+            raise _placeholder(source, key, values[key])
+    _check_targets(values, source)
+
+
+def _check_required(values: dict[str, str], source: str) -> None:
     for key in REQUIRED_SETTINGS:
         value = values.get(key, "")
         if not value.strip():
@@ -185,9 +193,9 @@ def check_settings(values: dict[str, str], source: str) -> None:
             )
         if key != send.TARGETS_ENV and _PLACEHOLDER.search(value):
             raise _placeholder(source, key, value)
-    for key in S3_SETTINGS:
-        if _PLACEHOLDER.search(values.get(key, "")):
-            raise _placeholder(source, key, values[key])
+
+
+def _check_targets(values: dict[str, str], source: str) -> None:
     try:
         targets = send.parse_targets(values[send.TARGETS_ENV], f"{source}: {send.TARGETS_ENV}")
     except send.SendConfigError as exc:
@@ -469,7 +477,8 @@ def _check_pab(s3, bucket: str) -> dict:
     fix += ",".join(f"{f}=true" for f in PAB_FLAGS)
     try:
         cfg = s3.get_public_access_block(Bucket=bucket)["PublicAccessBlockConfiguration"]
-    except Exception as exc:  # noqa: BLE001 - any client error is reported, not raised
+    # any client error is reported, not raised
+    except Exception as exc:  # noqa: BLE001
         if _code(exc) == "NoSuchPublicAccessBlockConfiguration":
             return _chk(cid, "fail", "Block Public Access is not configured", fix)
         return _chk(
