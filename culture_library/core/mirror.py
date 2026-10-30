@@ -113,7 +113,8 @@ def drain(store: Store, backend: MirrorBackend) -> dict[str, int]:
         try:
             data = store.blob_path(sha).read_bytes()
             backend.put(key, data, ctype)
-        except Exception as exc:  # noqa: BLE001 - failures are recorded, never raised
+        # failures are recorded, never raised
+        except Exception as exc:  # noqa: BLE001
             failed += 1
             msg = f"{type(exc).__name__}: {exc}"[:_MAX_ERROR]
             with store.connect() as conn:

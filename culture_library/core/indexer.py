@@ -267,6 +267,34 @@ def repodoc_status(store: Store, *, now: float | None = None) -> dict:
 _TEXT_SUFFIXES = (".md", ".markdown", ".txt", ".rst")
 
 
+def _json_title(parsed: object) -> str:
+    """The first non-blank ``title``/``slug``/``plan_slug`` string of a parsed JSON object."""
+    if not isinstance(parsed, dict):
+        return ""
+    for key in ("title", "slug", "plan_slug"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _json_repodoc_text(path: str, name: str, data: bytes) -> tuple[str, str]:
+    raw = data.decode("utf-8", errors="replace")
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return name, raw
+    return _json_title(parsed) or name, devague_text.text_for(path, parsed)
+
+
+def _text_repodoc_text(name: str, data: bytes) -> tuple[str, str]:
+    raw = data.decode("utf-8", errors="replace")
+    for line in raw.splitlines():
+        if line.startswith("# ") and line[2:].strip():
+            return line[2:].strip(), raw
+    return name, raw
+
+
 def repodoc_text(path: str, data: bytes) -> tuple[str, str]:
     """``(title, body)`` to index for a repo doc's shown bytes.
 
@@ -278,24 +306,9 @@ def repodoc_text(path: str, data: bytes) -> tuple[str, str]:
     name = posixpath.basename(path)
     low = path.lower()
     if low.endswith(".json"):
-        raw = data.decode("utf-8", errors="replace")
-        try:
-            parsed = json.loads(raw)
-        except ValueError:
-            return name, raw
-        title = ""
-        if isinstance(parsed, dict):
-            for key in ("title", "slug", "plan_slug"):
-                if isinstance(parsed.get(key), str) and parsed[key].strip():
-                    title = parsed[key].strip()
-                    break
-        return title or name, devague_text.text_for(path, parsed)
+        return _json_repodoc_text(path, name, data)
     if low.endswith(_TEXT_SUFFIXES):
-        raw = data.decode("utf-8", errors="replace")
-        for line in raw.splitlines():
-            if line.startswith("# ") and line[2:].strip():
-                return line[2:].strip(), raw
-        return name, raw
+        return _text_repodoc_text(name, data)
     return name, ""
 
 
@@ -316,26 +329,36 @@ LEFT JOIN repodoc_index_queue q ON q.doc_id = d.id
 """
 
 
+def _shown(r: sqlite3.Row) -> tuple[str, str] | None:
+    """``(sha, visibility)`` of the bytes a repo doc shows, or None when it shows nothing."""
+    if r["draft_sha"] is not None and r["draft_sha"] != r["newest_sha"]:
+        sha, vis = r["draft_sha"], r["draft_vis"]
+    elif r["ver_sha"] is not None:
+        sha, vis = r["ver_sha"], r["ver_vis"]
+    else:
+        return None
+    return sha, ("public" if r["doc_vis"] == "public" and vis == "public" else "private")
+
+
+def _plan_one(r: sqlite3.Row) -> tuple | None:
+    """The action for one repo doc row, or None when its job is up to date."""
+    if r["removed_at"] is not None:
+        return ("drop", r["id"], None, None) if r["queued"] is not None else None
+    shown = _shown(r)
+    if shown is None:
+        return None
+    sha, vis = shown
+    if r["queued"] is None or r["q_sha"] != sha:
+        return ("enqueue", r["id"], sha, vis)
+    if r["q_vis"] != vis:
+        return ("visibility", r["id"], sha, vis)
+    return None
+
+
 def _plan_discovery(conn: sqlite3.Connection) -> list[tuple]:
     """``(action, doc_id, sha, visibility)`` for every repo doc whose job is out of date."""
-    actions = []
-    for r in conn.execute(_SHOWN_SQL).fetchall():
-        if r["removed_at"] is not None:
-            if r["queued"] is not None:
-                actions.append(("drop", r["id"], None, None))
-            continue
-        if r["draft_sha"] is not None and r["draft_sha"] != r["newest_sha"]:
-            sha, vis = r["draft_sha"], r["draft_vis"]
-        elif r["ver_sha"] is not None:
-            sha, vis = r["ver_sha"], r["ver_vis"]
-        else:
-            continue
-        vis = "public" if r["doc_vis"] == "public" and vis == "public" else "private"
-        if r["queued"] is None or r["q_sha"] != sha:
-            actions.append(("enqueue", r["id"], sha, vis))
-        elif r["q_vis"] != vis:
-            actions.append(("visibility", r["id"], sha, vis))
-    return actions
+    planned = (_plan_one(r) for r in conn.execute(_SHOWN_SQL).fetchall())
+    return [action for action in planned if action is not None]
 
 
 def discover_repodocs(store: Store, *, now: float | None = None) -> int:

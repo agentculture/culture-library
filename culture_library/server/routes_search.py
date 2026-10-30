@@ -165,7 +165,11 @@ def _hit(h: sr.Hit) -> dict:
     return out
 
 
-@router.get("/api/search", tags=["search"])
+@router.get(
+    "/api/search",
+    tags=["search"],
+    responses={400: {"description": "unknown corpus in the corpora parameter"}},
+)
 def search(
     request: Request,
     q: str = Query(..., min_length=1),

@@ -268,6 +268,7 @@ class PushResult:
     draft: RepoDocDraft | None = None  # set for a working push
 
 
+_BY_ID = " WHERE d.id = ?"
 _DOC_SELECT = """
 SELECT d.id, d.repo, d.path, d.kind, d.visibility, v.commit_sha AS current_commit,
        d.created_at, d.updated_at, d.removed_at, d.removed_commit
@@ -288,6 +289,46 @@ def _version(row: sqlite3.Row) -> RepoDocVersion:
         sha256=row["sha256"],
         size=row["size"],
         pushed_at=row["pushed_at"],
+    )
+
+
+def _content_bytes(content: str | bytes) -> bytes:
+    if isinstance(content, str):
+        return content.encode("utf-8")
+    if isinstance(content, bytes):
+        return content
+    raise ValidationError("content must be text or bytes")
+
+
+def _find_or_create_doc(
+    conn: sqlite3.Connection, repo: str, rel: str, vis: str, stamp: str
+) -> tuple[int, int | None]:
+    """``(doc_id, current_version_id before this push)``; creates the doc when new."""
+    row = conn.execute(
+        "SELECT id, current_version_id FROM repodocs WHERE repo = ? AND path = ?",
+        (repo, rel),
+    ).fetchone()
+    if row is not None:
+        return row["id"], row["current_version_id"]
+    cur = conn.execute(
+        "INSERT INTO repodocs (repo, path, kind, visibility, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (repo, rel, infer_kind(rel), vis, stamp, stamp),
+    )
+    return cur.lastrowid, None
+
+
+def _touch_version(
+    conn: sqlite3.Connection, existing: sqlite3.Row, vis: str, on_default: bool
+) -> None:
+    """Re-push of the same commit: same bytes, so only add the default-branch flag and
+    tighten visibility, never loosen it."""
+    tighten = vis == "private" and existing["visibility"] != "private"
+    conn.execute(
+        "UPDATE repodoc_versions SET on_default_branch = MAX(on_default_branch, ?),"
+        " visibility = CASE WHEN ? THEN 'private' ELSE visibility END"
+        " WHERE id = ?",
+        (int(on_default), int(tighten), existing["id"]),
     )
 
 
@@ -325,30 +366,13 @@ class RepoDocs:
         if visibility is not None and visibility not in VISIBILITIES:
             raise ValidationError(f"visibility must be one of {', '.join(VISIBILITIES)}")
         vis = visibility or "private"
-        if isinstance(content, str):
-            data = content.encode("utf-8")
-        elif isinstance(content, bytes):
-            data = content
-        else:
-            raise ValidationError("content must be text or bytes")
+        data = _content_bytes(content)
         blob = self.store.write_blob(data)
         stamp = now()
         with self.store.connect() as conn:
             if not self.store.blob_path(blob).exists():  # a replace/purge cleanup raced us
                 self.store.write_blob(data)
-            row = conn.execute(
-                "SELECT id, current_version_id FROM repodocs WHERE repo = ? AND path = ?",
-                (repo, rel),
-            ).fetchone()
-            if row is None:
-                cur = conn.execute(
-                    "INSERT INTO repodocs (repo, path, kind, visibility, created_at, updated_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
-                    (repo, rel, infer_kind(rel), vis, stamp, stamp),
-                )
-                doc_id, old_current = cur.lastrowid, None
-            else:
-                doc_id, old_current = row["id"], row["current_version_id"]
+            doc_id, old_current = _find_or_create_doc(conn, repo, rel, vis, stamp)
             if sha == WORKING:
                 result = self._push_working(conn, doc_id, blob, len(data), vis, stamp)
                 if on_write is not None:
@@ -369,21 +393,13 @@ class RepoDocs:
                 )
                 self._restore(conn, doc_id)
             else:
-                # same commit => same bytes; a re-push may only add the default-branch
-                # flag and tighten visibility, never loosen it
-                tighten = vis == "private" and existing["visibility"] != "private"
-                conn.execute(
-                    "UPDATE repodoc_versions SET on_default_branch = MAX(on_default_branch, ?),"
-                    " visibility = CASE WHEN ? THEN 'private' ELSE visibility END"
-                    " WHERE id = ?",
-                    (int(on_default), int(tighten), existing["id"]),
-                )
+                _touch_version(conn, existing, vis, on_default)
             new_current = self._recompute(conn, doc_id, stamp)
             version = conn.execute(
                 "SELECT * FROM repodoc_versions WHERE doc_id = ? AND commit_sha = ?",
                 (doc_id, sha),
             ).fetchone()
-            doc = conn.execute(_DOC_SELECT + " WHERE d.id = ?", (doc_id,)).fetchone()
+            doc = conn.execute(_DOC_SELECT + _BY_ID, (doc_id,)).fetchone()
             result = PushResult(_doc(doc), _version(version), created, new_current != old_current)
             if on_write is not None:
                 on_write(conn, result)
@@ -414,7 +430,7 @@ class RepoDocs:
             )
         else:
             conn.execute("UPDATE repodocs SET updated_at = ? WHERE id = ?", (stamp, doc_id))
-        doc = conn.execute(_DOC_SELECT + " WHERE d.id = ?", (doc_id,)).fetchone()
+        doc = conn.execute(_DOC_SELECT + _BY_ID, (doc_id,)).fetchone()
         draft = self._draft_row(conn, doc_id)
         created = old is None or old["sha256"] != blob
         return PushResult(_doc(doc), None, created, False, draft)
@@ -478,7 +494,7 @@ class RepoDocs:
                 " WHERE id = ?",
                 (stamp, sha, stamp, row["id"]),
             )
-            doc = _doc(conn.execute(_DOC_SELECT + " WHERE d.id = ?", (row["id"],)).fetchone())
+            doc = _doc(conn.execute(_DOC_SELECT + _BY_ID, (row["id"],)).fetchone())
             if on_write is not None:
                 on_write(conn, doc)
         return doc
@@ -510,7 +526,7 @@ class RepoDocs:
 
     def get(self, doc_id: int, *, include_private: bool) -> RepoDoc | None:
         with self.store.reader() as conn:
-            row = conn.execute(_DOC_SELECT + " WHERE d.id = ?", (doc_id,)).fetchone()
+            row = conn.execute(_DOC_SELECT + _BY_ID, (doc_id,)).fetchone()
         if row is None or (row["visibility"] == "private" and not include_private):
             return None
         return _doc(row)

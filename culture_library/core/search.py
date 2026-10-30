@@ -356,44 +356,63 @@ def semantic(
     best: dict[tuple, Hit] = {}
     with store.reader() as conn:
         if "item" in want:
-            vis, params = _visible(include_private, owner)
-            sql = (
-                "SELECT i.id, i.title, i.kind, i.visibility, e.text, e.vec "
-                "FROM embeddings e JOIN items i ON i.id = e.item_id "
-                f"WHERE {vis}"  # nosec B608
-            )
-            for r in conn.execute(sql, params).fetchall():
-                score = _cosine(qvec, unpack_vec(r[5]))
-                cur = best.get(("item", r[0]))
-                if cur is None or score > cur.score:
-                    best[("item", r[0])] = Hit(
-                        r[0], r[1], r[2], r[3], score, r[4][:200], "semantic"
-                    )
+            _best_item_chunks(conn, qvec, best, include_private, owner)
         if "repodoc" in want:
-            sql = (
-                "SELECT d.id, f.label, d.kind, f.visibility, e.text, e.vec, d.repo, d.path "
-                "FROM repodoc_embeddings e JOIN repodocs d ON d.id = e.doc_id "
-                "JOIN repodoc_fts f ON f.rowid = d.id "
-                f"WHERE {_doc_visible(include_private)}"  # nosec B608
-            )
-            for r in conn.execute(sql).fetchall():
-                score = _cosine(qvec, unpack_vec(r[5]))
-                cur = best.get(("repodoc", r[0]))
-                if cur is None or score > cur.score:
-                    best[("repodoc", r[0])] = Hit(
-                        None,
-                        r[1],
-                        r[2],
-                        r[3],
-                        score,
-                        r[4][:200],
-                        "semantic",
-                        "repodoc",
-                        r[0],
-                        r[6],
-                        r[7],
-                    )
+            _best_repodoc_chunks(conn, qvec, best, include_private)
     return sorted(best.values(), key=lambda h: -h.score)[:limit]
+
+
+def _keep_best(best: dict[tuple, Hit], key: tuple, score: float, make: Callable[[], Hit]) -> None:
+    cur = best.get(key)
+    if cur is None or score > cur.score:
+        best[key] = make()
+
+
+def _best_item_chunks(
+    conn: sqlite3.Connection,
+    qvec: Sequence[float],
+    best: dict[tuple, Hit],
+    include_private: bool,
+    owner: str | None,
+) -> None:
+    vis, params = _visible(include_private, owner)
+    sql = (
+        "SELECT i.id, i.title, i.kind, i.visibility, e.text, e.vec "
+        "FROM embeddings e JOIN items i ON i.id = e.item_id "
+        f"WHERE {vis}"  # nosec B608
+    )
+    for r in conn.execute(sql, params).fetchall():
+        score = _cosine(qvec, unpack_vec(r[5]))
+        _keep_best(
+            best,
+            ("item", r[0]),
+            score,
+            lambda r=r, score=score: Hit(r[0], r[1], r[2], r[3], score, r[4][:200], "semantic"),
+        )
+
+
+def _best_repodoc_chunks(
+    conn: sqlite3.Connection,
+    qvec: Sequence[float],
+    best: dict[tuple, Hit],
+    include_private: bool,
+) -> None:
+    sql = (
+        "SELECT d.id, f.label, d.kind, f.visibility, e.text, e.vec, d.repo, d.path "
+        "FROM repodoc_embeddings e JOIN repodocs d ON d.id = e.doc_id "
+        "JOIN repodoc_fts f ON f.rowid = d.id "
+        f"WHERE {_doc_visible(include_private)}"  # nosec B608
+    )
+    for r in conn.execute(sql).fetchall():
+        score = _cosine(qvec, unpack_vec(r[5]))
+        _keep_best(
+            best,
+            ("repodoc", r[0]),
+            score,
+            lambda r=r, score=score: Hit(
+                None, r[1], r[2], r[3], score, r[4][:200], "semantic", "repodoc", r[0], r[6], r[7]
+            ),
+        )
 
 
 def hybrid(
@@ -601,42 +620,50 @@ def passages(
         doc_flt = _doc_filters(v, kind)
         rows += _doc_rows(conn, *doc_flt)
     scored = [(_cosine(qvec, unpack_vec(r[6])), r) for r in rows]
-    scored.sort(key=lambda s: (-s[0], s[1][0], s[1][1], s[1][4]))
+    scored.sort(key=_row_order)
     if mode == "hybrid":
         fts = {
             _ITEM: _fts_item_rank(conn, query, *item_flt) if item_flt else {},
             _DOC: _fts_doc_rank(conn, query, *doc_flt) if doc_flt else {},
         }
-        fused = []
-        for pos, (_, r) in enumerate(scored):
-            score = 1.0 / (60 + pos)
-            rank = fts[r[0]].get(r[1])
-            if rank is not None:
-                score += 1.0 / (60 + rank)
-            fused.append((score, r))
-        fused.sort(key=lambda s: (-s[0], s[1][0], s[1][1], s[1][4]))
-        scored = fused
-    out = []
-    for score, r in scored[:k]:
-        is_doc = r[0] == _DOC
-        out.append(
-            Passage(
-                None if is_doc else r[1],
-                r[2],
-                r[3],
-                r[4],
-                chunk_sha(r[5]),
-                r[5],
-                score,
-                mode,
-                r[4] == 0,
-                "repodoc" if is_doc else "item",
-                r[1] if is_doc else None,
-                r[7],
-                r[8],
-            )
-        )
-    return out
+        scored = _fuse_with_fts(scored, fts)
+    return [_passage(score, r, mode) for score, r in scored[:k]]
+
+
+def _row_order(s: tuple) -> tuple:
+    return (-s[0], s[1][0], s[1][1], s[1][4])
+
+
+def _fuse_with_fts(scored: list[tuple], fts: dict[int, dict]) -> list[tuple]:
+    """Add each chunk's FTS reciprocal-rank term to its semantic one and re-sort."""
+    fused = []
+    for pos, (_, r) in enumerate(scored):
+        score = 1.0 / (60 + pos)
+        rank = fts[r[0]].get(r[1])
+        if rank is not None:
+            score += 1.0 / (60 + rank)
+        fused.append((score, r))
+    fused.sort(key=_row_order)
+    return fused
+
+
+def _passage(score: float, r: tuple, mode: str) -> Passage:
+    is_doc = r[0] == _DOC
+    return Passage(
+        None if is_doc else r[1],
+        r[2],
+        r[3],
+        r[4],
+        chunk_sha(r[5]),
+        r[5],
+        score,
+        mode,
+        r[4] == 0,
+        "repodoc" if is_doc else "item",
+        r[1] if is_doc else None,
+        r[7],
+        r[8],
+    )
 
 
 def item_chunks(conn: sqlite3.Connection, item_id: int, vis: VisLike) -> list[Chunk]:
