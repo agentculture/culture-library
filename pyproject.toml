@@ -30,6 +30,10 @@ eval = [
     "openai>=1",
     "langchain-community<0.4.2",
 ]
+# Optional S3 mirror backend (culture_library.storage.s3). Imported lazily; never in base deps.
+s3 = [
+    "boto3>=1.34",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/culture-library"

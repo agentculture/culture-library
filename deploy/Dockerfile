@@ -7,7 +7,7 @@ WORKDIR /src
 COPY pyproject.toml README.md LICENSE /src/
 COPY culture_library /src/culture_library
 # events-cli publishes send-to-device events (library.item.send_requested) to the MQTT broker.
-RUN pip install --prefix=/install ".[server]" "events-cli==0.10.0"
+RUN pip install --prefix=/install ".[server,s3]" "events-cli==0.10.0"
 
 FROM python:3.12-slim-bookworm AS runtime
 # poppler-utils provides pdftotext, used for PDF text extraction.
