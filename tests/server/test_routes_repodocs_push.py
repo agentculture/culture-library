@@ -99,7 +99,8 @@ def test_working_push_needs_no_commit_metadata(client, app) -> None:
     data = _ok(client.post("/api/repodocs", json=_working()))
     assert data["created"] is True
     assert data["version"] is None
-    assert data["draft"]["sha256"] and data["draft"]["ahead"] is True
+    assert data["draft"]["sha256"]
+    assert data["draft"]["ahead"] is True
     assert data["doc"]["kind"] == "spec"
     assert _count(app, "repodoc_versions") == 0
     doc_id = data["doc"]["id"]

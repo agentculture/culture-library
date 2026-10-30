@@ -241,7 +241,8 @@ def test_aws_secret_names_can_change_and_skip(tmp_path, capsys):
         CULTURE_LIBRARY_S3_BUCKET="b",
     )
     step = json.loads(out.out)["steps"][-1]
-    assert "AWS_ACCESS_KEY_ID=K1" in step and "AWS_SECRET_ACCESS_KEY=K2" in step
+    assert "AWS_ACCESS_KEY_ID=K1" in step
+    assert "AWS_SECRET_ACCESS_KEY=K2" in step
     rc, out = _dry(tmp_path, capsys, "--no-aws-credentials", CULTURE_LIBRARY_S3_BUCKET="b")
     assert "AWS_ACCESS_KEY_ID" not in out.out
 

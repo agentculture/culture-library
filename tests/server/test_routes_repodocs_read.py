@@ -54,11 +54,14 @@ def test_detail_has_current_draft_versions_removed_links(client) -> None:
     _push(client, "docs/specs/x.md", content="v1\n")
     _push(client, "docs/specs/x.md", commit="working", content="v2 draft\n")
     d = client.get(f"/api/repodocs/{_id(client, 'docs/specs/x.md')}").json()
-    assert d["doc"]["path"] == "docs/specs/x.md" and len(d["versions"]) == 1
+    assert d["doc"]["path"] == "docs/specs/x.md"
+    assert len(d["versions"]) == 1
     assert d["current"]["commit"] == A
-    assert d["draft"]["ahead"] is True and d["draft"]["size"] == len("v2 draft\n")
+    assert d["draft"]["ahead"] is True
+    assert d["draft"]["size"] == len("v2 draft\n")
     assert d["removed"] == {"removed": False, "removed_at": None, "removed_commit": None}
-    assert d["spec_links"]["code_paths"] == [] and d["spec_links"]["pr"] is None
+    assert d["spec_links"]["code_paths"] == []
+    assert d["spec_links"]["pr"] is None
 
 
 def test_detail_without_draft_and_removed_state(client) -> None:
@@ -71,7 +74,8 @@ def test_detail_without_draft_and_removed_state(client) -> None:
     )
     assert r.status_code == 200, r.text
     d = client.get(f"/api/repodocs/{doc}").json()
-    assert d["removed"]["removed"] is True and d["removed"]["removed_commit"] == B
+    assert d["removed"]["removed"] is True
+    assert d["removed"]["removed_commit"] == B
     assert len(d["versions"]) == 1
 
 
@@ -83,7 +87,8 @@ def test_spec_links_in_detail(client) -> None:
         spec_links={"pr": {"url": "https://x/pr/1", "number": 1}, "merge_commit": B},
     )
     d = client.get(f"/api/repodocs/{_id(client, 'docs/specs/z.md')}").json()
-    assert d["spec_links"]["pr"]["number"] == 1 and d["spec_links"]["merge_commit"] == B
+    assert d["spec_links"]["pr"]["number"] == 1
+    assert d["spec_links"]["merge_commit"] == B
 
 
 def test_content_version_working_serves_draft(client) -> None:
@@ -106,7 +111,8 @@ def test_html_design_is_sandboxed_download(client) -> None:
     html = "<html><script>alert(1)</script></html>"
     _push(client, "design/proto.html", content=html)
     r = client.get(f"/api/repodocs/{_id(client, 'design/proto.html')}/content")
-    assert r.status_code == 200 and r.text == html
+    assert r.status_code == 200
+    assert r.text == html
     assert r.headers["content-security-policy"] == "sandbox"
     assert r.headers["content-disposition"].startswith("attachment")
     assert r.headers["x-content-type-options"] == "nosniff"
@@ -124,7 +130,8 @@ def test_image_and_pdf_content_types(client) -> None:
     _push(client, "design/shot.png", content_b64=b64)
     _push(client, "design/doc.pdf", content_b64=base64.b64encode(b"%PDF-1.4 x").decode())
     r = client.get(f"/api/repodocs/{_id(client, 'design/shot.png')}/content")
-    assert r.headers["content-type"] == "image/png" and r.content == PNG
+    assert r.headers["content-type"] == "image/png"
+    assert r.content == PNG
     assert r.headers["x-content-type-options"] == "nosniff"
     assert (
         "content-security-policy" not in r.headers
@@ -146,9 +153,11 @@ def test_rendered_defaults_to_draft_when_ahead(client) -> None:
     _push(client, "docs/specs/x.md", commit="working", content="# Two\n")
     doc = _id(client, "docs/specs/x.md")
     r = client.get(f"/api/repodocs/{doc}/rendered").json()
-    assert r["shown"] == "working" and r["text"] == "# Two\n"
+    assert r["shown"] == "working"
+    assert r["text"] == "# Two\n"
     r = client.get(f"/api/repodocs/{doc}/rendered", params={"version": A}).json()
-    assert r["shown"] == A and r["text"] == "# One\n"
+    assert r["shown"] == A
+    assert r["text"] == "# One\n"
     r = client.get(f"/api/repodocs/{doc}/rendered", params={"commit": A}).json()
     assert r["shown"] == A
     r = client.get(f"/api/repodocs/{doc}/rendered", params={"version": "working"}).json()
@@ -158,7 +167,8 @@ def test_rendered_defaults_to_draft_when_ahead(client) -> None:
 def test_rendered_without_draft_shows_current(client) -> None:
     _push(client, "docs/specs/x.md", content="# One\n")
     r = client.get(f"/api/repodocs/{_id(client, 'docs/specs/x.md')}/rendered").json()
-    assert "shown" not in r and r["format"] == "text"
+    assert "shown" not in r
+    assert r["format"] == "text"
 
 
 def test_rendered_draft_equal_to_current_is_current(client) -> None:
@@ -172,7 +182,8 @@ def test_rendered_reviews_and_questions_markdown(client) -> None:
     for p in (".devague/reviews/r1.md", ".devague/questions/q1.md"):
         _push(client, p, content="# Review\n\n- point\n")
         r = client.get(f"/api/repodocs/{_id(client, p)}/rendered").json()
-        assert r["format"] == "markdown" and r["text"].startswith("# Review")
+        assert r["format"] == "markdown"
+        assert r["text"].startswith("# Review")
         assert r["title"] == "Review"
 
 
@@ -180,4 +191,5 @@ def test_rendered_delivery_json_html(client) -> None:
     rec = {"schema_version": 1, "deviations": [], "evidence": [], "deltas": []}
     _push(client, ".devague/deliveries/d.json", content=json.dumps(rec))
     r = client.get(f"/api/repodocs/{_id(client, '.devague/deliveries/d.json')}/rendered").json()
-    assert r["format"] == "html" and "shown" not in r
+    assert r["format"] == "html"
+    assert "shown" not in r

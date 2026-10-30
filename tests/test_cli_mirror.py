@@ -40,7 +40,8 @@ def _lib(tmp_path, n=2):
 def test_overview_json(capsys):
     assert main(["mirror", "overview", "--json"]) == 0
     body = json.loads(capsys.readouterr().out)
-    assert body["subject"] == "culture-library mirror" and body["sections"]
+    assert body["subject"] == "culture-library mirror"
+    assert body["sections"]
     assert main(["mirror", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["subject"] == "culture-library mirror"
 
@@ -56,7 +57,8 @@ def test_status_reports_outbox(tmp_path, capsys):
     assert main(["mirror", "status", "--data-dir", str(s.data_dir), "--json"]) == 0
     body = json.loads(capsys.readouterr().out)
     assert body["configured"] is False
-    assert body["pending"] == 2 and body["done"] == 0
+    assert body["pending"] == 2
+    assert body["done"] == 0
     assert body["oldest_pending_age_s"] >= 0
     assert body["last_error"]
     assert main(["mirror", "status", "--data-dir", str(s.data_dir)]) == 0
@@ -68,8 +70,10 @@ def test_status_configured_flag(tmp_path, monkeypatch, capsys):
     s = _lib(tmp_path, 0)
     assert main(["mirror", "status", "--data-dir", str(s.data_dir), "--json"]) == 0
     body = json.loads(capsys.readouterr().out)
-    assert body["configured"] is True and body["bucket"] == "lib-mirror"
-    assert body["pending"] == 0 and body["oldest_pending_age_s"] is None
+    assert body["configured"] is True
+    assert body["bucket"] == "lib-mirror"
+    assert body["pending"] == 0
+    assert body["oldest_pending_age_s"] is None
 
 
 def test_reconcile_without_backend_is_env_error(tmp_path, capsys):
@@ -88,7 +92,8 @@ def test_reconcile_without_boto3_is_env_error(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(mirror_cmd, "_backend_from_env", boom)
     assert main(["mirror", "reconcile", "--data-dir", str(_lib(tmp_path).data_dir)]) == 2
     err = capsys.readouterr().err
-    assert "boto3" in err and "hint:" in err
+    assert "boto3" in err
+    assert "hint:" in err
 
 
 def test_reconcile_enqueues_missing_and_mismatched(tmp_path, monkeypatch, capsys):
@@ -106,7 +111,8 @@ def test_reconcile_enqueues_missing_and_mismatched(tmp_path, monkeypatch, capsys
     be.objects[key_for(REMOTE_REPO(s), "docs/specs/1.md", A)] = (b"stale", "text/markdown")
     assert main(["mirror", "reconcile", "--data-dir", str(s.data_dir), "--json"]) == 0
     body = json.loads(capsys.readouterr().out)
-    assert body["enqueued"] == 2 and body["pending"] == 2
+    assert body["enqueued"] == 2
+    assert body["pending"] == 2
     assert main(["mirror", "reconcile", "--data-dir", str(s.data_dir)]) == 0
     assert "enqueued 2" in capsys.readouterr().out
     drain(s, be)
@@ -131,4 +137,5 @@ def test_explain_and_learn_mention_mirror(capsys):
     capsys.readouterr()
     assert "mirror reconcile" in learn._TEXT
     paths = [c["path"] for c in learn._as_json_payload()["commands"]]
-    assert ["mirror", "reconcile"] in paths and ["mirror", "status"] in paths
+    assert ["mirror", "reconcile"] in paths
+    assert ["mirror", "status"] in paths
