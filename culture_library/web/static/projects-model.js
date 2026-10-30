@@ -16,11 +16,11 @@ export const ROLE_LABELS = {
   spec: 'Spec', plan: 'Plan', split: 'Split plan', delivery: 'Delivery', frame: 'Frame',
   'plan-state': 'Plan state', 'delivery-state': 'Delivery state',
 };
-const DATED = '(\\d{4}-\\d{2}-\\d{2})-([^/]+?)';
+const DATED = String.raw`(\d{4}-\d{2}-\d{2})-([^/]+?)`;
 const DOC_DIRS = [
-  ['spec', new RegExp(`^docs/specs/${DATED}\\.md$`)],
-  ['plan', new RegExp(`^docs/plans/${DATED}\\.md$`)],
-  ['delivery', new RegExp(`^docs/deliveries/${DATED}\\.md$`)],
+  ['spec', new RegExp(String.raw`^docs/specs/${DATED}\.md$`)],
+  ['plan', new RegExp(String.raw`^docs/plans/${DATED}\.md$`)],
+  ['delivery', new RegExp(String.raw`^docs/deliveries/${DATED}\.md$`)],
 ];
 const STATE_DIRS = [
   ['frame', /^\.devague\/frames\/([^/]+)\.json$/],
@@ -70,10 +70,16 @@ export function groupBySlug(docs) {
   return { groups, other };
 }
 
+/** Code-unit order, the same as a bare .sort(). */
+function byText(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** Rows of the #projects list from GET /api/projects, by name. */
 export function projectRows(res) {
   return (res?.projects || []).map(p => ({
-    repo: p.repo, name: nameOf(p.repo), domains: [...(p.domains || [])].sort(),
+    repo: p.repo, name: nameOf(p.repo), domains: [...(p.domains || [])].sort(byText),
     connected: (p.connected || []).map(norm), doc_count: p.doc_count || 0, updated_at: p.updated_at || null,
   })).sort((a, b) => a.name.localeCompare(b.name) || a.repo.localeCompare(b.repo));
 }
@@ -81,7 +87,7 @@ export function projectRows(res) {
 /** Rows of the #domains list from GET /api/domains: {domain, projects: [name], repos: [repo]}. */
 export function domainRows(res) {
   return (res?.domains || []).map(d => ({
-    domain: d.domain, repos: [...d.projects], projects: d.projects.map(nameOf).sort(),
+    domain: d.domain, repos: [...d.projects], projects: d.projects.map(nameOf).sort(byText),
   })).sort((a, b) => a.domain.localeCompare(b.domain));
 }
 
@@ -107,7 +113,7 @@ export function projectPage(docs, repo, projects) {
   repos.delete(repo);
   return {
     own: groupBySlug(grouped.get(repo)),
-    connected: [...repos].sort().map(r => ({ repo: r, name: nameOf(r), ...groupBySlug(grouped.get(r)) })),
+    connected: [...repos].sort(byText).map(r => ({ repo: r, name: nameOf(r), ...groupBySlug(grouped.get(r)) })),
   };
 }
 
@@ -117,5 +123,5 @@ export function domainPage(docs, domain, projects) {
   const grouped = byRepo(docs);
   const repos = new Set(grouped.keys());
   for (const p of projects?.projects || []) if ((p.domains || []).includes(domain) && grouped.has(p.repo)) repos.add(p.repo);
-  return [...repos].sort().map(r => ({ repo: r, name: nameOf(r), ...groupBySlug(grouped.get(r)) }));
+  return [...repos].sort(byText).map(r => ({ repo: r, name: nameOf(r), ...groupBySlug(grouped.get(r)) }));
 }
