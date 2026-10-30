@@ -12,6 +12,7 @@
 import { $, KINDS, S, api, apiText, chip, fill, fmtSize, h, kc, repoShort } from './app.js';
 import { parseChecklist } from './checklist.js';
 import { linkedNodes } from './links.js';
+import { projectsHash } from './hashroute.js';
 import { chooseView, designMode, markdownBlocks, prototypeSandbox, removedNotice, specLinksModel } from './reader-model.js';
 import * as search from './search.js';
 import * as send from './send.js';
@@ -289,15 +290,16 @@ function renderDoc(i, art, my) {
       const view = chooseView(meta, choice);
       const kids = await docBody(i, meta, view, setTitle, setWhere);
       if (my !== token) return;
-      fill(bar, docBar(meta, view, load));
+      fill(bar, docBar(meta, view, load, i.repo));
       fill(prose, kids);
     }).catch(e => { if (my === token) fill(prose, failed(e)); });
   };
   load(null);
 }
 /** The strip above a repo doc: removed notice, the working badge and its switch, spec links. */
-function docBar(meta, view, load) {
+function docBar(meta, view, load, repo) {
   const out = [];
+  if (repo) out.push(h('a', { class: 'projlink', href: projectsHash(repo), 'data-project-link': repo }, `Project: ${repoShort(repo)}`));
   const gone = removedNotice(meta.removed);
   if (gone) out.push(h('p', { class: 'removed', role: 'status', dir: 'auto' }, gone));
   if (view.badge || view.toggle) {
@@ -343,7 +345,8 @@ async function docJson(i, view) {
   }
 }
 /** Inline tokens from reader-model.js as text nodes, <b> and <code>: never markup from the source. */
-const inlineNodes = toks => toks.map(t => t.t === 'b' ? h('b', {}, t.s) : t.t === 'code' ? h('code', {}, t.s) : hl(t.s));
+const INLINE_TAGS = { b: 'b', code: 'code' };
+const inlineNodes = toks => toks.map(t => (INLINE_TAGS[t.t] ? h(INLINE_TAGS[t.t], {}, t.s) : hl(t.s)));
 /** Reviews and questions: Markdown blocks as DOM built from text nodes only. */
 function markdownNodes(md) {
   return markdownBlocks(md).map(b => {

@@ -30,6 +30,15 @@
  */
 export const EVAL_PAGES = ['radar', 'compare'];
 
+/** The projects or domains route for ``path``, or null when it is neither. */
+function listRoute(path) {
+  const view = ['projects', 'domains'].find(v => path === v || path.startsWith(v + '/'));
+  if (!view) return null;
+  let rest = path.slice(view.length + 1);
+  try { rest = decodeURIComponent(rest); } catch { /* keep the raw text */ }
+  return view === 'projects' ? { view, repo: rest || null } : { view, domain: rest || null };
+}
+
 /**
  * The view for ``hash`` ("#..." or without the "#"): {view: 'state'} | {view: 'evals', page,
  * params} | {view: 'read', key} | {view: 'home'}. ``isItemKey(key)`` says whether a loaded
@@ -45,12 +54,8 @@ export function parseHash(hash, isItemKey) {
     return { view: 'evals', page: EVAL_PAGES.includes(page) ? page : 'overview', params };
   }
   if (path === 'state') return { view: 'state' };
-  for (const view of ['projects', 'domains']) {
-    if (path !== view && !path.startsWith(view + '/')) continue;
-    let rest = path.slice(view.length + 1);
-    try { rest = decodeURIComponent(rest); } catch { /* keep the raw text */ }
-    return view === 'projects' ? { view, repo: rest || null } : { view, domain: rest || null };
-  }
+  const listed = listRoute(path);
+  if (listed) return listed;
   if (raw && isItemKey(raw)) return { view: 'read', key: raw };
   return { view: 'home' };
 }

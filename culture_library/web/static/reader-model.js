@@ -32,6 +32,12 @@ export function designMode(path) {
 /** The iframe sandbox for an HTML prototype: no scripts, never same-origin. */
 export function prototypeSandbox() { return ''; }
 
+/** "computed at <short commit> (<day>)" for a spec_links object that has at_commit. */
+function computedAt(sl) {
+  const when = sl.at_committed_at ? ` (${day(sl.at_committed_at)})` : '';
+  return `computed at ${short(sl.at_commit)}${when}`;
+}
+
 /** What a spec page shows from spec_links, or null when it has nothing. */
 export function specLinksModel(sl) {
   if (!sl) return null;
@@ -43,7 +49,7 @@ export function specLinksModel(sl) {
     const label = sl.pr.number != null ? `#${sl.pr.number}` : (href || '');
     pr = { href, label };
   }
-  const computed = sl.at_commit ? `computed at ${short(sl.at_commit)}${sl.at_committed_at ? ` (${day(sl.at_committed_at)})` : ''}` : null;
+  const computed = sl.at_commit ? computedAt(sl) : null;
   return { pr, merge: sl.merge_commit ? short(sl.merge_commit) : null, paths, computed };
 }
 
@@ -68,40 +74,80 @@ export function inlineTokens(s) {
   return out;
 }
 
+const FENCE = /^```/;
+const BULLET = /^\s*[-*] +(.*)/;
+const NUMBERED = /^\s*\d+[.)] +(.*)/;
+const QUOTE = /^>\s?(.*)/;
+const HEADING = /^(#{1,6}) +([^ ].*)$/;
+
+/** A heading line's {level, text}, or null. Trailing #s are dropped, keeping at least one char. */
+function headingOf(line) {
+  const m = HEADING.exec(line);
+  if (!m) return null;
+  let end = m[2].length;
+  while (end > 1 && m[2][end - 1] === '#') end--;
+  return { level: m[1].length, text: m[2].slice(0, end).trim() };
+}
+
+/** Push the pending paragraph and quote as blocks and reset the state. */
+function flushMd(st) {
+  if (st.para.length) st.blocks.push({ type: 'p', inline: inlineTokens(st.para.join(' ')) });
+  if (st.quote) st.blocks.push({ type: 'quote', inline: inlineTokens(st.quote.join(' ')) });
+  st.para = []; st.list = null; st.quote = null;
+}
+
+/** A fenced code block opening at ``start``: pushes it, returns the index of its closing fence. */
+function fencedCode(st, lines, start) {
+  flushMd(st);
+  const code = [];
+  let n = start + 1;
+  while (n < lines.length && !FENCE.test(lines[n])) { code.push(lines[n].trimEnd()); n++; }
+  st.blocks.push({ type: 'code', text: code.join('\n') });
+  return n;
+}
+
+function listItem(st, type, text) {
+  if (!st.list || st.list.type !== type) { flushMd(st); st.list = { type, items: [] }; st.blocks.push(st.list); }
+  st.list.items.push(inlineTokens(text));
+}
+
+function quoteLine(st, text) {
+  if (st.para.length || st.list) flushMd(st);
+  st.quote ??= [];
+  st.quote.push(text);
+}
+
+/** Any line that is not a fence, heading, list item or quote: blank, list continuation, text. */
+function plainLine(st, line) {
+  if (!line.trim()) flushMd(st);
+  else if (st.list && /^\s+\S/.test(line)) st.list.items.at(-1).push(...inlineTokens(' ' + line.trim()));
+  else {
+    if (st.list || st.quote) flushMd(st);
+    st.para.push(line.trim());
+  }
+}
+
+function mdLine(st, line) {
+  const hd = headingOf(line);
+  const li = BULLET.exec(line) || NUMBERED.exec(line);
+  const q = QUOTE.exec(line);
+  if (hd) {
+    flushMd(st);
+    st.blocks.push({ type: 'h', level: hd.level, inline: inlineTokens(hd.text) });
+  } else if (li) listItem(st, BULLET.test(line) ? 'ul' : 'ol', li[1]);
+  else if (q) quoteLine(st, q[1]);
+  else plainLine(st, line);
+}
+
 /** Markdown to blocks: h, p, ul, ol, quote, code. Plain data; no HTML is ever produced. */
 export function markdownBlocks(md) {
-  const blocks = [];
+  const st = { blocks: [], para: [], list: null, quote: null };
   const lines = String(md).split('\n');
-  let para = [], list = null, quote = null;
-  const flush = () => {
-    if (para.length) blocks.push({ type: 'p', inline: inlineTokens(para.join(' ')) });
-    if (quote) blocks.push({ type: 'quote', inline: inlineTokens(quote.join(' ')) });
-    para = []; list = null; quote = null;
-  };
   for (let n = 0; n < lines.length; n++) {
     const line = lines[n].trimEnd();
-    if (/^```/.test(line)) {
-      flush();
-      const code = [];
-      for (n++; n < lines.length && !/^```/.test(lines[n]); n++) code.push(lines[n].trimEnd());
-      blocks.push({ type: 'code', text: code.join('\n') });
-      continue;
-    }
-    const hd = /^(#{1,6}) +(.+?)#*$/.exec(line);
-    const ul = /^\s*[-*] +(.*)/.exec(line), ol = /^\s*\d+[.)] +(.*)/.exec(line);
-    const q = /^>\s?(.*)/.exec(line);
-    if (hd) { flush(); blocks.push({ type: 'h', level: hd[1].length, inline: inlineTokens(hd[2].trim()) }); }
-    else if (ul || ol) {
-      const type = ul ? 'ul' : 'ol';
-      if (!list || list.type !== type) { flush(); list = { type, items: [] }; blocks.push(list); }
-      list.items.push(inlineTokens((ul || ol)[1]));
-    } else if (q) {
-      if (para.length || list) flush();
-      (quote ||= []).push(q[1]);
-    } else if (!line.trim()) flush();
-    else if (list && /^\s+\S/.test(line)) list.items[list.items.length - 1].push(...inlineTokens(' ' + line.trim()));
-    else { if (list || quote) flush(); para.push(line.trim()); }
+    if (FENCE.test(line)) n = fencedCode(st, lines, n);
+    else mdLine(st, line);
   }
-  flush();
-  return blocks;
+  flushMd(st);
+  return st.blocks;
 }

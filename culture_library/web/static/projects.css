@@ -28,3 +28,11 @@ a.pj-chip:hover { outline: 1px solid var(--accent); }
 .pj-role { flex: none; min-inline-size: 7.5em; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
 .pj-foot { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
 .projects .empty { padding: 12px 0; }
+
+/* Phone: the header keeps its original tabs; Projects and Domains are reached from a doc's
+   "Project:" link (reader) so the 400px header does not scroll sideways (deviation d23). */
+@media (max-width: 720px) { .tabs button.tab-wide { display: none; } }
+.projlink { justify-self: start; font-size: 14px; font-weight: 700; color: var(--accent); text-decoration: none; }
+.projlink:hover, .projlink:focus-visible { text-decoration: underline; }
+/* Desktop has the Projects tab, so the reader's doc bar stays as it was there. */
+@media (min-width: 721px) { .projlink, .docbar:has(> .projlink:only-child) { display: none; } }

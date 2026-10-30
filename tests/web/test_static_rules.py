@@ -253,3 +253,16 @@ def test_compare_page_shows_checks_first_and_question_text_as_text() -> None:
     assert "'data-tip'" in js
     hr = (STATIC / "hashroute.js").read_text(encoding="utf-8")
     assert "#evals/compare?before=19&after=11" in hr
+
+
+def test_projects_and_domains_tabs_hide_on_phones():
+    """Deviation d23: the two newer tabs would overflow the 400px header, so they carry the
+    phone-hide class and projects.css hides it at the site's phone breakpoint (720px)."""
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parents[2] / "culture_library" / "web" / "static"
+    html = (static / "index.html").read_text(encoding="utf-8")
+    for view in ("projects", "domains"):
+        assert f'data-view="{view}" class="tab-wide"' in html
+    css = (static / "projects.css").read_text(encoding="utf-8")
+    assert "@media (max-width: 720px) { .tabs button.tab-wide { display: none; } }" in css
