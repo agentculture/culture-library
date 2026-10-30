@@ -16,8 +16,11 @@ omitted) for a caller without ``Principal.private`` (an item's own uploader exce
   ``paragraphs[i][start:start + len(text)]`` (#18). Links leave ``paragraphs`` and
   ``text`` unchanged.
   ``reason`` explains an empty text (e.g. ``pdftotext_missing``).
-- ``GET /api/repodocs/{id}/rendered?commit=`` -> ``{doc_id, repo, path, kind, format, title,
-  html | text}``. A ``.json`` document that parses is rendered by
+- ``GET /api/repodocs/{id}/rendered?version=|commit=`` -> ``{doc_id, repo, path, kind, shown,
+  format, title, html | text}`` (``shown``: ``working`` or a sha; the draft by default when
+  ahead; ``format`` is ``markdown`` for ``.devague/reviews|questions/*.md``). ``shown`` is
+  present only when the doc has a working draft or a version was asked for, so the
+  response for a doc without either is unchanged. A ``.json`` document that parses is rendered by
   :func:`culture_library.render.devague.render`, which escapes every input string, so its
   fragment is the only HTML the site inserts as HTML. Anything else (Markdown, text, JSON
   that does not parse) is returned verbatim as ``text``, for ``textContent``.
@@ -452,19 +455,46 @@ def _visible_doc(docs: RepoDocs, doc_id: int, principal: Principal) -> RepoDoc:
     return doc
 
 
+_REVIEW_MD = re.compile(r"^\.devague/(reviews|questions)/.+\.md$", re.I)
+
+
+def _shown(docs: RepoDocs, doc: RepoDoc, want: str | None, principal: Principal) -> str:
+    """Which version is rendered: ``want`` when given (``working`` or a sha), else the draft
+    when it is ahead of the newest version (decision c51), else the current commit."""
+    if want is not None:
+        return "working" if want.strip().lower() == "working" else want
+    draft = docs.draft(doc.id, include_private=principal.private)
+    if draft is not None and draft.ahead:
+        return "working"
+    if doc.current_commit:
+        return doc.current_commit
+    versions = docs.versions(doc.id, include_private=principal.private)
+    return versions[0].commit if versions else ""
+
+
 @router.get("/api/repodocs/{doc_id}/rendered")
 def repodoc_rendered(
     doc_id: int,
     commit: str | None = None,
+    version: str | None = None,
     principal: Principal = Depends(current_principal),
     store: Store = Depends(get_store),
 ) -> dict:
-    """A repo document for the reader: escaped devague HTML for JSON, else plain text."""
+    """A repo document for the reader: escaped devague HTML for JSON, Markdown for review
+    and question notes, else plain text. ``version`` (or ``commit``) is a sha or ``working``;
+    by default the working draft when it is ahead, else the current version. The response
+    says which one it rendered in ``shown`` (``"working"`` or a commit sha) whenever the doc
+    has a working draft or a version was requested; otherwise the key is omitted (it is the
+    current version, and the pre-t16 response shape is kept)."""
     check(principal, "read")
     docs = RepoDocs(store)
     doc = _visible_doc(docs, doc_id, principal)
-    text = _doc_content(docs, doc_id, commit, principal)
+    shown = _shown(docs, doc, version if version is not None else commit, principal)
+    text = _doc_content(docs, doc_id, shown or None, principal)
     head = {"doc_id": doc.id, "repo": doc.repo, "path": doc.path, "kind": doc.kind}
+    asked = version if version is not None else commit
+    if asked is not None or docs.draft(doc_id, include_private=principal.private) is not None:
+        head["shown"] = shown
     parsed = _json_or_none(text) if doc.path.lower().endswith(".json") else None
     if parsed is not None:
         title = parsed.get("title") or parsed.get("slug") if isinstance(parsed, dict) else None
@@ -474,7 +504,8 @@ def repodoc_rendered(
             "title": str(title) if title else None,
             "html": devague.render(parsed),
         }
-    return {**head, "format": "text", "title": _md_title(text), "text": text}
+    fmt = "markdown" if _REVIEW_MD.match(doc.path) else "text"
+    return {**head, "format": fmt, "title": _md_title(text), "text": text}
 
 
 # ------------------------------------------------------------------ excerpts
