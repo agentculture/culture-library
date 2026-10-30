@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.4] - 2026-10-30
+
+### Changed
+
+- Bump the `cloudflared` connector image (`deploy/compose.yaml`) from `cloudflare/cloudflared:2025.9.1` to `2026.10.7`. The old image bundled go-jose 4.1.0, which is affected by CVE-2026-116587 (high, a DoS when parsing JWKs with RSA keys), CVE-2026-116585, CVE-2026-116586 and CVE-2026-34986. 2026.10.7 ships go-jose 4.1.6. Recreate the connector only with the `grant run --inject` command in `docs/operations/deploy.md`, under `-p culture-library`.
+
 ## [0.18.3] - 2026-10-30
 
 ### Changed
