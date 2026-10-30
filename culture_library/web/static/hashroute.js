@@ -50,7 +50,7 @@ export function parseHash(hash, isItemKey) {
 export const evalsHash = page => (page && page !== 'overview' ? `#evals/${page}` : '#evals');
 
 const ids = text => [...new Set(String(text || '').split(',').map(x => x.trim())
-  .filter(x => /^[0-9]+$/.test(x)).map(Number).filter(n => n > 0))];
+  .filter(x => /^\d+$/.test(x)).map(Number).filter(n => n > 0))];
 
 /** The radar's parameters from a params string: {runs: [ids], vs: [ids] | 'none' | null}. */
 export function radarParams(params) {
@@ -63,9 +63,9 @@ export function radarParams(params) {
 /** The hash of a radar view: radarHash({runs: [11, 18], vs: [19]}) is "#evals/radar?runs=11,18&vs=19". */
 export function radarHash({ runs, vs } = {}) {
   const parts = [];
-  if (runs && runs.length) parts.push(`runs=${runs.join(',')}`);
+  if (runs?.length) parts.push(`runs=${runs.join(',')}`);
   if (vs === 'none') parts.push('vs=none');
-  else if (vs && vs.length) parts.push(`vs=${vs.join(',')}`);
+  else if (vs?.length) parts.push(`vs=${vs.join(',')}`);
   return evalsHash('radar') + (parts.length ? '?' + parts.join('&') : '');
 }
 
@@ -78,7 +78,7 @@ export function compareParams(params) {
 /** The hash of a compare view: compareHash({before: [19], after: [11]}) is "#evals/compare?before=19&after=11". */
 export function compareHash({ before, after } = {}) {
   const parts = [];
-  if (before && before.length) parts.push(`before=${before.join(',')}`);
-  if (after && after.length) parts.push(`after=${after.join(',')}`);
+  if (before?.length) parts.push(`before=${before.join(',')}`);
+  if (after?.length) parts.push(`after=${after.join(',')}`);
   return evalsHash('compare') + (parts.length ? '?' + parts.join('&') : '');
 }

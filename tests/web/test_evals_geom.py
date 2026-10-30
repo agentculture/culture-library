@@ -70,7 +70,8 @@ def test_unscored_axes_are_gaps_never_zero() -> None:
     assert [v["i"] for v in o["vertices"]] == [0, 1, 3, 4]
     # One run of scored axes, walking from just after the gap round to just before it:
     # 3, 4, 0, 1.  It is drawn as an open line and filled as a fan from the centre.
-    assert len(o["lines"]) == 1 and len(o["lines"][0].split()) == 4
+    assert len(o["lines"]) == 1
+    assert len(o["lines"][0].split()) == 4
     pts = o["lines"][0].split()
     assert pts[0] == _geom("m.polar(3, 5, 1, m.FULL).map(v => v.toFixed(1)).join(',')")
     assert pts[-1] == _geom("m.polar(1, 5, 1, m.FULL).map(v => v.toFixed(1)).join(',')")
@@ -83,7 +84,8 @@ def test_outline_with_two_gaps_and_a_lone_axis() -> None:
     o = _geom("m.outline([0.5, null, 0.5, null, 0.5, 0.5], m.FULL)")
     assert o["gaps"] == [1, 3]
     # Runs: [2] alone (a vertex, no line), then [4, 5, 0].
-    assert len(o["lines"]) == 1 and len(o["lines"][0].split()) == 3
+    assert len(o["lines"]) == 1
+    assert len(o["lines"][0].split()) == 3
     assert [v["i"] for v in o["vertices"]] == [0, 2, 4, 5]
     assert len(o["fills"]) == 1
 
@@ -97,7 +99,8 @@ def test_label_anchor_follows_the_side_of_the_chart() -> None:
     got = _geom("[0, 1, 2, 3, 4, 5, 6].map(i => m.labelAt(i, 7, m.FULL).anchor)")
     assert got == ["middle", "start", "start", "start", "end", "end", "end"]
     top = _geom("m.labelAt(0, 7, m.FULL)")
-    assert top["x"] == 240 and top["y"] < 70  # above the outline
+    assert top["x"] == 240
+    assert top["y"] < 70  # above the outline
     bottom = _geom("m.labelAt(3, 7, m.FULL)")
     assert bottom["y"] > 393.2  # below the outline
 
@@ -148,7 +151,8 @@ def test_ring_labels_sit_between_the_last_and_first_axis() -> None:
     half = _geom("m.ringLabelAt(0.5, 7, m.FULL)")
     assert half == {"x": 206.8, "y": 175.4, "anchor": "middle"}
     one = _geom("m.ringLabelAt(1, 7, m.FULL)")
-    assert one["x"] < 240 and one["y"] < half["y"]
+    assert one["x"] < 240
+    assert one["y"] < half["y"]
     # Never on axis 0 (x = cx), for any axis count.
     xs = _geom("[3, 4, 5, 6, 7, 10].map(n => m.ringLabelAt(0.5, n, m.FULL).x)")
     assert all(x < 240 for x in xs)
@@ -160,7 +164,8 @@ def test_depth_metrics_carry_an_info_note_naming_the_top() -> None:
     at5 = _geom(f"m.axisList({keys}, {{}}, 5)")
     assert at5[0]["info"] is None
     assert at5[1]["info"].startswith("MRR@5: measured over the top 5 ranks.")
-    assert "k 5" in at5[1]["info"] and "MRR@10" in at5[1]["info"]
+    assert "k 5" in at5[1]["info"]
+    assert "MRR@10" in at5[1]["info"]
     assert _geom(f"m.axisList({keys}, {{}}, 10)")[1]["info"] == (
         "MRR@10: measured over the top 10 ranks."
     )
