@@ -75,6 +75,8 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d12` — Amends d7: repo-document full text lives in a sibling FTS5 table `repodoc_fts` (rowid = repodocs.id), not in `search_fts` under negative rowids — FTS5 bm25 uses whole-table statistics; ~4,600 repodocs in `search_fts` would change every item's full-text score and the hybrid ranks the eval baseline uses (measured: 199 extra rows reordered item hits); protects c47; operator accepted (2026-10-30)
 - pending approval (not yet a decision): `d2`, `d3`, `d4`, `d5`, `d6`, `d9`, `d10`, `d11`, `d13`, `d14`, `d15`, `d16`, `d17`, `d18`, `d19`, `d20`, `d21`, `d22`
 - `d2`–`d6`, `d9`–`d11`, `d13`–`d22` are recorded and **await operator adjudication at the PR** (agent-proposed; not yet decisions). In short: d2 `at_committed_at` on spec links; d3 mirror reads blobs by sha and gains `force`; d4 bare `host/org/repo` remotes; d5 repodoc feed visibility and per-draft visibility; d6 the `on_write` hook; d9 project and spec-link writes after the push transaction; d10 tombstones emit an `archived` event; d11 flat repodoc errors (risky); d13 a migration-test snapshot pinned to 7 columns; d14 t16 edits the repodocs GET handlers; d15 `/rendered` `shown` only when it matters, SVG sandboxed; d16 corpora recorded in the run config; d17 mirror status hides row errors from public callers; d18 `/api/projects` and `/api/domains`; d19 extra MCP tools and `REPODOC_ALSO_USES`; d20 app.js and test_site edits for the views; d21 `check-bucket` adds `status: unknown`; d22 t23 split, backed by the decider (split 0.940; P(live steps need the operator)=0.986).
+- `d23` (proposed, after the PR opened): CI's visual job showed the new Projects and Domains tabs made every view scroll sideways at 400 px and broke all 18 phone reference screenshots. The tabs are now hidden at `max-width: 720px`, and repo-document pages link to their project. The decider leaned `hide_new_tabs_on_phone` 0.566 over `scrolling_tab_row` 0.338; the state text assumed the operator prefers not waiting on new screenshot approvals.
+- PR #38 review round: SonarCloud found 111 open issues (71 were S9073 split-assertion in tests). Four fix agents and one main-agent commit fixed them without changing behaviour (merges 1d347f1, 1987e60, de2aff2 and c744cd9, plus d7bdcc0).
 - Main-agent integration commits not tied to one task: core schema registration for projects, speclinks and mirror (5726407); eval `Passage` accepts null `item_id` (9da5800).
 - An unrelated, uncommitted `deploy/compose.yaml` edit (cloudflared image 2025.9.1 to 2026.10.7) appeared in the main checkout mid-run, outside this run. It was stashed around two merges and restored unchanged, and it is not on this branch.
 
@@ -96,6 +98,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t16` (`d14`, `d15`) | the GET handlers live in routes_repodocs.py; an existing test pins the draft-less `/rendered` dict; SVG is active content | `acceptable` (pending) |
 | `t18` (`d18`, `d19`) | t20 needed project rows; every repodoc route needs a tool | `acceptable` (pending) |
 | `t19` (`d21`) | a check the credentials cannot perform must never pass silently | `acceptable` (pending) |
+| `t20` (`d23`) | the new tabs overflowed the phone header and broke the approved phone references; hidden on phone, with a project link on repo-doc pages | `acceptable` (pending) |
 | `t20` (`d20`) | the view registry lives in app.js and existing tests pin its lists | `acceptable` (pending) |
 | `t23` (`d22`) | live steps need the operator and culture-rules#124 | `needs-follow-up` (pending) |
 
@@ -117,6 +120,7 @@ Quoted verbatim from the `devague summary` skeleton:
   - Five more wait on approval of d9, d10, d11, d16 and d18, because the CLI refuses an unapproved deviation as provenance.
 - **Commits:** `626774c..09af0fd` on `spec/devague-work` (49 commits, 20 merges, 99 files, +11,914 / −207).
 - **Issues:** culture-library#35, culture-rules#124.
+- **PR #38 CI at `d7bdcc0`:** every check passes: both test jobs, visual (70/70 phone and desktop references; the first push failed 37), the SonarCloud gate (0 open issues, down from 111), lint, harness-smoke, ragas, version-check and GitGuardian.
 
 ## Delivery Claims
 
