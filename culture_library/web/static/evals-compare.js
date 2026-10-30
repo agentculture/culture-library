@@ -135,7 +135,7 @@ export async function draw(params) {
   drawCompared(body, cmp, note, metricIndex(suites.suites));
 }
 
-/** The comparison itself, or the checks alone when the response says checks.comparable is false. */
+/** The comparison itself, or the checks alone when the runs are not comparable. */
 function drawCompared(body, cmp, note, { metrics, suiteOf }) {
   const { before, after } = cur;
   const q = M.compareQuestion(before, after);

@@ -235,7 +235,9 @@ def test_compare_page_shows_checks_first_and_question_text_as_text() -> None:
     text and reasons as text nodes with dir=auto."""
     js = (STATIC / "evals-compare.js").read_text(encoding="utf-8")
     assert "/api/eval/compare?before=" in js
-    assert "checks.comparable" in js
+    # The page branches on the API's verdict (optional chaining allowed), not on a comment.
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", js, flags=re.S)
+    assert re.search(r"checks\??\.comparable", code)
     # Checks come first in the row, before the verdict (the first delta on the page).
     assert "checksCard(rows, true), verdict(view)" in js
     assert "shapeChart({ axes, over, under, was: 'before'" in js
