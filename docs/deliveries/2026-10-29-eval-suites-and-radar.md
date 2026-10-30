@@ -71,6 +71,7 @@ Deviations `d1`-`d3` were recorded as proposed during the run and approved by th
 - t3's radar matched sha-only; the main agent made it item-aware from the set's item id (`077f8cd`), since every reference belongs to the set's own item (c42).
 - t13 and t14 and t21 started before their nominal waves once their dependencies had merged.
 - t10 refuses a stale item with 409 before the 202 instead of recording a failed run.
+- After the PR opened, SonarCloud flagged 215 open issues on it (CI fails on any). Five agents and a final pass fixed them all in code (`87ac68c..f8cd2ae`, no suppressions), with no rendering change (visual parity 70/70). One was a real bug: the freshness suite counted a question as stale when the item had no id (a `KeyError` caught as `LookupError`); it is now unknown (`9a44c24`). Live runs `fb52f03`, so the refactors and this fix reach live with the next restart from `main`.
 - Plan risks r3 and r4 were resolved from t7's code reading (k=10 top 5 equals k=5 top 5; opt-in warmup).
 
 ## Drift From Plan
