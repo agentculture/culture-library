@@ -8,6 +8,7 @@
 <meta name="referrer" content="no-referrer">
 <link rel="stylesheet" href="/static/styles.css">
 <link rel="stylesheet" href="/static/evals.css">
+<link rel="stylesheet" href="/static/projects.css">
 <script type="module" src="/static/app.js"></script>
 </head>
 <body>
@@ -22,6 +23,8 @@
     <nav class="tabs" role="tablist" aria-label="Views">
       <button role="tab" aria-selected="true" data-view="home">Library</button>
       <button role="tab" aria-selected="false" data-view="state">Site state</button>
+      <button role="tab" aria-selected="false" data-view="projects">Projects</button>
+      <button role="tab" aria-selected="false" data-view="domains">Domains</button>
       <button role="tab" aria-selected="false" data-view="evals">Evals</button>
     </nav>
     <label class="search" for="q" aria-label="Search the library">
@@ -104,6 +107,11 @@
     <div class="tiles" id="tiles"></div>
     <div class="status" id="status"></div>
     <div class="charts" id="charts"></div>
+  </section>
+  <section id="view-projects" class="wrap projects" hidden>
+    <!-- Browse by project and domain (plan task t20). Routes: #projects, #projects/<repo>,
+         #domains, #domains/<domain> (hashroute.js); projects.js fills the body. -->
+    <div id="projects-body"></div>
   </section>
   <section id="view-evals" class="wrap evals" hidden>
     <!-- Evals (plan task t16; design canvas "Evals overview"). Routes: #evals, #evals/radar,

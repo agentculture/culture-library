@@ -7,6 +7,9 @@
  * and an unknown #evals/... page opens the Evals overview: the Evals tab never falls through
  * to home. Anything after "?" is the page's own parameters (later views read them).
  *
+ * Browse routes: #projects (every project with its domains and doc counts), #projects/<repo>
+ * (one project; <repo> is the repo id, URI-encoded), #domains and #domains/<domain>.
+ *
  * Radar parameters (#evals/radar?...):
  *   runs=IDS   the run (one id) or group of runs (comma-separated ids) whose shape to draw; the
  *              mean over its documents, one document per run. Missing: the radar picks the
@@ -42,9 +45,20 @@ export function parseHash(hash, isItemKey) {
     return { view: 'evals', page: EVAL_PAGES.includes(page) ? page : 'overview', params };
   }
   if (path === 'state') return { view: 'state' };
+  for (const view of ['projects', 'domains']) {
+    if (path !== view && !path.startsWith(view + '/')) continue;
+    let rest = path.slice(view.length + 1);
+    try { rest = decodeURIComponent(rest); } catch { /* keep the raw text */ }
+    return view === 'projects' ? { view, repo: rest || null } : { view, domain: rest || null };
+  }
   if (raw && isItemKey(raw)) return { view: 'read', key: raw };
   return { view: 'home' };
 }
+
+/** The hash of the project list, or of one project's page (a repo id such as "github.com/o/r"). */
+export const projectsHash = repo => (repo ? `#projects/${encodeURIComponent(repo)}` : '#projects');
+/** The hash of the domain list, or of one domain's page. */
+export const domainsHash = domain => (domain ? `#domains/${encodeURIComponent(domain)}` : '#domains');
 
 /** The canonical hash of an Evals page ('overview', 'radar' or 'compare'). */
 export const evalsHash = page => (page && page !== 'overview' ? `#evals/${page}` : '#evals');
