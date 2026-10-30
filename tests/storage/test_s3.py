@@ -61,8 +61,9 @@ def test_head_reraises_other_errors() -> None:
         def head_object(self, Bucket, Key):  # noqa: N803
             raise ClientError("403")
 
+    backend = S3Backend(bucket="bk", client=Boom())
     with pytest.raises(ClientError):
-        S3Backend(bucket="bk", client=Boom()).head("k")
+        backend.head("k")
 
 
 def test_never_calls_delete() -> None:
@@ -79,12 +80,14 @@ def test_never_calls_delete() -> None:
 
 def test_from_env_requires_bucket(monkeypatch) -> None:
     monkeypatch.delenv("CULTURE_LIBRARY_S3_BUCKET", raising=False)
+    client = StubClient()
     with pytest.raises(ValueError, match="CULTURE_LIBRARY_S3_BUCKET"):
-        from_env(client=StubClient())
+        from_env(client=client)
     monkeypatch.setenv("CULTURE_LIBRARY_S3_BUCKET", "b")
     monkeypatch.setenv("CULTURE_LIBRARY_S3_PREFIX", "p/")
-    be = from_env(client=StubClient())
-    assert be.bucket == "b" and be.prefix == "p/"
+    be = from_env(client=client)
+    assert be.bucket == "b"
+    assert be.prefix == "p/"
 
 
 def test_boto3_imported_lazily(monkeypatch) -> None:

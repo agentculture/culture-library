@@ -88,8 +88,12 @@ def test_hit_and_passage_default_to_item_corpus():
     h = sr.Hit(1, "t", "book", "public", 1.0, "s", "fulltext")
     p = sr.Passage(1, "t", "book", 0, "sha", "x", 1.0, "semantic")
     assert h.corpus == p.corpus == "item"
-    assert h.doc_id is None and h.repo is None and h.path is None
-    assert p.doc_id is None and p.repo is None and p.path is None
+    assert h.doc_id is None
+    assert h.repo is None
+    assert h.path is None
+    assert p.doc_id is None
+    assert p.repo is None
+    assert p.path is None
 
 
 def test_items_hits_carry_corpus_item(store):
@@ -145,14 +149,16 @@ def test_devague_json_is_indexed_as_prose(store, docs):
     assert _doc_hits(store, "gondolas")
     body = _count(store, "SELECT body FROM repodoc_fts")
     assert "Gondolas carry the mail" in body
-    assert "{" not in body and '"claims"' not in body
+    assert "{" not in body
+    assert '"claims"' not in body
 
 
 def test_binary_design_indexes_only_path_and_title(store, docs):
     _commit(docs, "docs/design/mockup-harbor.png", b"\x89PNG\r\n\x1a\nquokka\x00\xff")
     ix.Indexer(store).run_once()
     hits = _doc_hits(store, "harbor")
-    assert len(hits) == 1 and hits[0].kind == "design"
+    assert len(hits) == 1
+    assert hits[0].kind == "design"
     assert _doc_hits(store, "quokka") == []
     assert _count(store, "SELECT body FROM repodoc_fts") == ""
 
@@ -163,7 +169,8 @@ def test_new_push_is_rediscovered_and_reindexed(store, docs):
     idx.run_once()
     _commit(docs, "docs/specs/s.md", "second heron\n", commit=B, when="2026-10-02T00:00:00Z")
     idx.run_once()
-    assert _doc_hits(store, "heron") and _doc_hits(store, "ibis") == []
+    assert _doc_hits(store, "heron")
+    assert _doc_hits(store, "ibis") == []
 
 
 # ---------------------------------------------------------------- removed docs (d7)
@@ -198,7 +205,8 @@ def test_private_repodoc_needs_include_private(store, docs):
     assert _doc_hits(store, "pangolin") == []
     assert _doc_hits(store, "pangolin", owner="any-key") == []  # no uploader-owner link
     hits = _doc_hits(store, "pangolin", include_private=True)
-    assert len(hits) == 1 and hits[0].visibility == "private"
+    assert len(hits) == 1
+    assert hits[0].visibility == "private"
 
 
 def test_public_doc_with_private_draft_ahead_fails_closed(store, docs):
@@ -217,10 +225,12 @@ def test_semantic_hybrid_and_passages_include_repodocs_only_when_asked(store, do
     sem = sr.semantic(store, "cat", fake_embed)
     assert all(h.corpus == "item" for h in sem)
     sem2 = sr.semantic(store, "cat", fake_embed, corpora=BOTH)
-    assert sem2[0].corpus == "repodoc" and sem2[0].doc_id == pushed.doc.id
+    assert sem2[0].corpus == "repodoc"
+    assert sem2[0].doc_id == pushed.doc.id
 
     hyb = sr.hybrid(store, "felines", fake_embed, corpora=BOTH)
-    assert hyb[0].corpus == "repodoc" and hyb[0].source == "hybrid"
+    assert hyb[0].corpus == "repodoc"
+    assert hyb[0].source == "hybrid"
     assert all(h.corpus == "item" for h in sr.hybrid(store, "felines", fake_embed))
 
     with store.reader() as conn:
@@ -228,7 +238,8 @@ def test_semantic_hybrid_and_passages_include_repodocs_only_when_asked(store, do
         default = sr.passages(conn, qvec, 10, "hybrid", sr.Vis(), query="cat")
         both = sr.passages(conn, qvec, 10, "hybrid", sr.Vis(), query="cat", corpora=BOTH)
         narrowed = sr.passages(conn, qvec, 10, "semantic", sr.Vis(), None, [1], corpora=BOTH)
-    assert default and all(p.corpus == "item" for p in default)
+    assert default
+    assert all(p.corpus == "item" for p in default)
     top = both[0]
     assert (top.corpus, top.doc_id, top.item_id, top.path) == (
         "repodoc",
@@ -345,7 +356,9 @@ def test_gateway_failure_leaves_repodoc_jobs_queued_and_they_resume(store, docs)
         .execute("SELECT state, attempts, next_attempt_at, last_error FROM repodoc_index_queue")
         .fetchone()
     )
-    assert row[0] == "pending" and row[1] == 1 and row[2] == 1010.0
+    assert row[0] == "pending"
+    assert row[1] == 1
+    assert row[2] == 1010.0
     assert "gateway down" in row[3]
     assert _doc_hits(store, "cats")  # full text is written before the embeddings
     emb.up = True
@@ -385,4 +398,5 @@ def test_repodoc_text_rules():
     title, body = ix.repodoc_text("docs/design/x.png", b"\x89PNG\x00")
     assert (title, body) == ("x.png", "")
     title, body = ix.repodoc_text(".devague/frames/f.json", b"not json {")
-    assert title == "f.json" and "not json" in body
+    assert title == "f.json"
+    assert "not json" in body

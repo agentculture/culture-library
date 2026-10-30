@@ -64,5 +64,6 @@ def test_run_config_records_corpora_and_item_ids_survive_repodoc_indexing(librar
 
     after = _run(library, eval_set)
     ids_after = [r.retrieved_item_ids for r in after.samples]
-    assert ids_before[0] and ids_before == ids_after
+    assert ids_before[0]
+    assert ids_before == ids_after
     assert after.config["corpora"] == ["item"]

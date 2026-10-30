@@ -53,15 +53,20 @@ def _count(store: Store, table: str) -> int:
 
 def test_working_push_upserts_one_draft_and_no_version(docs: RepoDocs, store: Store) -> None:
     first = _working(docs, "w-1\n")
-    assert first.created and first.version is None and first.draft is not None
+    assert first.created
+    assert first.version is None
+    assert first.draft is not None
     assert not first.current_changed
     second = _working(docs, "w-2\n")
-    assert second.created and second.doc.id == first.doc.id
+    assert second.created
+    assert second.doc.id == first.doc.id
     assert _count(store, "repodoc_drafts") == 1
     assert _count(store, "repodoc_versions") == 0
     assert docs.content(first.doc.id, "working", include_private=True) == b"w-2\n"
     draft = docs.draft(first.doc.id, include_private=True)
-    assert draft is not None and draft.size == 4 and draft.ahead
+    assert draft is not None
+    assert draft.size == 4
+    assert draft.ahead
 
 
 def test_working_push_needs_no_commit_metadata(docs: RepoDocs) -> None:
@@ -97,7 +102,9 @@ def test_commit_push_after_draft_leaves_draft_untouched(docs: RepoDocs, store: S
     w = _working(docs, "w-1\n")
     before = docs.draft(w.doc.id, include_private=True)
     c = _commit(docs, "v-a\n")
-    assert c.created and c.version is not None and c.doc.id == w.doc.id
+    assert c.created
+    assert c.version is not None
+    assert c.doc.id == w.doc.id
     assert _count(store, "repodoc_versions") == 1
     assert docs.draft(w.doc.id, include_private=True).sha256 == before.sha256
     assert docs.content(w.doc.id, "working", include_private=True) == b"w-1\n"
@@ -162,7 +169,8 @@ def test_tombstone_marks_removed_drops_draft_keeps_versions(docs: RepoDocs, stor
     _working(docs, "w\n")
     doc = docs.tombstone(REMOTE, PATH, B)
     assert doc.id == c.doc.id
-    assert doc.removed_at is not None and doc.removed_commit == B
+    assert doc.removed_at is not None
+    assert doc.removed_commit == B
     assert _count(store, "repodoc_drafts") == 0
     assert docs.draft(doc.id, include_private=True) is None
     assert [v.commit for v in docs.versions(doc.id, include_private=True)] == [A]
@@ -184,7 +192,8 @@ def test_removed_docs_excluded_from_list_unless_asked(docs: RepoDocs) -> None:
 def test_tombstone_of_never_committed_draft(docs: RepoDocs, store: Store) -> None:
     w = _working(docs, "w\n")
     doc = docs.tombstone(REMOTE, PATH, "working")
-    assert doc.id == w.doc.id and doc.removed_commit == "working"
+    assert doc.id == w.doc.id
+    assert doc.removed_commit == "working"
     assert _count(store, "repodoc_drafts") == 0
 
 
@@ -205,7 +214,9 @@ def test_new_push_after_tombstone_restores_doc(docs: RepoDocs) -> None:
     # a genuinely new version (the file came back) does
     _commit(docs, "v-c\n", commit="c" * 40, committed_at="2026-10-03T00:00:00Z")
     back = docs.find(REMOTE, PATH, include_private=True)
-    assert back is not None and back.removed_at is None and back.removed_commit is None
+    assert back is not None
+    assert back.removed_at is None
+    assert back.removed_commit is None
 
 
 def test_working_push_after_tombstone_restores_doc(docs: RepoDocs) -> None:

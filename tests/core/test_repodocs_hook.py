@@ -80,8 +80,9 @@ def test_hook_raising_rolls_back_everything(tmp_path, commit) -> None:
         _write_both(conn, result)
         raise Boom("after the outbox and feed writes")
 
+    docs = RepoDocs(store)
     with pytest.raises(Boom):
-        _push(RepoDocs(store), commit=commit, on_write=hook)
+        _push(docs, commit=commit, on_write=hook)
     assert _counts(store) == {
         "repodocs": 0,
         "repodoc_versions": 0,
@@ -130,7 +131,8 @@ def test_tombstone_hook_runs_in_the_transaction(tmp_path) -> None:
 
     calls = []
     docs.tombstone(REMOTE, "docs/specs/x.md", A, on_write=lambda c, d: calls.append(d))
-    assert calls and calls[0].removed_commit == A
+    assert calls
+    assert calls[0].removed_commit == A
 
 
 def test_no_hook_is_the_old_behaviour(tmp_path) -> None:
