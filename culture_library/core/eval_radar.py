@@ -119,7 +119,7 @@ def _question_metrics(sample: Result, k: int, item_id: Any = None) -> dict[str, 
 
 def _failed(sample: Result) -> bool:
     """True when the runner recorded this question's retrieval as an error."""
-    return (sample.get("scores_json") or {}).get("error_rate") == 1.0
+    return ((sample.get("scores_json") or {}).get("error_rate") or 0.0) >= 1.0
 
 
 def _judge(run: Run, samples: Sequence[Result], key: str, whole_run: bool) -> float | None:
