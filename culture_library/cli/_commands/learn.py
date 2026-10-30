@@ -43,6 +43,7 @@ Commands
   culture-library mirror reconcile   Queue repo-doc keys missing/stale in the bucket.
   culture-library mirror overview    Describe the mirror noun.
   culture-library deploy restart     Recreate library + mcp from the host env file.
+  culture-library deploy check-bucket  Audit the S3 mirror bucket's safety settings.
   culture-library deploy overview    Describe the deploy noun.
   culture-library eval generate ID   Build a RAG eval set (needs culture-library[eval]).
   culture-library eval run SET_ID    Run a set (--mode/--rerank/--k/--candidates) and store the run.
@@ -93,6 +94,7 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["mirror", "reconcile"], "summary": "Queue keys missing in the bucket."},
             {"path": ["mirror", "overview"], "summary": "Describe the mirror noun."},
             {"path": ["deploy", "restart"], "summary": "Recreate library + mcp (env file)."},
+            {"path": ["deploy", "check-bucket"], "summary": "Audit the S3 mirror bucket."},
             {"path": ["deploy", "overview"], "summary": "Describe the deploy noun."},
             {"path": ["eval", "generate"], "summary": "Build a RAG eval set ([eval] extra)."},
             {"path": ["eval", "run"], "summary": "Run an eval set; --mode/--rerank/--k."},

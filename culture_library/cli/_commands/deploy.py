@@ -9,7 +9,13 @@ and no shell::
       docker compose -f deploy/compose.yaml --env-file <env file> --profile remote \\
       up -d --no-deps library mcp
 
-and checks ``/api/health`` and the send targets inside the new container. ``--build``
+When the env file names an S3 bucket (``CULTURE_LIBRARY_S3_BUCKET``) it also injects
+``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` (and ``AWS_SESSION_TOKEN`` if asked) from
+grant; those never enter the env file either.
+
+``deploy check-bucket`` audits the mirror bucket's safety settings (see ``cmd_check_bucket``).
+
+It checks ``/api/health`` and the send targets inside the new container. ``--build``
 rebuilds the image first; ``--dry-run`` prints the commands and runs nothing. The tunnel
 token and the gateway key stay in ``grant`` and never pass through this process; an env
 file that contains ``GATEWAY_API_KEY`` is refused.
@@ -39,10 +45,21 @@ DEFAULT_TUNNEL_SECRET = "CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN"  # nosec
 # The grant secret holding the lobes gateway key (embeddings + reranker); never in live.env.
 DEFAULT_GATEWAY_SECRET = "LOBES_GATEWAY_API_KEY"  # nosec B105
 # Settings that are secrets: never in the env file, always injected from grant by name.
+# The grant secrets holding the S3 mirror's AWS credentials (names only).
+DEFAULT_AWS_KEY_ID_SECRET = "CULTURE_LIBRARY_AWS_ACCESS_KEY_ID"  # nosec B105
+DEFAULT_AWS_SECRET_KEY_SECRET = "CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY"  # nosec B105
+S3_BUCKET_ENV = "CULTURE_LIBRARY_S3_BUCKET"
+# Optional S3 settings: empty/absent means "off"/default, but a placeholder is refused.
+S3_SETTINGS = (S3_BUCKET_ENV, "CULTURE_LIBRARY_S3_REGION", "CULTURE_LIBRARY_S3_PREFIX")
+AWS_SESSION_ENV = "AWS_SESSION_TOKEN"
 SECRET_SETTINGS = {
     "TUNNEL_TOKEN": DEFAULT_TUNNEL_SECRET,
     "GATEWAY_API_KEY": DEFAULT_GATEWAY_SECRET,
+    "AWS_ACCESS_KEY_ID": DEFAULT_AWS_KEY_ID_SECRET,
+    "AWS_SECRET_ACCESS_KEY": DEFAULT_AWS_SECRET_KEY_SECRET,
+    AWS_SESSION_ENV: "(an AWS session-token secret via --aws-session-secret)",
 }
+PAB_FLAGS = ("BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets")
 REQUIRED_SETTINGS = (
     "COMPOSE_PROJECT_NAME",
     "CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN",
@@ -168,6 +185,9 @@ def check_settings(values: dict[str, str], source: str) -> None:
             )
         if key != send.TARGETS_ENV and _PLACEHOLDER.search(value):
             raise _placeholder(source, key, value)
+    for key in S3_SETTINGS:
+        if _PLACEHOLDER.search(values.get(key, "")):
+            raise _placeholder(source, key, values[key])
     try:
         targets = send.parse_targets(values[send.TARGETS_ENV], f"{source}: {send.TARGETS_ENV}")
     except send.SendConfigError as exc:
@@ -204,6 +224,7 @@ def plan(
     *,
     build: bool,
     gateway_secret: str | None = DEFAULT_GATEWAY_SECRET,
+    aws_secrets: dict[str, str] | None = None,
 ) -> list[list[str]]:
     """The commands ``restart`` runs, in order. Secrets are injected by name from grant."""
     base = _compose_base(compose, env_file)
@@ -212,6 +233,8 @@ def plan(
     inject = ["--inject", f"TUNNEL_TOKEN={secret}"]
     if gateway_secret:
         inject += ["--inject", f"GATEWAY_API_KEY={gateway_secret}"]
+    for var, name in (aws_secrets or {}).items():
+        inject += ["--inject", f"{var}={name}"]
     steps.append(["grant", "run", *inject, "--", *up])
     return steps
 
@@ -223,18 +246,28 @@ def _grant_secret_exists(name: str, env: dict[str, str]) -> bool:
     return proc.returncode == 0
 
 
-def _check_grant_secrets(names: list[str], env: dict[str, str]) -> None:
+def _check_grant_secrets(
+    names: list[str], env: dict[str, str], aws_names: list[str] | None = None
+) -> None:
     """Refuse, before compose runs, when a grant secret to inject does not exist."""
     if _which("grant") is None:
         raise CliError(EXIT_ENV_ERROR, "grant is not on PATH", "install grant")
     for name in names:
         if not _grant_secret_exists(name, env):
-            hint = (
-                "store the tunnel token with 'cultureflare --grant'"
-                if name == DEFAULT_TUNNEL_SECRET
-                else "add it with 'grant set NAME - --hidden', or pass --no-gateway-key to "
-                "restart without embeddings"
-            )
+            if name == DEFAULT_TUNNEL_SECRET:
+                hint = "store the tunnel token with 'cultureflare --grant'"
+            elif name in (DEFAULT_AWS_KEY_ID_SECRET, DEFAULT_AWS_SECRET_KEY_SECRET) or (
+                aws_names and name in aws_names
+            ):
+                hint = (
+                    "add it with 'grant set NAME - --hidden', or pass --no-aws-credentials "
+                    "to restart without the S3 mirror credentials"
+                )
+            else:
+                hint = (
+                    "add it with 'grant set NAME - --hidden', or pass --no-gateway-key to "
+                    "restart without embeddings"
+                )
             raise CliError(EXIT_ENV_ERROR, f"grant secret {name} not found", hint)
 
 
@@ -318,6 +351,8 @@ def _inputs(args: argparse.Namespace) -> tuple[Path, Path]:
     for flag, name in (
         ("--tunnel-secret", args.tunnel_secret),
         ("--gateway-secret", args.gateway_secret),
+        ("--aws-key-id-secret", args.aws_key_id_secret),
+        ("--aws-secret-key-secret", args.aws_secret_key_secret),
     ):
         if not (name or "").strip():
             raise CliError(
@@ -329,11 +364,32 @@ def _inputs(args: argparse.Namespace) -> tuple[Path, Path]:
 def cmd_restart(args: argparse.Namespace) -> int:
     env_file, compose = _inputs(args)
     gateway = None if args.no_gateway_key else args.gateway_secret
-    secrets = {"TUNNEL_TOKEN": args.tunnel_secret, "GATEWAY_API_KEY": args.gateway_secret}
+    secrets = {
+        **SECRET_SETTINGS,
+        "TUNNEL_TOKEN": args.tunnel_secret,
+        "GATEWAY_API_KEY": args.gateway_secret,
+        "AWS_ACCESS_KEY_ID": args.aws_key_id_secret,
+        "AWS_SECRET_ACCESS_KEY": args.aws_secret_key_secret,
+    }
     _refuse_secrets(env_file_keys(env_file), str(env_file), secrets)  # before value parsing
     values = read_env_file(env_file)
     check_settings(values, str(env_file))
-    steps = plan(compose, env_file, args.tunnel_secret, build=args.build, gateway_secret=gateway)
+    aws: dict[str, str] = {}
+    if values.get(S3_BUCKET_ENV, "").strip() and not args.no_aws_credentials:
+        aws = {
+            "AWS_ACCESS_KEY_ID": args.aws_key_id_secret,
+            "AWS_SECRET_ACCESS_KEY": args.aws_secret_key_secret,
+        }
+        if args.aws_session_secret:
+            aws[AWS_SESSION_ENV] = args.aws_session_secret
+    steps = plan(
+        compose,
+        env_file,
+        args.tunnel_secret,
+        build=args.build,
+        gateway_secret=gateway,
+        aws_secrets=aws,
+    )
     if args.dry_run:
         emit_result(
             (
@@ -346,7 +402,11 @@ def cmd_restart(args: argparse.Namespace) -> int:
         return 0
     env = _child_env(values)
     verbose = not _json(args)
-    _check_grant_secrets([args.tunnel_secret, *([gateway] if gateway else [])], env)
+    _check_grant_secrets(
+        [args.tunnel_secret, *([gateway] if gateway else []), *aws.values()],
+        env,
+        aws_names=list(aws.values()),
+    )
     for argv in steps:
         _step(argv, env, verbose=verbose)
     health = _health(_health_url(values), args.timeout)
@@ -373,6 +433,164 @@ def cmd_restart(args: argparse.Namespace) -> int:
     return 0
 
 
+def _aws_client(service: str, region: str | None):
+    """A boto3 client, imported lazily (the ``[s3]`` extra); a test seam."""
+    try:
+        import boto3  # noqa: PLC0415
+    except ImportError:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            "deploy check-bucket needs boto3",
+            "install it: pip install 'culture-library[s3]'",
+        ) from None
+    return boto3.client(service, region_name=region) if region else boto3.client(service)
+
+
+def _code(exc: Exception) -> str:
+    return str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+
+
+def _chk(cid: str, status: str, message: str, remediation: str = "") -> dict:
+    return {
+        "id": cid,
+        "passed": status == "pass",
+        "status": status,
+        "severity": "error",
+        "message": message,
+        "remediation": remediation,
+    }
+
+
+def _check_pab(s3, bucket: str) -> dict:
+    cid = "public_access_block"
+    fix = (
+        f"aws s3api put-public-access-block --bucket {bucket} --public-access-block-configuration "
+    )
+    fix += ",".join(f"{f}=true" for f in PAB_FLAGS)
+    try:
+        cfg = s3.get_public_access_block(Bucket=bucket)["PublicAccessBlockConfiguration"]
+    except Exception as exc:  # noqa: BLE001 - any client error is reported, not raised
+        if _code(exc) == "NoSuchPublicAccessBlockConfiguration":
+            return _chk(cid, "fail", "Block Public Access is not configured", fix)
+        return _chk(
+            cid,
+            "unknown",
+            f"cannot read Block Public Access ({_code(exc) or exc})",
+            "grant s3:GetBucketPublicAccessBlock to the checking identity",
+        )
+    off = [f for f in PAB_FLAGS if not cfg.get(f)]
+    if off:
+        return _chk(cid, "fail", f"Block Public Access flags off: {', '.join(off)}", fix)
+    return _chk(cid, "pass", "all four Block Public Access flags are on")
+
+
+def _check_encryption(s3, bucket: str) -> dict:
+    cid = "default_encryption"
+    fix = "enable default SSE: aws s3api put-bucket-encryption (AES256 or aws:kms)"
+    try:
+        cfg = s3.get_bucket_encryption(Bucket=bucket)["ServerSideEncryptionConfiguration"]
+    except Exception as exc:  # noqa: BLE001
+        if _code(exc) == "ServerSideEncryptionConfigurationNotFoundError":
+            return _chk(cid, "fail", "no default encryption rule", fix)
+        return _chk(
+            cid,
+            "unknown",
+            f"cannot read bucket encryption ({_code(exc) or exc})",
+            "grant s3:GetEncryptionConfiguration to the checking identity",
+        )
+    if not cfg.get("Rules"):
+        return _chk(cid, "fail", "no default encryption rule", fix)
+    return _chk(cid, "pass", "a default encryption rule is present")
+
+
+def _check_versioning(s3, bucket: str) -> dict:
+    cid = "versioning"
+    try:
+        status = s3.get_bucket_versioning(Bucket=bucket).get("Status")
+    except Exception as exc:  # noqa: BLE001
+        return _chk(
+            cid,
+            "unknown",
+            f"cannot read bucket versioning ({_code(exc) or exc})",
+            "grant s3:GetBucketVersioning to the checking identity",
+        )
+    if status != "Enabled":
+        return _chk(
+            cid,
+            "fail",
+            f"versioning is {status or 'not enabled'}",
+            f"aws s3api put-bucket-versioning --bucket {bucket} "
+            "--versioning-configuration Status=Enabled",
+        )
+    return _chk(cid, "pass", "versioning is Enabled")
+
+
+def _policy_source(arn: str) -> str:
+    """The IAM principal to simulate: an assumed-role session maps to its role."""
+    parts = arn.split(":", 5)
+    if len(parts) == 6 and parts[2] == "sts" and parts[5].startswith("assumed-role/"):
+        role = parts[5].split("/")[1]
+        return f"arn:{parts[1]}:iam::{parts[4]}:role/{role}"
+    return arn
+
+
+def _check_delete(sts, iam, bucket: str) -> dict:
+    cid = "delete_object_denied"
+    hint = (
+        "grant iam:SimulatePrincipalPolicy to the checking identity (or check by hand that "
+        "the library's credentials cannot s3:DeleteObject)"
+    )
+    try:
+        arn = sts.get_caller_identity()["Arn"]
+        result = iam.simulate_principal_policy(
+            PolicySourceArn=_policy_source(arn),
+            ActionNames=["s3:DeleteObject"],
+            ResourceArns=[f"arn:aws:s3:::{bucket}/*"],
+        )
+        decisions = [r["EvalDecision"] for r in result["EvaluationResults"]]
+    except Exception as exc:  # noqa: BLE001
+        return _chk(
+            cid, "unknown", f"could not simulate s3:DeleteObject ({_code(exc) or exc})", hint
+        )
+    if "allowed" in decisions:
+        return _chk(
+            cid,
+            "fail",
+            f"{arn} may call s3:DeleteObject on the bucket",
+            "remove s3:DeleteObject (and s3:DeleteObjectVersion) from its IAM policy",
+        )
+    return _chk(cid, "pass", f"s3:DeleteObject is denied for {arn} ({', '.join(decisions)})")
+
+
+def cmd_check_bucket(args: argparse.Namespace) -> int:
+    bucket = (args.bucket or os.environ.get(S3_BUCKET_ENV, "")).strip()
+    if not bucket:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "no bucket to check",
+            f"pass --bucket or set {S3_BUCKET_ENV}",
+        )
+    region = args.region or os.environ.get("CULTURE_LIBRARY_S3_REGION") or None
+    s3 = _aws_client("s3", region)
+    checks = [
+        _check_pab(s3, bucket),
+        _check_encryption(s3, bucket),
+        _check_versioning(s3, bucket),
+        _check_delete(_aws_client("sts", region), _aws_client("iam", region), bucket),
+    ]
+    report = {"healthy": all(c["passed"] for c in checks), "bucket": bucket, "checks": checks}
+    if _json(args):
+        emit_result(report, json_mode=True)
+    else:
+        lines = [f"bucket {bucket}: {'healthy' if report['healthy'] else 'unhealthy'}"]
+        for c in checks:
+            lines.append(f"  [{c['status']}] {c['id']}: {c['message']}")
+            if not c["passed"]:
+                lines.append(f"      fix: {c['remediation']}")
+        emit_result("\n".join(lines), json_mode=False)
+    return 0 if report["healthy"] else 1
+
+
 def cmd_overview(args: argparse.Namespace) -> int:
     emit_overview(
         "culture-library deploy",
@@ -381,6 +599,8 @@ def cmd_overview(args: argparse.Namespace) -> int:
                 "title": "Verbs",
                 "items": [
                     "restart — recreate library + mcp from the host env file, then check them",
+                    "check-bucket — audit the S3 mirror bucket (public access block, default "
+                    "encryption, versioning, no DeleteObject for the credentials)",
                     "overview — this description",
                 ],
             },
@@ -393,6 +613,10 @@ def cmd_overview(args: argparse.Namespace) -> int:
                     f"--tunnel-secret (grant secret name, default {DEFAULT_TUNNEL_SECRET})",
                     f"--gateway-secret (grant secret injected as GATEWAY_API_KEY, default "
                     f"{DEFAULT_GATEWAY_SECRET}); --no-gateway-key skips it",
+                    f"--aws-key-id-secret / --aws-secret-key-secret (grant secrets injected as "
+                    f"AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY when "
+                    f"{S3_BUCKET_ENV} is set; defaults {DEFAULT_AWS_KEY_ID_SECRET}, "
+                    f"{DEFAULT_AWS_SECRET_KEY_SECRET}); --no-aws-credentials skips them",
                     "needs grant and docker on PATH",
                 ],
             },
@@ -420,6 +644,24 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="grant secret injected as GATEWAY_API_KEY (embeddings + reranker).",
     )
     gw.add_argument("--no-gateway-key", action="store_true", help="Do not inject GATEWAY_API_KEY.")
+    rs.add_argument(
+        "--aws-key-id-secret",
+        default=DEFAULT_AWS_KEY_ID_SECRET,
+        help="grant secret injected as AWS_ACCESS_KEY_ID (only when an S3 bucket is set).",
+    )
+    rs.add_argument(
+        "--aws-secret-key-secret",
+        default=DEFAULT_AWS_SECRET_KEY_SECRET,
+        help="grant secret injected as AWS_SECRET_ACCESS_KEY.",
+    )
+    rs.add_argument(
+        "--aws-session-secret",
+        default=None,
+        help="optional grant secret injected as AWS_SESSION_TOKEN.",
+    )
+    rs.add_argument(
+        "--no-aws-credentials", action="store_true", help="Do not inject AWS credentials."
+    )
     rs.add_argument("--build", action="store_true", help="Rebuild the image first.")
     rs.add_argument("--dry-run", action="store_true", help="Print the commands; run nothing.")
     rs.add_argument(
@@ -427,6 +669,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     rs.add_argument("--json", action="store_true", help=_JSON_HELP)
     rs.set_defaults(func=cmd_restart)
+    cb = nsub.add_parser("check-bucket", help="Audit the S3 mirror bucket's safety settings.")
+    cb.add_argument("--bucket", help=f"Bucket (default ${S3_BUCKET_ENV}).")
+    cb.add_argument("--region", help="AWS region (default $CULTURE_LIBRARY_S3_REGION).")
+    cb.add_argument("--json", action="store_true", help=_JSON_HELP)
+    cb.set_defaults(func=cmd_check_bucket)
     ov = nsub.add_parser("overview", help="Describe the deploy noun.")
     ov.add_argument("--json", action="store_true", help=_JSON_HELP)
     ov.set_defaults(func=cmd_overview)
