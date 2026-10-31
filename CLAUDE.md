@@ -201,10 +201,10 @@ reranker on. Machine clients reach it on spark's loopback
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - culture-rules 0.38.1 pushes drafts from one owner clone per origin (d26); the
     full-corpus mirror check passed once on 2026-10-31, which #35 needs before removal;
-  - retrieval is still too slow for Gwen's turn path (#25): about 0.3 s without rerank
-    on 0.19.7 (`math.sumprod` scoring), and `core/vector_cache.py` keeps the unpacked
-    vectors in memory. Stdlib scoring tops out near 7 µs per vector; going further needs
-    a vectorised library or another store (#47);
+  - retrieval is still too slow for Gwen's turn path (#25) on live: about 0.3 s without
+    rerank on 0.19.7 (`math.sumprod` scoring over an in-process vector cache). The
+    Postgres port (#47) replaces both with pgvector HNSW queries (`core/search.py`; the
+    cache, `vector_log` and its triggers are gone), measured only on test data so far;
   - in-progress items (#22);
   - the Project Gutenberg header and licence are still indexed and
     retrievable (#27);
