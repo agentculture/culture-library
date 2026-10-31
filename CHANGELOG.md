@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.5] - 2026-10-31
+
+### Fixed
+
+- The indexer no longer scans every repo doc on each idle tick (#39). Triggers on repodocs, repodoc_drafts and repodoc_versions mark a changed doc in a new repodoc_dirty table in the same transaction; discovery plans only marked docs and clears the marks under the write lock. The first open after upgrading seeds every existing doc once. Idle discovery at 5,000 docs: 0.19 ms, down from 8.6 ms
+
 ## [0.19.4] - 2026-10-31
 
 ### Changed

@@ -89,6 +89,40 @@ def _ensure_priority(conn: sqlite3.Connection) -> None:
 
 register_migration(_ensure_priority)
 
+# Every write to a repo doc, its draft or its versions marks the doc dirty in the same
+# transaction (#39), so discovery plans only the changed docs and an idle tick never scans
+# ``repodocs``. Triggers catch every write path, including ones added later. The body uses
+# NOT EXISTS, not INSERT OR IGNORE: an outer upsert's conflict clause overrides a trigger's.
+_DIRTY_TRIGGERS = (
+    ("repodocs", "INSERT", "NEW.id"),
+    ("repodocs", "UPDATE", "NEW.id"),
+    ("repodoc_drafts", "INSERT", "NEW.doc_id"),
+    ("repodoc_drafts", "UPDATE", "NEW.doc_id"),
+    ("repodoc_drafts", "DELETE", "OLD.doc_id"),
+    ("repodoc_versions", "INSERT", "NEW.doc_id"),
+    ("repodoc_versions", "UPDATE", "NEW.doc_id"),
+    ("repodoc_versions", "DELETE", "OLD.doc_id"),
+)
+
+
+def _ensure_repodoc_dirty(conn: sqlite3.Connection) -> None:
+    """Create ``repodoc_dirty`` and its triggers; seed every doc when the table is new."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if not {"repodocs", "repodoc_drafts", "repodoc_versions"} <= tables:
+        return
+    if "repodoc_dirty" not in tables:
+        conn.execute("CREATE TABLE repodoc_dirty (doc_id INTEGER PRIMARY KEY)")
+        conn.execute("INSERT INTO repodoc_dirty (doc_id) SELECT id FROM repodocs")
+    for table, event, ref in _DIRTY_TRIGGERS:
+        conn.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_{event.lower()}_dirty AFTER {event} ON {table}"
+            f" BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref} WHERE NOT EXISTS"
+            f" (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
+        )
+
+
+register_migration(_ensure_repodoc_dirty)
+
 TextFor = Callable[[Item], str]
 
 
@@ -326,6 +360,7 @@ LEFT JOIN repodoc_versions nv ON nv.id = (
     SELECT id FROM repodoc_versions WHERE doc_id = d.id
     ORDER BY committed_at DESC, id DESC LIMIT 1)
 LEFT JOIN repodoc_index_queue q ON q.doc_id = d.id
+WHERE d.id IN (SELECT doc_id FROM repodoc_dirty)
 """
 
 
@@ -356,13 +391,16 @@ def _plan_one(r: sqlite3.Row) -> tuple | None:
 
 
 def _plan_discovery(conn: sqlite3.Connection) -> list[tuple]:
-    """``(action, doc_id, sha, visibility)`` for every repo doc whose job is out of date."""
+    """``(action, doc_id, sha, visibility)`` for every dirty repo doc whose job is out of date."""
     planned = (_plan_one(r) for r in conn.execute(_SHOWN_SQL).fetchall())
     return [action for action in planned if action is not None]
 
 
 def discover_repodocs(store: Store, *, now: float | None = None) -> int:
-    """(Re)open the job of every repo doc whose shown sha256 changed; drop removed docs.
+    """(Re)open the job of every changed repo doc whose shown sha256 moved; drop removed docs.
+
+    Only docs marked in ``repodoc_dirty`` are planned, and the marks are cleared in the
+    same transaction; with no marks it reads one row of one table and returns.
 
     Returns how many jobs were enqueued or re-opened. A visibility change without new bytes
     updates the job and the indexed row at once (no re-index). A doc whose new text is
@@ -370,12 +408,14 @@ def discover_repodocs(store: Store, *, now: float | None = None) -> int:
     closed). Takes the write lock only when something changed.
     """
     with store.reader() as conn:
-        if not _plan_discovery(conn):
+        if conn.execute("SELECT 1 FROM repodoc_dirty LIMIT 1").fetchone() is None:
             return 0
     stamp = time.time() if now is None else now
     n = 0
-    with store.connect() as conn:
-        for action, doc_id, sha, vis in _plan_discovery(conn):
+    with store.connect() as conn:  # the write lock: no mark can land between plan and clear
+        planned = _plan_discovery(conn)
+        conn.execute("DELETE FROM repodoc_dirty")
+        for action, doc_id, sha, vis in planned:
             if action == "drop":
                 search.drop_repodoc(conn, doc_id)
                 conn.execute("DELETE FROM repodoc_index_queue WHERE doc_id = ?", (doc_id,))
