@@ -24,6 +24,9 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
+    # Docker's default /dev/shm (64 MB) is too small for a parallel HNSW build over the live
+    # vectors (plan risk r7); 1 GB matches maintenance_work_mem in the SQLite-to-Postgres copy.
+    shm_size: 1gb
     environment:
       # Superuser password (grant: CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD); never given to library.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}

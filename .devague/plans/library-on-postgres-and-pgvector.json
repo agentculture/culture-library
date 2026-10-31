@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-10-31T22:42:44Z",
+  "updated": "2026-10-31T23:12:04Z",
   "targets": [
     {
       "id": "c1",
@@ -1033,8 +1033,8 @@
       "text": "The compose postgres service has no shm_size (Docker default 64 MB); a parallel HNSW build fails with DiskFull on shared memory. Set shm_size for the postgres service before cutover",
       "kind": "follow_up",
       "task_id": "t19",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "deploy/compose.yaml sets shm_size: 1gb on the postgres service, with tests/test_deploy_files.py::test_postgres_has_room_for_parallel_index_builds"
     }
   ],
   "obligations": []

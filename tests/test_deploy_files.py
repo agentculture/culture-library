@@ -125,6 +125,13 @@ def test_postgres_service(compose):
     assert "127.0.0.1" in " ".join(pg["healthcheck"]["test"])  # not the init-time socket
 
 
+def test_postgres_has_room_for_parallel_index_builds(compose):
+    # Docker's default /dev/shm is 64 MB; a parallel HNSW build over the live vectors needs
+    # about 1 GB of shared memory and fails with DiskFull without it (plan risk r7).
+    shm = str(compose["services"]["postgres"].get("shm_size", ""))
+    assert shm.lower() in {"1g", "1gb", "2g", "2gb"}
+
+
 def test_library_waits_for_healthy_postgres(compose):
     dep = compose["services"]["library"]["depends_on"]["postgres"]
     assert dep["condition"] == "service_healthy"
