@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.4] - 2026-10-31
+
+### Changed
+
+- The operator approved deltas b1–b3 and b8–b12; every devague-work record is now approved
+
 ## [0.19.3] - 2026-10-31
 
 ### Added

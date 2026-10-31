@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T12:46:01Z",
+  "updated": "2026-10-31T14:48:49Z",
   "deviations": [
     {
       "id": "d1",
@@ -1137,7 +1137,7 @@
         "e25"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1152,7 +1152,7 @@
         "e28"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1167,7 +1167,7 @@
         "e28"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1238,7 +1238,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1250,7 +1250,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1262,7 +1262,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1274,7 +1274,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1286,7 +1286,7 @@
       ],
       "evidence_refs": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],
