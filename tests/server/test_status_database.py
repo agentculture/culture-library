@@ -8,21 +8,18 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from culture_library.core import Store, migrations  # noqa: E402
-from culture_library.core.embedding_strategy import (  # noqa: E402
+from culture_library.core import Store, migrations
+from culture_library.core.embedding_strategy import (
     CURRENT_MODEL_ID,
     CURRENT_STRATEGY,
     hnsw_index_name,
 )
-from culture_library.core.store import DatabaseError  # noqa: E402
-from culture_library.server import routes_status  # noqa: E402
-from culture_library.server.auth import Principal, current_principal  # noqa: E402
+from culture_library.core.store import DatabaseError
+from culture_library.server import routes_status
+from culture_library.server.auth import Principal, current_principal
 
 READ = frozenset({"read"})
 

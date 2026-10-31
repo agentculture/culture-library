@@ -50,13 +50,7 @@ import time
 from typing import Any, Callable
 
 from . import devague_text, ingest, search
-from .embedding_strategy import (
-    CURRENT_MODEL_ID,
-    CURRENT_STRATEGY,
-    Strategy,
-    hnsw_index_name,
-    hnsw_index_sql,
-)
+from .embedding_strategy import Strategy, hnsw_index_name, hnsw_index_sql
 from .errors import ValidationError
 from .models import Item
 from .store import Store
@@ -575,16 +569,8 @@ class Indexer:
         """
         if self.model_id is not None and self.strategy is not None:
             return self.model_id, self.strategy
-        lookup = getattr(self.embed, "vector_space", None)
-        if callable(lookup):
-            try:
-                model_id, strategy = lookup()
-            except search.EmbeddingError:
-                raise
-            except Exception as exc:  # a custom embedder's lookup failing is the same thing
-                raise search.EmbeddingError(f"cannot resolve the vector space: {exc}") from exc
-            return model_id, strategy
-        return CURRENT_MODEL_ID, CURRENT_STRATEGY
+        # the same resolution a query uses, so both select one pair (plan risk r6)
+        return search.embedder_space(self.embed)
 
     # -- work ---------------------------------------------------------------
 

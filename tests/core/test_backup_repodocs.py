@@ -2,6 +2,11 @@
 
 from culture_library.core import Store, backup, mirror
 from culture_library.core.repodocs import RepoDocs
+from tests import backup_fixtures
+
+# fixtures, picked up by pytest under these names
+pg_bin = backup_fixtures.pg_bin
+scratch_dsn = backup_fixtures.scratch_dsn
 
 REMOTE = "https://github.com/agentculture/x.git"
 
@@ -27,7 +32,7 @@ def test_backup_verify_finds_draft_and_outbox_blobs(store, tmp_path):
     only_outbox = gone.draft.sha256
     with store.reader() as conn:
         n = conn.execute(
-            "SELECT count(*) FROM repodoc_drafts WHERE sha256 = ?", (only_outbox,)
+            "SELECT count(*) FROM repodoc_drafts WHERE sha256 = %s", (only_outbox,)
         ).fetchone()[0]
         assert n == 0
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
@@ -39,12 +44,12 @@ def test_backup_verify_finds_draft_and_outbox_blobs(store, tmp_path):
     assert not backup.verify(snap.path).ok
 
 
-def test_restore_brings_back_drafts_and_pending_outbox(store, tmp_path):
+def test_restore_brings_back_drafts_and_pending_outbox(store, tmp_path, scratch_dsn):
     docs, draft, queued, gone = _seed(store)
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
     target = tmp_path / "restored"
-    assert backup.restore(snap.path, target).ok  # no S3 backend configured anywhere
-    restored = Store(target)
+    assert backup.restore(snap.path, target, dsn=scratch_dsn).ok  # no S3 backend anywhere
+    restored = Store(target, dsn=scratch_dsn)
     rdocs = RepoDocs(restored)
     assert rdocs.content(draft.doc.id, "working", include_private=True) == b"# draft"
     assert rdocs.content(queued.doc.id, "working", include_private=True) == b"# queued"

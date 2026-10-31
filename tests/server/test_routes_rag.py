@@ -15,13 +15,14 @@ from culture_library.core import search as sr  # noqa: E402
 from culture_library.gateway import RerankError  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
 from culture_library.server.auth import Principal, current_principal  # noqa: E402
+from tests.core.search_helpers import vec  # noqa: E402
 
 READ = frozenset({"read"})
 _NO_RERANKER = object()
 
 
 def _vec(text):
-    return [1.0, 0.0] if "whale" in text.lower() else [0.0, 1.0]
+    return vec(1.0, 0.0) if "whale" in text.lower() else vec(0.0, 1.0)
 
 
 def _embed(texts):
@@ -291,7 +292,7 @@ def test_item_chunks_404s_and_scope(tmp_path):
     gone = _add(store, "Whale archived", b"whale gone")
     _index(store)
     with store.connect() as conn:
-        conn.execute("UPDATE items SET archived_at='2026-01-01T00:00:00Z' WHERE id=?", (gone.id,))
+        conn.execute("UPDATE items SET archived_at='2026-01-01T00:00:00Z' WHERE id=%s", (gone.id,))
     for iid in (hidden.id, gone.id, 9999):
         r = c.get(f"/api/rag/items/{iid}/chunks")
         assert r.status_code == 404
@@ -324,7 +325,7 @@ def test_visibility_parity_with_search(tmp_path, principal):
     _index(store)
     with store.connect() as conn:
         conn.execute(
-            "UPDATE items SET archived_at='2026-01-01T00:00:00Z' WHERE id=?",
+            "UPDATE items SET archived_at='2026-01-01T00:00:00Z' WHERE id=%s",
             (items["gone"].id,),
         )
     for mode in ("semantic", "hybrid"):

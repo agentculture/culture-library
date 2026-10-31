@@ -70,10 +70,11 @@ def test_feed_filtered_to_one_item(tmp_path):
     body = c.get("/api/feed?item_id=2").json()
     assert [e["item_id"] for e in body["events"]] == [2, 2]
     assert c.get("/api/feed?item_id=0").status_code == 422
-    store2, pub = _client(tmp_path / "p", Principal("k", frozenset({"read"})))
-    _seed(store2)
+    # A second Store is the same Postgres database (the test's), so no reseed: a caller
+    # without private access sees the public item's two events and none of the private one's.
+    _, pub = _client(tmp_path / "p", Principal("k", frozenset({"read"})))
     assert pub.get("/api/feed?item_id=2").json()["events"] == []
-    assert [e["item_id"] for e in pub.get("/api/feed?item_id=3").json()["events"]] == [3]
+    assert [e["item_id"] for e in pub.get("/api/feed?item_id=3").json()["events"]] == [3, 3]
 
 
 def test_feed_and_repodocs_resolve_the_store_through_auth_get_store(tmp_path):

@@ -160,7 +160,13 @@ def test_nothing_else_widens(api):
     assert c.get(f"/api/library/{mine}").json()["uploaded_by_you"] is False
 
 
-def test_uploader_recorded_and_backfilled_from_feed(tmp_path):
+def test_uploader_recorded_on_add(tmp_path):
+    """The add records its uploader; an anonymous add records none.
+
+    The SQLite-era backfill of item_uploaders from feed ``created`` events (for a database
+    from before the table existed) is gone on Postgres: the schema always has the table,
+    and the cutover copies item_uploaders rows directly (plan task t14).
+    """
     from culture_library.core import library
 
     store = Store(tmp_path / "d")
@@ -168,9 +174,6 @@ def test_uploader_recorded_and_backfilled_from_feed(tmp_path):
     with store.reader() as conn:
         row = conn.execute("SELECT key_id FROM item_uploaders WHERE item_id = %s", (item.id,))
         assert tuple(row.fetchone()) == ("kid",)
-    with store.connect() as conn:  # a database from before the table existed
-        conn.execute("DELETE FROM item_uploaders")
-    reopened = Store(tmp_path / "d")
-    assert library.uploader_of(reopened, item.id) == "kid"
-    anon, _ = library.add(reopened, b"y", "y.md")
-    assert library.uploader_of(reopened, anon.id) is None
+    assert library.uploader_of(store, item.id) == "kid"
+    anon, _ = library.add(store, b"y", "y.md")
+    assert library.uploader_of(store, anon.id) is None

@@ -17,7 +17,7 @@ from culture_library.core import embedding_strategy as es
 from culture_library.core import indexer as ix
 from culture_library.core import search as sr
 from culture_library.core.repodocs import RepoDocs
-from tests.core.search_helpers import DownEmbed, fake_embed
+from tests.core.search_helpers import DownEmbed, drop_created_hnsw_indexes, fake_embed
 
 A = "a" * 40
 B = "b" * 40
@@ -42,28 +42,10 @@ def docs(store):
     return RepoDocs(store)
 
 
-_SHIPPED_HNSW = {
-    es.hnsw_index_name(t, es.CURRENT_MODEL_ID, es.CURRENT_STRATEGY)
-    for t in ("embeddings", "repodoc_embeddings")
-}
-
-
 @pytest.fixture(autouse=True)
 def _drop_created_hnsw_indexes(store):
-    """Indexes outlive the per-test truncate: drop the ones a test's new pair created, so the
-    worker database keeps only the migration's (tests/server/test_status_database.py counts)."""
     yield
-    with store.connect() as conn:
-        names = [
-            r[0]
-            for r in conn.execute(
-                "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()"
-                " AND indexname LIKE %s",
-                ("%\\_hnsw\\_%",),
-            )
-        ]
-        for name in sorted(set(names) - _SHIPPED_HNSW):
-            conn.execute(f'DROP INDEX IF EXISTS "{name}"')
+    drop_created_hnsw_indexes(store)
 
 
 def _commit(docs, path, content, *, commit=A, vis="public", when="2026-10-01T00:00:00Z"):

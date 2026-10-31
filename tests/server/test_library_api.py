@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from culture_library.core import Store, library  # noqa: E402
+from culture_library.core import Store, library, mirror  # noqa: E402
 from culture_library.core import search as core_search  # noqa: E402
 from culture_library.core.feed import read_since  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
@@ -389,12 +389,23 @@ def test_purge_removes_only_expired_archives(tmp_path):
 def test_purge_keeps_blob_shared_with_another_table(tmp_path):
     store = Store(tmp_path / "d")
     item = _add(store, b"shared bytes", title="shared")
-    with store.connect() as conn:
-        conn.execute("CREATE TABLE other_refs (sha256 TEXT NOT NULL)")
-        conn.execute("INSERT INTO other_refs VALUES (%s)", (item.sha256,))
+    with store.connect() as conn:  # a pending mirror upload of the same bytes
+        mirror.enqueue(conn, "x/docs/shared.md@working", item.sha256, "text/markdown")
     library.archive(store, item.id, include_private=True, now=T0)
     assert library.purge_expired(store, now=T0 + timedelta(days=31)) == [item.id]
     assert store.blob_path(item.sha256).exists()
+
+
+def test_blob_tables_name_every_table_that_stores_a_blob_sha(tmp_path):
+    """purge consults library.BLOB_TABLES, a fixed list: every ``sha256`` column in the schema
+    names a stored blob except the feed's, which is history (an event keeps no file alive)."""
+    store = Store(tmp_path / "d")
+    with store.reader() as conn:
+        rows = conn.execute(
+            "SELECT table_name FROM information_schema.columns"
+            " WHERE table_schema = current_schema() AND column_name = 'sha256'"
+        ).fetchall()
+    assert {r[0] for r in rows} - {"feed"} == set(library.BLOB_TABLES)
 
 
 def test_restore_refused_after_window(tmp_path):

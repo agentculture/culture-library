@@ -86,3 +86,29 @@ def index_doc(store, doc, title, body, *, visibility=None, embed=fake_embed, **p
 def count(store, sql, params=()):
     with store.reader() as conn:
         return conn.execute(sql, params).fetchone()[0]
+
+
+_SHIPPED_HNSW = {
+    es.hnsw_index_name(t, es.CURRENT_MODEL_ID, es.CURRENT_STRATEGY)
+    for t in ("embeddings", "repodoc_embeddings")
+}
+
+
+def drop_created_hnsw_indexes(store):
+    """Drop the HNSW indexes a test's new (model id, strategy) pair created.
+
+    Indexes outlive the per-test truncate, so a test that indexes under another pair calls
+    this afterwards and the worker database keeps only the migration's
+    (tests/server/test_status_database.py counts them).
+    """
+    with store.connect() as conn:
+        names = [
+            r[0]
+            for r in conn.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()"
+                " AND indexname LIKE %s",
+                ("%\\_hnsw\\_%",),
+            )
+        ]
+        for name in sorted(set(names) - _SHIPPED_HNSW):
+            conn.execute(f'DROP INDEX IF EXISTS "{name}"')
