@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T07:01:03Z",
+  "updated": "2026-10-31T12:46:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -28,7 +28,7 @@
         "t17"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 2
     },
@@ -41,7 +41,7 @@
         "t14"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 3
     },
@@ -54,7 +54,7 @@
         "t10"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 4
     },
@@ -68,7 +68,7 @@
         "t18"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 5
     },
@@ -79,7 +79,7 @@
       "reason": "RepoDocs.push opens its own connection (wave-1 t1), while mirror.enqueue and feed.append_repodoc take the caller's; t10's 'same transaction' criterion is unreachable from the route alone; no other wave-2 task writes repodocs.py",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 6
     },
@@ -120,7 +120,7 @@
       "reason": "Projects and SpecLinks open their own BEGIN IMMEDIATE connections (wave-1 t2/t3), so calling them inside the on_write hook would deadlock; the acceptance criterion only requires outbox+feed in the same transaction",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 9
     },
@@ -133,7 +133,7 @@
         "t14"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 10
     },
@@ -146,7 +146,7 @@
         "t18"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "risky",
       "seq": 11
     },
@@ -170,7 +170,7 @@
       "reason": "the approved additive index_queue.priority column (d7) appears in SELECT * snapshots; the test still checks the items rebuild keeps every child row",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 13
     },
@@ -181,7 +181,7 @@
       "reason": "those endpoints live in routes_repodocs.py (t10, merged), not routes_read.py; no other wave-3 task writes that file",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 14
     },
@@ -194,7 +194,7 @@
         "t21"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 15
     },
@@ -207,7 +207,7 @@
         "t23"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 16
     },
@@ -220,7 +220,7 @@
         "t19"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 17
     },
@@ -234,7 +234,7 @@
         "t20"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 18
     },
@@ -245,7 +245,7 @@
       "reason": "every repodoc route (incl. /rendered and d18's /api/projects, /api/domains) needs a tool for two-way parity; d8 makes corpora the filter on both search endpoints",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 19
     },
@@ -258,7 +258,7 @@
         "t21"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 20
     },
@@ -269,7 +269,7 @@
       "reason": "a check the credentials cannot perform must never pass silently (c43); the doctor shape has no way to say 'could not check'",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 21
     },
@@ -293,7 +293,7 @@
         "t21"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 56
     },
@@ -315,7 +315,7 @@
       "reason": "verify-mirror (c36) answered HTTP 400 on every lookup against live; fixed test-first (2 tests red then green), 1663 passed",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": null,
       "seq": 65
     },
@@ -326,7 +326,7 @@
       "reason": "decider: canonical_only 0.687 vs path_identity 0.261, P(copies hold unique work)=0.564; operator first chose own identity for copies, then, with the corpus meant to describe the whole org, chose origin identity with owner-only drafts",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": null,
       "seq": 68
     }
@@ -347,7 +347,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 23
     },
@@ -366,7 +366,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -385,7 +385,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     },
@@ -404,7 +404,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 26
     },
@@ -423,7 +423,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 27
     },
@@ -442,7 +442,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 28
     },
@@ -461,7 +461,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 29
     },
@@ -480,7 +480,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -499,7 +499,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     },
@@ -518,7 +518,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 32
     },
@@ -537,7 +537,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 33
     },
@@ -556,7 +556,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 34
     },
@@ -575,7 +575,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 35
     },
@@ -594,7 +594,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 36
     },
@@ -613,7 +613,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 37
     },
@@ -632,7 +632,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 38
     },
@@ -651,7 +651,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 39
     },
@@ -670,7 +670,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 40
     },
@@ -689,7 +689,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 41
     },
@@ -708,7 +708,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 42
     },
@@ -727,7 +727,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 43
     },
@@ -746,7 +746,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 44
     },
@@ -765,7 +765,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 45
     },
@@ -784,7 +784,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 46
     },
@@ -803,7 +803,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 47
     },
@@ -822,7 +822,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 48
     },
@@ -841,7 +841,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 49
     },
@@ -860,7 +860,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 50
     },
@@ -879,7 +879,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 51
     },
@@ -898,7 +898,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 52
     },
@@ -917,7 +917,7 @@
         "commit": "09af0fdf084ea06538377d2f6d211890065851db"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 53
     },
@@ -933,7 +933,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 54
     },
@@ -949,7 +949,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 55
     },
@@ -968,7 +968,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 58
     },
@@ -987,7 +987,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 59
     },
@@ -1006,7 +1006,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 60
     },
@@ -1025,7 +1025,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 61
     },
@@ -1044,7 +1044,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 62
     },
@@ -1063,7 +1063,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 63
     },
@@ -1082,7 +1082,7 @@
         "commit": "e03a6f7"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 64
     },
@@ -1101,7 +1101,7 @@
         "commit": "f3c6c93"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 66
     },
@@ -1120,7 +1120,7 @@
         "commit": "f3c6c93"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 67
     }
@@ -1182,7 +1182,7 @@
         "e35"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1196,7 +1196,7 @@
         "e37"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1210,7 +1210,7 @@
         "e36"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1225,6 +1225,66 @@
         "e39",
         "e40"
       ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "amended",
+      "behavior_text": "a repodoc push commits the version or draft, outbox row and feed event in one transaction; the project row and spec links are written after it on their own connections (validated before the push)",
+      "caused_by": [
+        "d9"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "added",
+      "behavior_text": "tombstoning a repo doc appends one 'archived' repodoc feed event and queues nothing for S3; a re-push that only flips the default-branch flag writes no outbox or feed row",
+      "caused_by": [
+        "d10"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "amended",
+      "behavior_text": "repodocs route errors are flat {detail, code}, matching routes_library, instead of nested {detail: {detail, code}}",
+      "caused_by": [
+        "d11"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b11",
+      "kind": "added",
+      "behavior_text": "eval runs record corpora=['item'] in the stored run config",
+      "caused_by": [
+        "d16"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b12",
+      "kind": "added",
+      "behavior_text": "GET /api/projects (repo, domains, connected, doc_count) and GET /api/domains (domain -> projects) list only projects with a doc visible to the caller",
+      "caused_by": [
+        "d18"
+      ],
+      "evidence_refs": [],
       "origin": "llm",
       "status": "proposed",
       "superseded": false
