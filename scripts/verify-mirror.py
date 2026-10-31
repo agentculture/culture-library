@@ -142,7 +142,9 @@ class HttpLibrary:
             return json.loads(resp.read())
 
     def lookup(self, repo: str, path: str) -> LibDoc | None:
-        q = urllib.parse.urlencode({"remote": repo, "path": path})
+        # send a URL form: a library before 0.19.1 refuses the bare repo id as a filter
+        remote = repo if ":" in repo else f"https://{repo}"
+        q = urllib.parse.urlencode({"remote": remote, "path": path})
         found = self._get(f"{self.base}/api/repodocs?{q}", self.key).get("docs", [])
         found = [d for d in found if d.get("repo") == repo and d.get("path") == path]
         if not found:

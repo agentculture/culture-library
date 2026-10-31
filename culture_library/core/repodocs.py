@@ -138,6 +138,18 @@ def _clean_segments(path: str, what: str) -> list[str]:
     return segs
 
 
+def repo_filter_id(value: str) -> str:
+    """A filter's repo: any remote :func:`normalize_remote` takes, or a repo id as the API
+    returns it (``host.tld/org/repo``). Pushes keep the stricter :func:`normalize_remote`."""
+    try:
+        return normalize_remote(value)
+    except ValidationError:
+        host, sep, path = (value or "").strip().partition("/")
+        if not sep or "." not in host or ":" in host or "@" in host:
+            raise
+        return _repo_id(host.lower(), path)
+
+
 def normalize_remote(remote: str) -> str:
     """Map a git remote (or ``host:/abs/path`` for remoteless repos) to one repo id."""
     raw = (remote or "").strip()
@@ -554,7 +566,7 @@ class RepoDocs:
         where, params = [], []
         if repo is not None:
             where.append("d.repo = ?")
-            params.append(normalize_remote(repo))
+            params.append(repo_filter_id(repo))
         if path is not None:
             where.append("d.path = ?")
             params.append(normalize_path(path))
