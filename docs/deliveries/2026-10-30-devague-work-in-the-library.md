@@ -95,6 +95,13 @@ Quoted verbatim from the `devague summary` skeleton:
   - replacing S3 with a private repo: 0.016.
 
   P(a private repo conflicts with leaving GitHub) = 0.660. The operator chose S3 only.
+- `d26` (proposed, during t23): the first full-corpus verify found two verifier bugs and one real collision.
+  - **Verifier bugs:** remoteless repos were named by this machine's hostname (`spark-f8a9`), not the pusher's node (`spark`), and `--all` checked linked worktrees the pusher skips.
+  - **Collision:** 5 pairs of full clones share one origin, so the single working draft flipped between clones every cycle.
+
+  The operator first gave copies their own identity, then chose origin identity with owner-only drafts, because the corpus is meant to describe the whole org. The decider had ranked owner-only 0.687 and own identity 0.261, with P(copies hold unique work) 0.564.
+  - culture-rules#128 (016142f, 0.38.1): only the owner clone sends drafts and `project`; copies send committed versions only. A one-time migration re-sends owner drafts and tombstones copy-only drafts.
+  - `verify-mirror.py` checks owner clones only (69f966c, 1073832).
 - Main-agent integration commits not tied to one task: core schema registration for projects, speclinks and mirror (5726407); eval `Passage` accepts null `item_id` (9da5800).
 - An unrelated, uncommitted `deploy/compose.yaml` edit (cloudflared image 2025.9.1 to 2026.10.7) appeared in the main checkout mid-run, outside this run. It was stashed around two merges and restored unchanged, and it is not on this branch.
 
@@ -120,6 +127,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t20` (`d20`) | the view registry lives in app.js and existing tests pin its lists | `acceptable` (pending) |
 | `t14` (`d24`) | post-PR review fixes in t4, t7 and t10 code: connected warnings, `spec_links_applied`, items-only feed default, parked mirror rows | `acceptable` (the record's classification is unset) |
 | `t23` (`d25`) | the live verify found the `remote` filter refusing the API's own repo ids | `acceptable` (pending) |
+| `t23` (`d26`) | full clones sharing one origin flipped the working draft; the verifier named repos and picked them differently from the pusher | `acceptable` (pending) |
 | `t23` (`d22`) | live steps need the operator and culture-rules#124 | `needs-follow-up` (pending) |
 
 ## Evidence
@@ -153,8 +161,15 @@ Quoted verbatim from the `devague summary` skeleton:
 
     The library holds 3,795 private docs from 78 projects (devague-record 2,178, plan 621, spec 500, design 496). The outbox drained: 3,853 done, 0 pending.
   - **5-repo verify (o20, e41):** culture-library, culture-rules, devague, notion-agent (gitignores `.devague`) and reachy_nova (no `origin/HEAD`). 394 files: library 394 ok and S3 394 ok, 0 missing, 0 mismatched.
+  - **Full corpus (c34, c35), 2026-10-31:**
+    1. **First run (0.38.0, old verifier):** library 4,596 ok, 8 missing, 12 mismatched; S3 4,598 ok, 8 missing, 10 mismatched. Causes: d26.
+    2. **The 07:30 run on 0.38.1:** migrated with 5 owner drafts re-sent, 11 copy-only drafts tombstoned and 0 errors, and logged 4 copies.
+    3. **The fixed verifier at 07:52:** 162 repos and 3,773 files, of which 3,770 were ok in both the library and S3. The 3 others were one `embodiment` frame being edited during the check (changed at 07:33 and 07:49).
+    4. **After the 08:00 run:** `embodiment` showed 105 of 105 ok in the library and S3.
+
+    No evidence record: c34 has no obligation of its own (o20 is the 5-repo sample).
   - **Draft cycle (o21, e42):** 2 docs changed on disk at about 06:02 arrived as drafts at 06:15:06, within one cycle. Each kept 1 version row; the total stayed 2,871.
-- **Commits:** `626774c..09af0fd` on `spec/devague-work` (49 commits, 20 merges, 99 files, +11,914 / −207), then the d24 fixes (28a0019) and the merge with main (bf08d02), squash-merged as e03a6f7. On #40: b3dad3a, ba82129 and f3c6c93 (d25).
+- **Commits:** `626774c..09af0fd` on `spec/devague-work` (49 commits, 20 merges, 99 files, +11,914 / −207), then the d24 fixes (28a0019) and the merge with main (bf08d02), squash-merged as e03a6f7. On #40: b3dad3a, ba82129, f3c6c93 (d25), 24c0047, 69f966c and 1073832 (d26). culture-rules#128: 016142f.
 - **Issues:** culture-library#35, culture-rules#124.
 - **PR #38 CI at `d7bdcc0`:** every check passes: both test jobs, visual (70/70 phone and desktop references; the first push failed 37), the SonarCloud gate (0 open issues, down from 111), lint, harness-smoke, ragas, version-check and GitGuardian.
 
@@ -191,7 +206,7 @@ Confidence is capped by evidence strength: execution-strength evidence gives `hi
 | The mirror verifier works (c36, script part) | high | tests `tests/scripts/test_verify_mirror.py` (e19, offline fixtures) |
 | For 5 sampled repos, 100% of files are in the library and S3 (c36, live) | high | live `verify-mirror.py`: 394/394 in the library and S3 (e41, proposed) |
 | A draft edit arrives within one culture-rules cycle (c37) | medium | one live observation: 2 drafts arrived within one */15 cycle with no new version rows (e42, proposed). The cycle is 15 minutes plus the run (≤300 s) |
-| Every top-level repo's record is in the library and S3 (c34, c35) | unverified | not run: live migration pending (d22) |
+| Every top-level repo's record is in the library and S3 (c34, c35) | high | full-corpus `verify-mirror --all`: 3,770 of 3,773 ok; the 3 were drafts in flight, and ok after the next run (Evidence). No evidence record exists: c34 has no obligation |
 | Live held no repo documents before the first push (c29) | medium | a read-only count on live 0.18.2 on 2026-10-31, before the deploy, found 0 repodocs and 0 versions. 0.18.2 had no repodoc tables that accept pushes. No evidence record: c29 has no obligation |
 
 ## Remaining Work / Follow-up
@@ -199,7 +214,8 @@ Confidence is capped by evidence strength: execution-strength evidence gives `hi
 - **`t23` live migration (d22):** done on 2026-10-31 (see Evidence). Deploy 0.19.1 to make the d25 filter fix live.
 - **culture-rules#124:** built (culture-rules#127, be34145) and live, with `repodocs-sync` enabled. A committed blob over 16 MiB logs one error per run (a known leftover).
 - **#39.** The indexer rescans every repo doc on each idle tick (d24, deferred).
-- **Adjudication at #40.** Deviations d2–d6, d9–d11, d13–d21, d23 and d25; evidence e1–e42; deltas b4–b7; lapse l1. After that, file the five pending deltas for d9, d10, d11, d16 and d18.
+- **#35 (remove the docs from GitHub):** its full-corpus gate (o33) passed once on 2026-10-31. The removal itself is still to plan.
+- **Adjudication at #40.** Deviations d2–d6, d9–d11, d13–d21, d23, d25 and d26; evidence e1–e42; deltas b4–b7; lapse l1. After that, file the five pending deltas for d9, d10, d11, d16 and d18.
 - **Coverage gaps (the coverage-strength evidence):**
   - a working push of a review or question file (o5);
   - re-scoping without a re-push (o7);
