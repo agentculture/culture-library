@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T04:57:24Z",
+  "updated": "2026-10-31T05:12:00Z",
   "deviations": [
     {
       "id": "d1",
@@ -304,7 +304,7 @@
       "reason": "/code-review medium on #38 and culture-rules#127 found 10 issues; 9 verified against the code and real repos (8 repos lack origin/HEAD), fixed test-first; 1 efficiency-only deferred",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": null,
       "seq": 57
     }
