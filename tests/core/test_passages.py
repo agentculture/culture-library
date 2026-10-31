@@ -67,7 +67,7 @@ def test_semantic_returns_full_chunk_text_ranked_by_cosine(lib):
         ).fetchone()[0]
     assert top.text == stored
     assert top.score == pytest.approx(
-        sr._cosine([1.0, 0.0, 0.0], fake_embed([stored])[0]), rel=1e-5
+        sr.cosine_scorer([1.0, 0.0, 0.0])(sr.pack_vec(fake_embed([stored])[0])), rel=1e-5
     )
     scores = [p.score for p in ps]
     assert scores == sorted(scores, reverse=True)
