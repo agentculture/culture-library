@@ -93,15 +93,10 @@ register_migration(_ensure_priority)
 # transaction (#39), so discovery plans only the changed docs and an idle tick never scans
 # ``repodocs``. Triggers catch every write path, including ones added later. The body uses
 # NOT EXISTS, not INSERT OR IGNORE: an outer upsert's conflict clause overrides a trigger's.
-_DIRTY_TRIGGERS = (
-    ("repodocs", "INSERT", "NEW.id"),
-    ("repodocs", "UPDATE", "NEW.id"),
-    ("repodoc_drafts", "INSERT", "NEW.doc_id"),
-    ("repodoc_drafts", "UPDATE", "NEW.doc_id"),
-    ("repodoc_drafts", "DELETE", "OLD.doc_id"),
-    ("repodoc_versions", "INSERT", "NEW.doc_id"),
-    ("repodoc_versions", "UPDATE", "NEW.doc_id"),
-    ("repodoc_versions", "DELETE", "OLD.doc_id"),
+_DIRTY_SOURCES = (  # (table, its doc id column, the writes that mark the doc)
+    ("repodocs", "id", ("INSERT", "UPDATE")),
+    ("repodoc_drafts", "doc_id", ("INSERT", "UPDATE", "DELETE")),
+    ("repodoc_versions", "doc_id", ("INSERT", "UPDATE", "DELETE")),
 )
 
 
@@ -113,12 +108,14 @@ def _ensure_repodoc_dirty(conn: sqlite3.Connection) -> None:
     if "repodoc_dirty" not in tables:
         conn.execute("CREATE TABLE repodoc_dirty (doc_id INTEGER PRIMARY KEY)")
         conn.execute("INSERT INTO repodoc_dirty (doc_id) SELECT id FROM repodocs")
-    for table, event, ref in _DIRTY_TRIGGERS:
-        conn.execute(
-            f"CREATE TRIGGER IF NOT EXISTS {table}_{event.lower()}_dirty AFTER {event} ON {table}"
-            f" BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref} WHERE NOT EXISTS"
-            f" (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
-        )
+    for table, column, events in _DIRTY_SOURCES:
+        for event in events:
+            ref = f"{'OLD' if event == 'DELETE' else 'NEW'}.{column}"
+            conn.execute(  # nosec B608 - names come only from _DIRTY_SOURCES above
+                f"CREATE TRIGGER IF NOT EXISTS {table}_{event.lower()}_dirty AFTER {event}"
+                f" ON {table} BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref}"
+                f" WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
+            )
 
 
 register_migration(_ensure_repodoc_dirty)

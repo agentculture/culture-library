@@ -90,7 +90,8 @@ def test_one_push_plans_only_that_doc(store, docs, monkeypatch):
     trace = _Trace(store, monkeypatch)
     assert ix.discover_repodocs(store) == 1
     planned = [s for s in trace.sql if "FROM repodocs d" in s]
-    assert planned and all("repodoc_dirty" in s for s in planned)
+    assert planned
+    assert all("repodoc_dirty" in s for s in planned)
 
 
 def test_draft_versions_tombstones_and_visibility_all_mark_dirty(store, docs):
