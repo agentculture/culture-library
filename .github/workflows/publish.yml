@@ -21,7 +21,7 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg17
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
         ports:
           - 5432:5432
@@ -31,7 +31,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

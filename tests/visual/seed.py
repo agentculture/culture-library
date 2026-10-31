@@ -97,7 +97,7 @@ def seed(data_dir: Path) -> dict:
         assert created and item.size == spec["size"], (spec["title"], item.size)
         with store.connect() as conn:
             conn.execute(
-                "UPDATE items SET created_at = ? WHERE id = ?", (spec["created_at"], item.id)
+                "UPDATE items SET created_at = %s WHERE id = %s", (spec["created_at"], item.id)
             )
         ids[f"item-{spec['id']}"] = f"item-{item.id}"
     ids["paper"] = ids["item-20"]
@@ -114,7 +114,7 @@ def seed(data_dir: Path) -> dict:
         )
         with store.connect() as conn:
             conn.execute(
-                "UPDATE repodocs SET created_at = ?, updated_at = ? WHERE id = ?",
+                "UPDATE repodocs SET created_at = %s, updated_at = %s WHERE id = %s",
                 (spec["updated_at"], spec["updated_at"], pushed.doc.id),
             )
         ids[spec["key"]] = f"doc-{pushed.doc.id}"
@@ -198,7 +198,7 @@ def seed_evals(store: Store) -> dict:
                 )
                 minute += 7
                 conn.execute(
-                    "UPDATE eval_runs SET created_at = ? WHERE id = ?",
+                    "UPDATE eval_runs SET created_at = %s WHERE id = %s",
                     (_EVAL_STAMP.format(9 + minute // 60, minute % 60), rid),
                 )
                 runs[kind].append(rid)

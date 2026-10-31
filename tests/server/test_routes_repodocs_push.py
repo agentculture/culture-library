@@ -332,9 +332,9 @@ def test_every_push_is_private_whatever_the_body_says(app, client) -> None:
 
 def test_two_checkout_paths_yield_one_doc_and_one_version(client, app) -> None:
     clone = _body(remote="git@github.com:agentculture/devague.git")
-    clone["checkout"] = "/home/spark/git/devague"
+    clone["checkout"] = "/srv/git/devague"
     worktree = _body(remote="https://github.com/agentculture/devague.git")
-    worktree["checkout"] = "/home/spark/git/.worktrees.devague/t1"
+    worktree["checkout"] = "/srv/git/.worktrees.devague/t1"
     first = _ok(client.post("/api/repodocs", json=clone))
     second = _ok(client.post("/api/repodocs", json=worktree))
     assert first["doc"]["id"] == second["doc"]["id"]

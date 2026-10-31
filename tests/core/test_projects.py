@@ -90,6 +90,6 @@ def test_org_repo_shorthand_means_github(projects: Projects) -> None:
     assert _norm("agentculture/daria.git") == DARIA
     assert _norm("gitlab.com/agentculture/daria") == "gitlab.com/agentculture/daria"
     assert _norm("example.org/daria") == "example.org/daria"
-    assert _norm("spark:/home/spark/git/x") == "spark:/home/spark/git/x"
+    assert _norm("spark:/srv/git/x") == "spark:/srv/git/x"
     projects.upsert(LIB, [], ["agentculture/daria"])
     assert projects.get(LIB)["connected"] == [DARIA]
