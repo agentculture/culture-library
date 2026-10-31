@@ -25,8 +25,8 @@ psycopg = pytest.importorskip("psycopg", reason="needs the [pg] extra: uv sync -
 from psycopg.conninfo import conninfo_to_dict, make_conninfo  # noqa: E402
 
 import culture_library.core  # noqa: E402
-from culture_library.core import KINDS, CoreError, Store, ValidationError  # noqa: E402
 from culture_library.core import migrations  # noqa: E402
+from culture_library.core import KINDS, CoreError, Store, ValidationError  # noqa: E402
 from culture_library.core import store as store_mod  # noqa: E402
 
 ADMIN_ENV = "CULTURE_LIBRARY_TEST_PG_DSN"
@@ -143,9 +143,10 @@ def test_store_reads_dsn_from_env(monkeypatch, tmp_path, db):
     monkeypatch.setenv("CULTURE_LIBRARY_PG_DSN", db)
     s = Store(tmp_path / "data")
     with s.reader() as conn:
-        assert conn.execute("SELECT current_database()").fetchone()[0] == conninfo_to_dict(db)[
-            "dbname"
-        ]
+        assert (
+            conn.execute("SELECT current_database()").fetchone()[0]
+            == conninfo_to_dict(db)["dbname"]
+        )
 
 
 def test_data_dir_from_env(monkeypatch, tmp_path, db):
