@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-10-31T21:11:35Z",
+  "updated": "2026-10-31T21:49:26Z",
   "targets": [
     {
       "id": "c1",
@@ -1009,6 +1009,14 @@
       "text": "jsonb and text reject NaN, Infinity and NUL bytes that SQLite TEXT accepted; the t14 copy must detect and report such values rather than fail midway",
       "kind": "unknown_nonblocking",
       "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "Postgres full text keeps a path such as core/search.py as one token where SQLite FTS5 unicode61 split it into core, search and py, so a body-only path no longer matches its parts; t13's migration should index punctuation-split words too",
+      "kind": "follow_up",
+      "task_id": "t13",
       "resolved": false,
       "resolution": ""
     }

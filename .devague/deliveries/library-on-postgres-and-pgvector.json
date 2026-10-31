@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T21:21:34Z",
+  "updated": "2026-10-31T21:49:26Z",
   "deviations": [
     {
       "id": "d1",
@@ -90,6 +90,20 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "t12: hybrid passages fuse over a pool (per corpus the nearest max(2k,50) chunks plus the nearest k chunks of each of the top max(2k,50) full-text matches) instead of every chunk; zero vectors are refused at write; pack_vec, unpack_vec and cosine_scorer are removed; set_repodoc_text indexes the title plus the words of the path; 22 indexer tests are parked with skip markers until t13",
+      "task_ref": "t12",
+      "reason": "scanning every chunk defeats the HNSW index; pgvector's cosine HNSW index cannot find zero vectors; the helpers only served the removed Python scorer; Postgres keeps a path as one token; the indexer is ported in t13",
+      "affects": [
+        "t13",
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky",
+      "seq": 8
     }
   ],
   "evidence": [],

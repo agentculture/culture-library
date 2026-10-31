@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T20:53:04Z",
+  "updated": "2026-10-31T21:49:26Z",
   "claims": [
     {
       "id": "c1",
@@ -1163,6 +1163,17 @@
       "skipped_check": "write the failing tests first (TDD)",
       "refs": [
         "plan task t2, branch pg/t2"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "t12's agent wrote core/search.py before its tests, so the ported search tests were never red first",
+      "skipped_check": "write the failing tests first (TDD)",
+      "refs": [
+        "plan task t12, branch pg/t12"
       ],
       "origin": "llm",
       "status": "proposed"
