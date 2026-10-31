@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import json
 import threading
+from dataclasses import replace
 
 import pytest
 
@@ -198,20 +199,24 @@ def test_no_llm_run_does_not_need_the_ragas_adapter(cli, capsys, monkeypatch):  
 # 8 -------------------------------------------------------------------------------------------
 
 
-def test_requeue_stale_model_reopens_items_embedded_under_another_label(cli):  # noqa: F811
-    old = _item(cli)  # embedded as "fake-embed"
+def test_requeue_stale_model_reopens_items_embedded_under_another_pair(cli):  # noqa: F811
+    # Vectors name (model id, strategy) since decision c42; the SQLite label column is gone.
+    from culture_library.core.embedding_strategy import CURRENT_MODEL_ID, CURRENT_STRATEGY
+
+    old = _item(cli)  # embedded by a plain fake callable: the current pair
     with cli.store.connect() as conn:
         state = conn.execute(
-            "SELECT state FROM index_queue WHERE item_id = ?", (old.id,)
+            "SELECT state FROM index_queue WHERE item_id = %s", (old.id,)
         ).fetchone()[0]
     assert state == "done"
-    assert indexer.requeue_stale_model(cli.store, "fake-embed") == 0
-    assert indexer.requeue_stale_model(cli.store, "gemma2-embed+Retrieval-document") == 1
+    assert indexer.requeue_stale_model(cli.store, CURRENT_MODEL_ID, CURRENT_STRATEGY) == 0
+    other = replace(CURRENT_STRATEGY, query_prompt="", document_prompt="")
+    assert indexer.requeue_stale_model(cli.store, CURRENT_MODEL_ID, other) == 1
     with cli.store.connect() as conn:
         row = conn.execute(
-            "SELECT state, body_done FROM index_queue WHERE item_id = ?", (old.id,)
+            "SELECT state, body_done FROM index_queue WHERE item_id = %s", (old.id,)
         ).fetchone()
-    assert tuple(row) == ("pending", 1)
+    assert tuple(row) == ("pending", True)
 
 
 # 9 -------------------------------------------------------------------------------------------

@@ -166,7 +166,7 @@ def test_uploader_recorded_and_backfilled_from_feed(tmp_path):
     store = Store(tmp_path / "d")
     item, _ = library.add(store, b"x", "x.md", uploader="kid")
     with store.reader() as conn:
-        row = conn.execute("SELECT key_id FROM item_uploaders WHERE item_id = ?", (item.id,))
+        row = conn.execute("SELECT key_id FROM item_uploaders WHERE item_id = %s", (item.id,))
         assert tuple(row.fetchone()) == ("kid",)
     with store.connect() as conn:  # a database from before the table existed
         conn.execute("DELETE FROM item_uploaders")

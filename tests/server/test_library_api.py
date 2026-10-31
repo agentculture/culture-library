@@ -369,12 +369,14 @@ def test_purge_removes_only_expired_archives(tmp_path):
     with store.reader() as conn:
         assert (
             conn.execute(
-                "SELECT count(*) FROM index_queue WHERE item_id = ?", (old.id,)
+                "SELECT count(*) FROM index_queue WHERE item_id = %s", (old.id,)
             ).fetchone()[0]
             == 0
         )
         assert (
-            conn.execute("SELECT count(*) FROM search_fts WHERE rowid = ?", (old.id,)).fetchone()[0]
+            conn.execute("SELECT count(*) FROM item_text WHERE item_id = %s", (old.id,)).fetchone()[
+                0
+            ]
             == 0
         )
     purged = [e for e in _events(store) if e["type"] == "purged"]
@@ -389,7 +391,7 @@ def test_purge_keeps_blob_shared_with_another_table(tmp_path):
     item = _add(store, b"shared bytes", title="shared")
     with store.connect() as conn:
         conn.execute("CREATE TABLE other_refs (sha256 TEXT NOT NULL)")
-        conn.execute("INSERT INTO other_refs VALUES (?)", (item.sha256,))
+        conn.execute("INSERT INTO other_refs VALUES (%s)", (item.sha256,))
     library.archive(store, item.id, include_private=True, now=T0)
     assert library.purge_expired(store, now=T0 + timedelta(days=31)) == [item.id]
     assert store.blob_path(item.sha256).exists()
@@ -674,9 +676,11 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
     item = api.upload(b"# Memo\n\nthe **okapi** grazes", "m.md").json()["item"]
     assert len(calls) == 1
     with api.store.reader() as conn:
-        body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (item["id"],)).fetchone()
+        body = conn.execute(
+            "SELECT body FROM item_text WHERE item_id = %s", (item["id"],)
+        ).fetchone()
         done = conn.execute(
-            "SELECT body_done FROM index_queue WHERE item_id=?", (item["id"],)
+            "SELECT body_done FROM index_queue WHERE item_id = %s", (item["id"],)
         ).fetchone()
     assert body[0] == real(b"# Memo\n\nthe **okapi** grazes", "md").text
     assert done[0] == 1
@@ -691,7 +695,7 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
 
     def embed(texts):
         embedded.extend(texts)
-        return [[0.0]] * len(texts)
+        return [[1.0] + [0.0] * 767 for _ in texts]  # the current strategy's 768 dimensions
 
     ix = core_indexer.Indexer(api.store, embed, text_for=never)
     assert ix.run_once() == 1
