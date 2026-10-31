@@ -3,7 +3,9 @@
 ``POST /api/rag/retrieve`` with JSON ``{query, k (1-50, default 5), mode semantic|hybrid
 (default hybrid), kind?, item_ids?, rerank?, candidates (k..200, default 50)}`` answers
 ``{query, mode, reranked, passages: [{item_id, title, kind, chunk_no, chunk_sha, text, score,
-rerank_score, source}]}``.
+rerank_score, source, corpus}]}``. ``corpora`` (``["item"]`` by default, or ``["item",
+"repodoc"]``) picks the corpora; repodoc passages have ``item_id`` null and add ``doc_id``,
+``repo`` and ``path``. ``source`` stays semantic|hybrid.
 
 * The query is embedded with ``app.state.query_embedder`` (set by the ``routes_search``
   lifespan or injected; without a lifespan :meth:`GatewayEmbedder.from_env` ``("query")`` is
@@ -48,6 +50,9 @@ class RetrieveRequest(BaseModel):
     item_ids: list[int] | None = None
     rerank: bool | None = None
     candidates: int = Field(50, ge=1, le=200)
+    corpora: list[Literal["item", "repodoc"]] = Field(
+        default_factory=lambda: ["item"], min_length=1
+    )
 
     @model_validator(mode="after")
     def _candidates_cover_k(self) -> RetrieveRequest:
@@ -96,7 +101,7 @@ def _rerank(reranker, query: str, cands: list[sr.Passage]) -> list[tuple[sr.Pass
 
 
 def _passage(p: sr.Passage, rerank_score: float | None) -> dict:
-    return {
+    out = {
         "item_id": p.item_id,
         "title": p.title,
         "kind": p.kind,
@@ -106,7 +111,11 @@ def _passage(p: sr.Passage, rerank_score: float | None) -> dict:
         "score": p.score,
         "rerank_score": rerank_score,
         "source": p.source,
+        "corpus": p.corpus,
     }
+    if p.corpus == "repodoc":
+        out.update(doc_id=p.doc_id, repo=p.repo, path=p.path)
+    return out
 
 
 @router.post(
@@ -146,6 +155,7 @@ def retrieve(
                 body.kind,
                 body.item_ids,
                 query=body.query,
+                corpora=tuple(dict.fromkeys(body.corpora)),
             )
     except ValueError as exc:
         raise HTTPException(

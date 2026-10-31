@@ -47,6 +47,18 @@ services:
       # the container, e.g. a host address it listens on, not the host's 127.0.0.1.
       EVENTS_BROKER_HOST: ${EVENTS_BROKER_HOST:-}
       EVENTS_BROKER_PORT: ${EVENTS_BROKER_PORT:-}
+      # S3 mirror of repo documents (off while the bucket is unset). The AWS credentials are
+      # secrets: `deploy restart` injects them from grant, they never live in the env file.
+      CULTURE_LIBRARY_S3_BUCKET: ${CULTURE_LIBRARY_S3_BUCKET:-}
+      CULTURE_LIBRARY_S3_REGION: ${CULTURE_LIBRARY_S3_REGION:-}
+      CULTURE_LIBRARY_S3_PREFIX: ${CULTURE_LIBRARY_S3_PREFIX:-}
+      CULTURE_LIBRARY_MIRROR_INTERVAL_S: ${CULTURE_LIBRARY_MIRROR_INTERVAL_S:-}
+      CULTURE_LIBRARY_MIRROR_BACKOFF_S: ${CULTURE_LIBRARY_MIRROR_BACKOFF_S:-}
+      CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S: ${CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S:-}
+      CULTURE_LIBRARY_REPODOC_MAX_BYTES: ${CULTURE_LIBRARY_REPODOC_MAX_BYTES:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
     volumes:
       # Named volume by default; set LIBRARY_DATA=/host/dir in .env for a bind mount.
       - ${LIBRARY_DATA:-culture-library-data}:/data

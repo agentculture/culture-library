@@ -4,12 +4,16 @@ Everything is computed from the database on each call; nothing is cached.
 
 Visibility choice: a caller without ``Principal.private`` sees public numbers only (private
 kinds, counts and push times are omitted, not zeroed) and ``private_included`` is ``false``.
-The feed cursor and the index queue figures are global operational numbers: they say how far
-the log/indexer have got, not what the private items are. Archived items are not counted.
+The feed cursor, the index queue and the mirror backlog figures are global operational
+numbers: they say how far the log/indexer/mirror have got, not what the private items are.
+Archived items are not counted.
 
 "Last push per source": items carry no source column, so this reports what the data holds
 instead of inventing one: the newest ``created_at`` per item kind, the newest ``pushed_at``
 per repo-doc kind, and the newest feed event time per event type. ``source_note`` says so.
+
+``mirror`` is :func:`culture_library.server.routes_mirror.status_block`: ``{enabled, pending,
+oldest_pending_age_s, last_error}`` for the repo-document outbox.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from fastapi import APIRouter, Depends, Request
 from culture_library.core import Store
 from culture_library.core import indexer as ix
 from culture_library.core import search as sr
+from culture_library.server import routes_mirror
 from culture_library.server.auth import Principal, check, current_principal, get_store
 
 router = APIRouter()
@@ -146,6 +151,7 @@ def collect(store: Store, private: bool, state=None) -> dict:
             "chunk_count": chunk_count,
             "embed_models_stored": embed_models,
         },
+        "mirror": routes_mirror.status_block(store, state, private),
     }
 
 

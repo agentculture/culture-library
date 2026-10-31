@@ -153,3 +153,80 @@ def test_read_since_shows_private_events_to_their_uploader(store):
         assert [e["item_id"] for e in mine["events"]] == [7]
         assert read_since(conn, 0, include_private=False, owner="other")["events"] == []
         assert read_since(conn, 0, include_private=False)["cursor"] == mine["cursor"]
+
+
+def test_repodoc_events_interleave_in_cursor_order(store):
+    from culture_library.core.feed import append_repodoc
+
+    with store.connect() as conn:
+        c1 = append(conn, _ev("created", item_id=5))
+        c2 = append_repodoc(conn, 5, "spec", SHA, {"repo": "r", "path": "a.md", "commit": "abc"})
+        c3 = append_repodoc(conn, 6, "plan", SHA, {"repo": "r", "path": "b.md"})
+        c4 = append(conn, _ev("updated", item_id=5))
+    with store.reader() as conn:
+        # review finding 5: no subject keeps the pre-repodoc behaviour, items only
+        assert [e["cursor"] for e in read_since(conn, 0)["events"]] == [c1, c4]
+        evs = read_since(conn, 0, subject="all")["events"]
+        assert [e["cursor"] for e in evs] == [c1, c2, c3, c4]
+        assert [e["subject"] for e in evs] == ["item", "repodoc", "repodoc", "item"]
+        assert evs[1]["data"] == {"repo": "r", "path": "a.md", "commit": "abc"}
+        assert evs[2]["data"]["commit"] == "working"
+        assert [e["cursor"] for e in read_since(conn, 0, subject="item")["events"]] == [c1, c4]
+        assert [e["cursor"] for e in read_since(conn, 0, item_id=5)["events"]] == [c1, c4]
+        assert [e["cursor"] for e in read_since(conn, 0, subject="repodoc")["events"]] == [c2, c3]
+
+
+def test_repodoc_private_hidden_from_public_and_owner(store):
+    from culture_library.core.feed import append_repodoc
+
+    with store.connect() as conn:
+        append_repodoc(conn, 1, "spec", SHA, {"repo": "r", "path": "a"}, visibility="public")
+        append_repodoc(conn, 2, "spec", SHA, {"repo": "r", "path": "b"})
+    with store.reader() as conn:
+        shown = read_since(conn, 0, include_private=False, owner="k", subject="all")["events"]
+        assert [e["item_id"] for e in shown] == [1]
+
+
+def test_repodoc_validation(store):
+    from culture_library.core.feed import append_repodoc
+
+    with store.connect() as conn:
+        with pytest.raises(ValidationError):
+            append_repodoc(conn, 1, "book", SHA, {"repo": "r", "path": "a"})
+        with pytest.raises(ValidationError):
+            append_repodoc(conn, 1, "spec", SHA, {"repo": "r"})
+
+
+def test_subject_column_migrates_old_db(tmp_path):
+    import sqlite3
+
+    from culture_library.core.feed import ensure_subject_column
+
+    conn = sqlite3.connect(tmp_path / "x.db")
+    conn.execute("CREATE TABLE feed (cursor INTEGER PRIMARY KEY, item_id INTEGER)")
+    conn.execute("INSERT INTO feed (item_id) VALUES (1)")
+    ensure_subject_column(conn)
+    ensure_subject_column(conn)
+    assert conn.execute("SELECT subject FROM feed").fetchone() == ("item",)
+
+
+def test_default_subject_is_items_only_and_all_is_both(store):
+    """Review finding 5: old clients (no subject) never see a repodoc id as an item_id."""
+    from culture_library.core.feed import append_repodoc
+
+    with store.connect() as conn:
+        append_repodoc(conn, 1, "spec", SHA, {"repo": "r", "path": "a.md"})
+        c2 = append(conn, _ev("created", item_id=1))
+        append_repodoc(conn, 2, "plan", SHA, {"repo": "r", "path": "b.md"})
+    with store.reader() as conn:
+        page = read_since(conn, 0)
+        assert [e["cursor"] for e in page["events"]] == [c2]
+        assert {e["subject"] for e in page["events"]} == {"item"}
+        assert page["cursor"] == c2  # a cursor never skips past an unread item event
+        assert [e["subject"] for e in read_since(conn, 0, subject="all")["events"]] == [
+            "repodoc",
+            "item",
+            "repodoc",
+        ]
+        with pytest.raises(ValidationError):
+            read_since(conn, 0, subject="everything")

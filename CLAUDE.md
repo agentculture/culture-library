@@ -30,7 +30,9 @@ reranker on. Machine clients reach it on spark's loopback
     Kinds are `book`, `article`, `newspaper`, `document`, `transcript`,
     `diary`, `spec`, `plan`, `devague-record`, `todo` (Markdown
     checklists, one per recording) and `discord-message` (one saved Discord
-    message as Markdown; a `discord-react` sibling is not reserved yet). Adding a kind widens the `items` kind
+    message as Markdown; a `discord-react` sibling is not reserved yet) and
+    `design` (`docs/design/**`, plus any image, HTML or PDF under a pushed
+    prefix; deviation d1). Adding a kind widens the `items` kind
     CHECK; the store rebuilds the table once on first open (see
     `docs/operations/deploy.md`, "Upgrading across a schema change").
   - `server/`: the FastAPI app and its `routes_*.py` modules. These serve
@@ -135,7 +137,36 @@ reranker on. Machine clients reach it on spark's loopback
     (`evals-compare.js`) shows the comparability checks first, then the shape of
     the change, the change per metric and the questions that changed, worse
     first.
-  - `render/`: the devague renderer.
+  - `render/`: the devague renderer (frames, plans and delivery JSON).
+  - **Devague work in the library** (spec
+    `docs/specs/2026-10-30-devague-work-in-the-library.md`; push contract
+    `docs/api/repodocs.md`). Built on branch `spec/devague-work`; **not yet
+    deployed**. Every repo's specs, plans, deliveries, designs and raw
+    `.devague/` state arrive as repo documents pushed by culture-rules
+    (culture-rules#124, not built yet). The pieces:
+    - `core/repodocs.py`: a `commit: "working"` push keeps one mutable draft per
+      `(repo, path)`; `tombstone()` marks a doc removed and keeps its history;
+      every repo doc is stored private (decision c31).
+    - `core/projects.py` (domains and connected projects from each repo's
+      `culture.yaml`) and `core/speclinks.py` (a spec's PR, merge commit and
+      current code paths, newest by `at_committed_at`).
+    - `core/mirror.py`: the S3 mirror's storage protocol, readable keys
+      (`<repo>/<path>@<commit>`, `@working`) and a durable outbox.
+      `storage/s3.py` is the boto3 backend behind the optional `[s3]` extra.
+      `server/routes_mirror.py` drains the outbox, `/api/status` has a
+      `mirror` block, and the CLI has `culture-library mirror
+      {overview,status,reconcile}`. `deploy check-bucket` checks the bucket's
+      safety settings.
+    - Search covers repo docs in their own tables (`repodoc_fts`,
+      `repodoc_embeddings`, `repodoc_index_queue`; deviations d7 and d12), so
+      item scores and the eval baseline don't move. Hits carry `corpus`
+      (`item` or `repodoc`, deviation d8); `/api/search` searches both by
+      default, and `/api/rag/retrieve` and eval runs use items only.
+    - `/api/projects`, `/api/domains`, MCP `repodoc_*` tools (`REPODOC_ROUTES`
+      keeps the parity), feed events read with `subject=repodoc` (or `all`; the
+      default stays items only), and the site's
+      `#projects` and `#domains` views. The reader shows the working draft
+      by default with a "working" badge.
   - `migrate/`: the xteink migration.
   - `cli/_commands/deploy.py`: `culture-library deploy restart` recreates the live
     `library` and `mcp` containers from the host env file
@@ -167,7 +198,10 @@ reranker on. Machine clients reach it on spark's loopback
     count only newer runs;
   - the after-#27 signal is deferred until #27 ships;
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
-  - search does not cover repo documents (#4);
+  - repo-document search is built (closes #4 on deploy) but not deployed;
+  - the devague-work live migration is still to run with the operator: the
+    S3 bucket, deploy, the culture-rules key, and culture-rules#124's push
+    rule (deviation d22);
   - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
     (#25);
   - in-progress items (#22);
@@ -392,7 +426,9 @@ Pass `--visibility private` to keep a record in `$HOME/.eidetic/memory`.
 Built in the `library-culture-dev` run (see the delivery summary). Still
 open:
 
-- search over repo documents (#4);
+- deploy the devague-work branch and run its live migration (d22);
+- remove specs, plans and `.devague` from GitHub once the mirror is proven
+  complete (#35);
 - map recording EPUBs to `transcript` on migration (#5);
 - an embedding model comparison (#7). The eval harness can run it from config
   alone: rerun eval sets 1–5 under each embed config, then read the shape

@@ -118,7 +118,7 @@ def kind_summary(
     )
     replaced = (
         f"SELECT v.kind, max(f.at) latest FROM ({visible}) v "  # nosec B608
-        "JOIN feed f ON f.item_id = v.id "
+        "JOIN feed f ON f.item_id = v.id AND f.subject = 'item' "
         "WHERE f.type = 'updated' AND json_extract(f.data, '$.replaced') = 1 GROUP BY v.kind"
     )
     with store.reader() as conn:

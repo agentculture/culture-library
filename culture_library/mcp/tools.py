@@ -24,6 +24,12 @@ _KIND = {"type": "string", "enum": list(KINDS)}
 _VIS = {"type": "string", "enum": list(VISIBILITIES)}
 _ID = {"type": "integer", "minimum": 1}
 # Run ids for the eval views: one id, or a list (sent comma-joined, as the routes expect).
+_CORPORA = {
+    "type": "array",
+    "items": {"type": "string", "enum": ["item", "repodoc"]},
+    "minItems": 1,
+    "description": "which corpora to search: library items and/or repo documents",
+}
 _RUN_IDS = {"anyOf": [_ID, {"type": "array", "items": _ID, "minItems": 1}]}
 
 
@@ -69,6 +75,7 @@ _SPECS: list[dict[str, Any]] = [
             "mode": {"type": "string", "enum": ["fulltext", "semantic", "hybrid"]},
             "kind": _KIND,
             "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            "corpora": _CORPORA,
         },
         ["q"],
     ),
@@ -85,6 +92,7 @@ _SPECS: list[dict[str, Any]] = [
             "item_ids": {"type": "array", "items": _ID},
             "rerank": {"type": "boolean"},
             "candidates": {"type": "integer", "minimum": 1, "maximum": 200},
+            "corpora": _CORPORA,
         },
         ["query"],
     ),
@@ -255,6 +263,94 @@ EVAL_ROUTES: dict[str, tuple[str, str]] = {
     "eval_compare": ("GET", "/api/eval/compare"),
     "eval_weakest": ("GET", "/api/eval/weakest"),
     "eval_reanchor": ("POST", "/api/eval/sets/{set_id}/reanchor"),
+}
+
+_REPO_FIELDS = {
+    "remote": {"type": "string", "description": "repo, e.g. agentculture/culture-library"},
+    "path": {"type": "string", "description": "repo-relative path, e.g. docs/specs/x.md"},
+}
+_DOC_ID = {"type": "integer", "minimum": 1, "description": "repo document id"}
+_VERSION = {
+    "type": "string",
+    "description": "a commit sha, or 'working' for the working draft (default: current)",
+}
+_SPECS += [
+    _spec(
+        "repodoc_list",
+        "List repo documents (specs, plans, devague records), newest first. Filter by remote, "
+        "path, domain or project; `connected` adds the projects connected to `project`. "
+        "Private documents show only to a private key.",
+        {
+            **_REPO_FIELDS,
+            "domain": {"type": "string"},
+            "project": {"type": "string", "description": "a repo; its documents only"},
+            "connected": {"type": "boolean"},
+            "include_removed": {"type": "boolean"},
+        },
+    ),
+    _spec(
+        "repodoc_read",
+        "Read a repo document: its metadata (doc, versions, current, draft, removed, spec_links) "
+        "and its bytes: `text` for text files, `content_base64` for binaries. Current version by "
+        "default; `version` is 'working' or a commit sha. `max_bytes` caps text.",
+        {"doc_id": _DOC_ID, "version": _VERSION, "max_bytes": {"type": "integer", "minimum": 1}},
+        ["doc_id"],
+    ),
+    _spec(
+        "repodoc_rendered",
+        "A repo document as the reader shows it (devague HTML, Markdown or text).",
+        {
+            "doc_id": _DOC_ID,
+            "version": _VERSION,
+            "format": {"type": "string", "enum": ["html", "markdown", "text"]},
+        },
+        ["doc_id"],
+    ),
+    _spec(
+        "repodoc_links",
+        "A spec's links: its PR, merge commit, code paths and trailer commits, with the "
+        "document's metadata.",
+        {"doc_id": _DOC_ID},
+        ["doc_id"],
+    ),
+    _spec(
+        "repodoc_push",
+        "Push a repo document version (needs write scope). `commit` is a sha or 'working'. Give "
+        "`content` (text) or `content_b64`, or `tombstone` to record a removal. `project` "
+        "({domains, connected}) scopes the repo; `spec_links` goes with spec pushes only.",
+        {
+            **_REPO_FIELDS,
+            "commit": {"type": "string"},
+            "committed_at": {"type": "string"},
+            "default_branch_head": {"type": "string"},
+            "content": {"type": "string"},
+            "content_b64": {"type": "string"},
+            "tombstone": {"type": "boolean"},
+            "project": {"type": "object"},
+            "spec_links": {"type": "object"},
+        },
+        ["remote", "path", "commit"],
+    ),
+    _spec("repodoc_projects", "List the projects (repos) that have visible documents.", {}),
+    _spec("repodoc_domains", "List the domains and the projects in each.", {}),
+]
+
+# Each repodoc tool's primary API route: name -> (method, route path). Every route under
+# /api/repodocs, /api/projects and /api/domains has exactly one tool here (the parity test
+# checks both directions).
+REPODOC_ROUTES: dict[str, tuple[str, str]] = {
+    "repodoc_list": ("GET", "/api/repodocs"),
+    "repodoc_links": ("GET", "/api/repodocs/{doc_id}"),
+    "repodoc_read": ("GET", "/api/repodocs/{doc_id}/content"),
+    "repodoc_rendered": ("GET", "/api/repodocs/{doc_id}/rendered"),
+    "repodoc_push": ("POST", "/api/repodocs"),
+    "repodoc_projects": ("GET", "/api/projects"),
+    "repodoc_domains": ("GET", "/api/domains"),
+}
+# A route a tool calls besides its primary one: repodoc_read also fetches the detail route for
+# its metadata, which repodoc_links owns in REPODOC_ROUTES.
+REPODOC_ALSO_USES: dict[str, tuple[str, str]] = {
+    "repodoc_read": ("GET", "/api/repodocs/{doc_id}"),
 }
 
 
@@ -456,9 +552,54 @@ def _eval_handlers() -> dict[str, Any]:
     }
 
 
+_PUSH_KEYS = (
+    "remote", "path", "commit", "committed_at", "default_branch_head", "content", "content_b64",
+    "tombstone", "project", "spec_links",
+)  # fmt: skip
+
+
+def _repodoc_read(client: Client, a: dict) -> dict:
+    doc_id, version = _need(a, "doc_id"), a.get("version")
+    out: dict[str, Any] = dict(client.repodoc_detail(doc_id))
+    out.pop("spec_links", None)  # repodoc_links owns the links
+    data = client.repodoc_content(doc_id, version)
+    cap = int(a.get("max_bytes") or DEFAULT_MAX_BYTES)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        out["content_base64"] = base64.b64encode(data).decode("ascii")
+        out["truncated"] = False
+        return out
+    out["text"] = text[:cap]
+    out["truncated"] = len(text) > cap
+    return out
+
+
+def _repodoc_handlers() -> dict[str, Any]:
+    def listing(c: Client, a: dict) -> dict:
+        keys = ("remote", "path", "domain", "project", "connected", "include_removed")
+        query = {
+            k: ("true" if a[k] is True else a[k]) for k in keys if a.get(k) not in (None, False)
+        }
+        return c.repodoc_list(query)
+
+    return {
+        "repodoc_list": listing,
+        "repodoc_read": _repodoc_read,
+        "repodoc_rendered": lambda c, a: c.repodoc_rendered(
+            _need(a, "doc_id"), a.get("version"), a.get("format")
+        ),
+        "repodoc_links": lambda c, a: c.repodoc_detail(_need(a, "doc_id")),
+        "repodoc_push": lambda c, a: c.repodoc_push(_body(a, _PUSH_KEYS)),
+        "repodoc_projects": lambda c, a: c.projects(),
+        "repodoc_domains": lambda c, a: c.domains(),
+    }
+
+
 def _handlers() -> dict[str, Any]:
     return {
         **_eval_handlers(),
+        **_repodoc_handlers(),
         "push_file": _push_file,
         "list_library": lambda c, a: {
             "items": [
@@ -469,7 +610,7 @@ def _handlers() -> dict[str, Any]:
             ]
         },
         "search": lambda c, a: c.search(
-            _need(a, "q"), a.get("mode"), a.get("kind"), a.get("limit", 20)
+            _need(a, "q"), a.get("mode"), a.get("kind"), a.get("limit", 20), a.get("corpora")
         ),
         "rag_retrieve": lambda c, a: c.rag_retrieve(
             _need(a, "query"),
@@ -479,6 +620,7 @@ def _handlers() -> dict[str, Any]:
             a.get("item_ids"),
             a.get("rerank"),
             a.get("candidates"),
+            a.get("corpora"),
         ),
         "read_item": _read_item,
         "send_to_device": lambda c, a: c.send(_need(a, "item_id"), _need(a, "target")),

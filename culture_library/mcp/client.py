@@ -200,9 +200,21 @@ class Client:
         self._request("DELETE", f"/api/library/{int(item_id)}")
 
     def search(
-        self, q: str, mode: str | None = None, kind: str | None = None, limit: int = 20
+        self,
+        q: str,
+        mode: str | None = None,
+        kind: str | None = None,
+        limit: int = 20,
+        corpora: list[str] | None = None,
     ) -> dict:
-        query = {"q": q, "mode": mode, "kind": kind, "limit": limit}
+        """``GET /api/search``; ``corpora`` (``item``/``repodoc``) is sent as a comma list."""
+        query = {
+            "q": q,
+            "mode": mode,
+            "kind": kind,
+            "limit": limit,
+            "corpora": ",".join(corpora) if corpora else None,
+        }
         return self._request("GET", "/api/search", query=query)
 
     def rag_retrieve(
@@ -214,6 +226,7 @@ class Client:
         item_ids: list[int] | None = None,
         rerank: bool | None = None,
         candidates: int | None = None,
+        corpora: list[str] | None = None,
     ) -> dict:
         """``POST /api/rag/retrieve``; unset options are omitted so the server's defaults apply."""
         body = {
@@ -224,6 +237,7 @@ class Client:
             "item_ids": item_ids,
             "rerank": rerank,
             "candidates": candidates,
+            "corpora": corpora,
         }
         return self._request(
             "POST",
@@ -263,6 +277,33 @@ class Client:
 
     def eval_reanchor(self, set_id: int) -> dict:
         return self._request("POST", f"/api/eval/sets/{int(set_id)}/reanchor")
+
+    # -- repodocs, projects, domains (one method per route) -------------------------------
+
+    def repodoc_list(self, query: Mapping[str, object]) -> dict:
+        return self._request("GET", "/api/repodocs", query=query)
+
+    def repodoc_detail(self, doc_id: int) -> dict:
+        return self._request("GET", f"/api/repodocs/{int(doc_id)}")
+
+    def repodoc_content(self, doc_id: int, version: str | None = None) -> bytes:
+        query = {"version": version}
+        return self._request("GET", f"/api/repodocs/{int(doc_id)}/content", query=query, raw=True)
+
+    def repodoc_rendered(
+        self, doc_id: int, version: str | None = None, fmt: str | None = None
+    ) -> dict:
+        query = {"version": version, "format": fmt}
+        return self._request("GET", f"/api/repodocs/{int(doc_id)}/rendered", query=query)
+
+    def repodoc_push(self, body: Mapping[str, object]) -> dict:
+        return self._request("POST", "/api/repodocs", json_body=dict(body))
+
+    def projects(self) -> dict:
+        return self._request("GET", "/api/projects")
+
+    def domains(self) -> dict:
+        return self._request("GET", "/api/domains")
 
     def send(self, item_id: int, target: str) -> dict:
         return self._request(

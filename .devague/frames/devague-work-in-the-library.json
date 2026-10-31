@@ -1,0 +1,1580 @@
+{
+  "slug": "devague-work-in-the-library",
+  "title": "devague work in the library",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-30T17:43:01Z",
+  "updated": "2026-10-30T18:46:51Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-library holds every repo's devague work as it evolves \u2014 specs, plans, delivery summaries, designs and the raw .devague state (frames, plans, deliveries, reviews, questions) \u2014 browsable and searchable by repo/project and by domain, with the artifact bytes kept in an S3 bucket",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Spec, plan, delivery, design and .devague files from one repo, pushed via the API, are each readable in the site and via MCP, and present in S3 under their readable key",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "end-to-end test: push one file of each kind from a fixture repo, then GET it through /api/repodocs, the MCP tool and the fake S3 backend",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "probe",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Committed specs, plans and devague records already have a home: core/repodocs.py stores them as (repo, path) docs with one commit-pinned version per push (repodoc_versions), current = newest default-branch version, kind inferred from path prefix (docs/specs \u2192 spec, docs/plans \u2192 plan, docs/deliveries and .devague/ \u2192 devague-record), visibility failing closed",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Repodocs behavior that exists today is unchanged: tests/core/test_repodocs.py and the repodocs route tests pass without edits to their assertions",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uv run pytest tests/core/test_repodocs.py tests/server -k repodoc",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "Reuse, don't replace, the repodocs identity and versioning model \u2014 (repo, path) identity, (repo, path, commit) dedup and the default-branch 'current' rule stay; the original spec's promises (docs/specs/2026-10-23-library-culture-dev.md lines 40-48) remain the contract this extends",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Pushing the same (repo, path, commit) twice is still a no-op and a new commit still adds a version, not a new doc",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Work-in-progress state is captured, not only committed state: a version can be pushed for uncommitted/working-tree content (e.g. a frame mid-/think, a plan mid-run) and for the gitignored .devague/reviews and .devague/questions, without fabricating a commit sha \u2014 today every version requires commit_sha matching a 40/64-hex regex",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "A push with commit=working creates or overwrites one draft per (repo, path) without adding a version row, and works for .devague/reviews and .devague/questions; a later commit push leaves the draft intact until it is overwritten again",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "core test: push working twice + commit once -> 1 draft (2nd content), 1 version",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Repo documents carry project and domain scope: the project is the repo, its domains come from the repo's culture.yaml (pushed by culture-rules), and projects can declare connections to other projects; documents can be listed and filtered by project (including connected projects) and by domain through the API, the MCP tools and the site",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Listing with domain=X returns only documents of projects declaring X; listing with project=P&connected=1 also returns documents of P's connected projects, and nothing else",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Items gain project and domain scope: a document can be listed and filtered by repo/project and by one or more domains, through the API, the MCP tools and the site",
+          "kind": "requirement",
+          "reason": "decisions c24, c27"
+        }
+      ]
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Every repo document version is written through to an AWS S3 bucket as a human-readable mirror tree \u2014 committed versions at `<repo>/<path>@<commit>`, the working draft at `<repo>/<path>@working` \u2014 behind a storage interface; the local content-addressed blob store stays the library's primary copy and backup source",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "After a push the S3 object at <repo>/<path>@<commit> (or @working) has the pushed bytes; when S3 is unreachable the push still succeeds locally, and the mirror catches up later",
+          "status": "rejected",
+          "instruction": ""
+        },
+        {
+          "id": "h37",
+          "text": "After a push the S3 object at `<repo>/<path>@<commit>` (or @working) has the pushed bytes; when S3 is unreachable the push still succeeds locally, and the mirror catches up later",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "test against an in-memory/fake S3 backend; a failing backend must not fail the push",
+      "revisions": [
+        {
+          "text": "Artifact bytes for this content live in an S3 bucket behind a storage abstraction; the local content-addressed files/<aa>/<sha256> store remains a valid backend",
+          "kind": "requirement",
+          "reason": "decisions c22 (AWS S3) and c23 (readable mirror, DB stays index)"
+        },
+        {
+          "text": "Every repo document version is written through to an AWS S3 bucket as a human-readable mirror tree \u2014 committed versions at <repo>/<path>@<commit>, the working draft at <repo>/<path>@working \u2014 behind a storage interface; the local content-addressed blob store stays the library's primary copy and backup source",
+          "kind": "requirement",
+          "reason": "lint: backtick angle-bracket tokens (MD033), wording unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "core/ stays stdlib-only and network-free and base dependencies stay empty: any S3 client is an optional extra imported lazily outside core/, behind a protocol core/ defines",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "tests/test_zero_deps.py still passes with base dependencies = [] and the S3 client blocked from the CLI import; core/ imports no network library",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "uv run pytest tests/test_zero_deps.py",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Designs are a supported artifact: design docs with their binary assets (screenshots, HTML prototypes, images) \u2014 e.g. this repo's docs/design/library-site.md, prototype.html and 30 reference screenshots \u2014 can be stored and viewed, not only UTF-8 text",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "A PNG screenshot and an HTML prototype under docs/design/ push and download back byte-identical, and the site shows the image",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Specs, plans, deliveries and devague records are searchable (full-text and RAG) with the same visibility rule as items, closing issue #4",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "A search for a phrase that appears only in a spec's body returns that repo doc with source=repodoc, and never returns a private repo doc to a key without private access",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Indexing devague JSON goes through a JSON-aware text extractor (claims, honesty conditions, tasks, risks as prose), not the raw pretty-printed JSON",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Indexed text of a frame JSON contains its claim texts and contains no JSON punctuation-only chunks",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Agents get MCP tools for repo documents (list by repo/project/domain, read current or a version, push, search) mirroring the HTTP routes one to one, like EVAL_ROUTES",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Every repodoc HTTP route has exactly one MCP tool mapped to it in a REPODOC_ROUTES-style table, enforced by a parity test",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A repo document change emits a feed event so subscribers (culture-rules, agents) can react to a spec or plan update",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "A repodoc push (new version or draft overwrite) appends one feed event readable via GET /api/feed that names repo, path and version",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Delivery JSON, reviews and questions render as readable pages like frames and plans do",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A delivery JSON from every schema version present in ~/git renders as a page (deviations, evidence, deltas) without the raw fallback; review and question markdown renders as Markdown",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "corpus test over ~/git/*/.devague/deliveries/*.json, top-level repos only",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The site gets a browse view by repo/project and by domain, with a spec's linked plan, delivery and frame shown together (joined on devague slug)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The site lists projects and domains, and a project page groups a slug's spec, plan, delivery and frame together",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "boundary",
+      "text": "The library only receives pushed content: nothing in culture_library runs git or devague; the collector that reads repos and .devague dirs lives outside this package (a culture-rules rule, a devague hook, or a separate client)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "grep/AST test still shows no subprocess, git or devague invocation anywhere in culture_library",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "non_goal",
+      "text": "The library never writes back to repos or edits devague state \u2014 it is a mirror and reader, not a second source of truth for frames or plans",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "boundary",
+      "text": "Git worktree copies (.worktrees.*/, *-worktrees/) never multiply documents: dedup stays on (repo, path, commit) and working-state pushes are keyed by repo, not by checkout path",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "Pushing the same file from a repo and from one of its worktrees yields one document, not two",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "assumption",
+      "text": "The corpus is small: about 84 MB across ~78 repos (52 MB .devague + 32 MB docs/{specs,plans,deliveries}), with near-identical lobes-cli-* forks, so a single bucket well under 1 GB holds it and content-hash dedup absorbs the forks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "Migrated documents are private: every repo document pushed by culture-rules lands private regardless of the repo's GitHub visibility (decision c31), and the S3 bucket is never publicly readable \u2014 bytes reach readers only through the library's visibility check",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "A document pushed from a public GitHub repo is invisible to a read key without private access; the bucket policy blocks public access",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "With AWS S3 chosen, private-repo content (17 private repos) leaves spark for a public cloud: is that acceptable as long as the bucket is private and encrypted, or must private-repo documents stay local-only?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "The AWS account is the operator's own and private; private-repo content in it is acceptable (operator, 2026-10-30)"
+        }
+      ],
+      "links": [],
+      "instruction": "core test + a deploy check that reads the bucket's public-access-block",
+      "revisions": [
+        {
+          "text": "Private repos stay private: a document's visibility comes from its repo (17 of 129 agentculture repos are private) and the S3 bucket is never publicly readable \u2014 bytes are served only through the library's visibility check",
+          "kind": "boundary",
+          "reason": "operator chose all-private over inherit-repo-visibility"
+        }
+      ]
+    },
+    {
+      "id": "c21",
+      "kind": "assumption",
+      "text": "Bucket credentials follow the existing grant pattern \u2014 stored hidden with grant set and injected at exec time by deploy restart, so live.env stays secret-free",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "Storage target is AWS S3 (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "The bucket is a human-readable mirror tree keyed like `<repo>/<path>@<commit>` (plus a working draft), openable as-is with any S3 tool; the library's SQLite DB stays the index and source of truth for versions, visibility and search (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The bucket is a human-readable mirror tree keyed like <repo>/<path>@<commit> (plus a working draft), openable as-is with any S3 tool; the library's SQLite DB stays the index and source of truth for versions, visibility and search (operator, 2026-10-30)",
+          "kind": "decision",
+          "reason": "lint: backtick angle-bracket tokens (MD033), wording unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "Domain scope is declared per repo in its culture.yaml (a domain:/tags: key, extending culture/culture.yaml's tags: precedent) and inherited by the repo's documents (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "Work-in-progress keeps one mutable working-draft version per (repo, path), overwritten on each push; committed versions keep full commit-pinned history as today (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "decision",
+      "text": "culture-rules is the collector and pusher: it reads repos and .devague dirs and pushes to the library API; the library stays push-only (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "decision",
+      "text": "A project is a repo; projects can declare connections to other projects (e.g. culture-rules <-> culture-library), so a project view can show its connected projects' documents (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "decision",
+      "text": "The AWS account is the operator's own and private; documents from private repos may be stored in it (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "before_state",
+      "text": "Nothing pushes repo documents to the library today; specs, plans and devague records live mostly public on GitHub, and this work starts migrating them out of GitHub into the library (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "At the start of the run, no repo documents exist on live (repodocs count 0 per /api/status by_kind)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "Mirror first, remove later: in this run repos keep committing specs/plans/.devague as today while the library + S3 become their complete private home; removing them from GitHub is a follow-up once the library is proven to hold everything (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "decision",
+      "text": "Every migrated document is private in the library regardless of the repo's GitHub visibility (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "assumption",
+      "text": "A repo declares its domains and its connected projects in culture.yaml (e.g. domains: [...], connected: [agentculture/culture-library]) and culture-rules sends both with each push; the library stores them per project and the latest push wins",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "audience",
+      "text": "The operator, who reads specs, plans, deliveries and designs on library.culture.dev; mesh agents (via MCP and the API) that look up a project's or domain's current plan mid-work; and culture-rules, which pushes them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The operator, an MCP agent and culture-rules each have a working path: site page, MCP tool, push endpoint",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "after_state",
+      "text": "Every top-level repo's specs, plans, delivery summaries, designs and raw .devague state \u2014 committed versions with history plus the latest uncommitted working draft \u2014 is in the library and mirrored to a private S3 bucket, viewable as-is, searchable, and browsable by project (with connected projects) and by domain",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "For the sampled repos, library + S3 contain every committed version pushed and the current working draft of each touched file",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "why_it_matters",
+      "text": "The development record of ~78 repos is scattered across GitHub, mostly public, and partly invisible (gitignored reviews/questions, five repos that ignore .devague entirely); one private, scoped home is what lets it move off GitHub and lets agents reach back into a project's or a domain's past decisions",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The five repos that gitignore .devague (reachy-mini-cli, agentculture-cli, cultureflare, culture-guide, notion-agent) have their .devague files in the library after a culture-rules cycle",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "success_signal",
+      "text": "For at least 5 sampled repos, 100% of committed `docs/{specs,plans,deliveries}/*.md`, `docs/design/**` and `.devague/**` files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "A sampling script compares sha256 of repo files vs library vs S3 for 5 repos and reports 0 missing, 0 mismatched",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "For at least 5 sampled repos, 100% of committed docs/{specs,plans,deliveries}/*.md, docs/design/** and .devague/** files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
+          "kind": "success_signal",
+          "reason": "lint: backtick glob paths (MD037), wording unchanged; operator-approved at gate 2"
+        }
+      ]
+    },
+    {
+      "id": "c37",
+      "kind": "success_signal",
+      "text": "A working-draft edit to a frame reaches the library within 1 culture-rules cycle and replaces the previous draft without adding a version (versions count unchanged, draft sha256 updated)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "Measured: time from saving a frame to the draft showing in the library is at most 1 culture-rules cycle; repodoc_versions row count unchanged",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "success_signal",
+      "text": "Filtering by one domain or one project (with connected projects) returns exactly the documents of the repos declaring it \u2014 0 from others \u2014 in the API, MCP and site",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "A test with three projects in two domains shows each domain/project filter returns exactly the expected set in API, MCP and site",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "culture-rules receives the push contract as a sibling-repo issue (via the communicate skill): endpoints, payload (repo, path, commit or working, content bytes, culture.yaml domains/connected), worktree exclusion and the all-private rule",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "The culture-rules issue is filed and links this spec; it states the payload fields, worktree exclusion and the all-private rule",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "A spec is tied to the repo and commits that realize it: first to the merge that delivered it (repo, PR, merge commit), and later to the code that currently represents it \u2014 the link follows the implementing code forward as it changes, rather than freezing at the merge (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "For one delivered spec, the library shows its merge commit and PR, and after a later commit renames an implementing file, the spec's code links point at the new path",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "Deletions propagate: when a file disappears from a repo (git rm, a deleted frame, a never-committed draft discarded), culture-rules sends a tombstone; the library marks the doc removed at that commit (history kept, hidden from current lists) and drops a stale working draft \u2014 nothing is deleted from S3",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "A tombstone push for a path hides the doc from current listings, keeps its version history readable, discards its working draft, and leaves its S3 objects in place",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "S3 mirroring runs from a durable outbox table (doc version, key, state, attempts, last error) drained outside the push request; a reconcile verb re-mirrors anything missing, and /api/status reports mirror lag and failures",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "With the S3 backend failing, pushes still return 2xx, the outbox grows and /api/status shows the lag; after the backend recovers, a reconcile run leaves 0 pending and every key present",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "boundary",
+      "text": "The bucket is private and append-only from the library's side: Block Public Access on, SSE encryption on, S3 Versioning on (so @working overwrites keep prior bytes), and the library's IAM credentials allow only PutObject/GetObject/ListBucket on that one bucket \u2014 no DeleteObject",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "A deploy check reads the bucket's public-access-block, encryption and versioning settings and the IAM policy, and fails if any is off or DeleteObject is allowed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "requirement",
+      "text": "A design kind is added (docs/design/** and binary assets under the other prefixes), widening KINDS \u2014 so the items kind CHECK rebuild runs once on first open \u2014 and the culture-rules push key is a write key scoped to kinds spec, plan, devague-record, design",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "On first open after upgrade the items CHECK accepts 'design' with row counts unchanged; a push to docs/design/x.png gets kind design; the culture-rules key is refused a write of kind book",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c45",
+      "kind": "requirement",
+      "text": "Repo document pushes accept binary content (multipart or base64) up to a configured size limit like UPLOAD_LIMITS, refusing larger files with a structured 413; the largest file in the corpus today is 1.3 MB",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "A 1.3 MB PNG pushes and downloads byte-identical; a file over the limit gets 413 with a structured error and nothing is stored",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c46",
+      "kind": "requirement",
+      "text": "The initial backfill indexes through the existing index queue at low priority so it never starves item indexing or the gateway: about 4,600 files at roughly 13-22 chunks/s for gemma2-embed is tens of minutes of embedding, not one burst",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "During the backfill, a newly uploaded library item is indexed ahead of queued repo documents, and the backfill continues after a gateway outage",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c47",
+      "kind": "boundary",
+      "text": "Adding repo documents to search does not move the existing eval baseline: /api/rag/retrieve keeps returning library items only unless a caller opts into repodocs (source filter), and eval runs record that filter in their retrieval config",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "Re-running eval set 1 at the same config after the corpus is indexed gives the same retrieved item ids as before, because repodocs are excluded by default",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Agents that should read the migrated corpus hold keys with private access (all docs are private, c31); a shared read-only key without private access sees none of it, and this is documented per client (Gwen, xteink, culture-rules, mesh MCP)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "A read key without private access lists 0 migrated documents; a key with private access lists all of them; docs/operations names which clients hold which",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c49",
+      "kind": "boundary",
+      "text": "Removing documents from GitHub (follow-up v2) is gated on a full-corpus verification across every repo \u2014 sha256 of each repo file equals library and S3 \u2014 not on the 5-repo sample of c36",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "The v2 follow-up's plan contains a full-corpus verify task whose pass is required before any file is removed from GitHub",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c50",
+      "kind": "boundary",
+      "text": "S3 is a mirror, not the backup: culture-library backup keeps working from the local blob store, now also covering working drafts and the outbox (any new table with sha256 is picked up automatically)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h36",
+          "text": "culture-library backup run followed by verify covers draft blobs; restoring the snapshot onto an empty data dir brings back drafts and the outbox with S3 unavailable",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "decision",
+      "text": "Readers (site and MCP) see a document's working draft by default when it is newer than the committed current, badged 'working', with the committed version one click away (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "decision",
+      "text": "culture-rules pushes every file under .devague/, not only json/md (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c53",
+      "kind": "decision",
+      "text": "The spec-to-code link uses a `Spec: <slug>` commit trailer when present, else the files changed by the delivering merge, followed forward through renames on each push; culture-rules computes it from git and sends it with the push (operator, 2026-10-30)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The spec-to-code link uses a 'Spec: <slug>' commit trailer when present, else the files changed by the delivering merge, followed forward through renames on each push; culture-rules computes it from git and sends it with the push (operator, 2026-10-30)",
+          "kind": "decision",
+          "reason": "lint: backtick angle-bracket tokens (MD033), wording unchanged"
+        }
+      ]
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether anything pushes repo documents to live today: the library-culture-dev spec and issue #4 cite ~2,269 repodocs on live, but the culture-rules push rule was only filed as an issue and /api/status needs a key \u2014 unverified whether a pusher runs continuously",
+      "kind": "unknown_nonblocking",
+      "claim_id": "c3",
+      "resolved": true,
+      "resolution": "Nothing pushes today (operator, 2026-10-30)",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Remove specs/plans/.devague from GitHub (gitignore going forward, maybe history) once the library is proven complete \u2014 separate follow-up run",
+      "kind": "follow_up",
+      "claim_id": "c30",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Repo identity is the normalized git remote (repodocs.py:83-122); renames (assimilai -> citation-cli) or leaving GitHub for another remote would split a project's history unless culture-rules sends a stable project id or the library records aliases",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Length of a culture-rules cycle is unknown here, so success signal c37 ('within 1 cycle') has no wall-clock bound until culture-rules states its schedule",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_library/core/repodocs.py",
+      "finding": "repodocs + repodoc_versions tables (repodocs.py:36-59) and _KIND_PREFIXES (:68-73) already implement versioned, commit-pinned storage of specs/plans/.devague records; push-only via POST /api/repodocs (routes_repodocs.py:52)",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "docs/specs/2026-10-23-library-culture-dev.md (lines 40-48)",
+      "finding": "the library-culture-dev spec already promised every repo's docs/{specs,plans,deliveries} + .devague/{frames,plans,deliveries,reviews,questions} across ~75 repos, versioned, visibility-inherited, deduped across worktrees; delivered as repodocs (delivery doc, e11-e17, e42)",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "repodocs push contract (commit required)",
+      "finding": "repodoc_versions.commit_sha is NOT NULL and validated by _SHA_RE (repodocs.py:62); 'during development' updates between commits have no slot; this repo's .gitignore:242-245 ignores .devague/reviews and .devague/questions, and 5 sibling repos (reachy-mini-cli 125 files, agentculture-cli, cultureflare, culture-guide, notion-agent) gitignore all of .devague",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "item/repodoc metadata (models.py, repodocs.py) + culture.yaml taxonomy",
+      "finding": "no tags/collection/project/domain concept exists anywhere \u2014 Item fields models.py:29-39, repodocs has only repo; GET /api/repodocs filters only remote+path (routes_repodocs.py:76); across 124 culture.yaml agents entries only culture/culture.yaml carries a tags: list, and devague frames have no domain field",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "core/store.py blob storage + core/backup.py",
+      "finding": "blobs are direct Path I/O at `files/<aa>/<sha256>` (store.py:182-188, 277-281, read_bytes :350) with no storage abstraction; backup.py copies local blobs by sha from every table with a sha256 column (_referenced_blobs :137); no S3/boto/minio code exists \u2014 only 'audio \u2026 moving to S3 in future' in the library-culture-dev spec:184,202",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "pyproject.toml + tests/test_zero_deps.py",
+      "finding": "dependencies = [] (pyproject.toml:15); test_zero_deps.py asserts it and blocks server/eval libs from the CLI import; CLAUDE.md states core/ is stdlib-only and network-free \u2014 an S3 backend must follow the [server]/[eval] optional-extra pattern",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "POST /api/repodocs body + docs/design/",
+      "finding": "PushBody.content is a str (routes_repodocs.py:28-35) and kind inference has no design prefix (repodocs.py:68-73), so PNG screenshots and binary assets cannot be pushed; docs/design/ here holds library-site.md, prototype.html and reference/ screenshots",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "core/search.py, core/indexer.py (issue #4)",
+      "finding": "search_fts and embeddings key on items.rowid and every query joins items (search.py:30,132-140,191,218); repodocs are never indexed; issue #4 open and explicitly out of scope of the rag-evals spec (2026-10-25 spec:142)",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "core/indexer.py default_text_for + chunker",
+      "finding": "ingest extracts json as raw decoded text (ingest.py:285-286) and chunk_text splits on blank lines then hard-splits at CHUNK_MAX_CHARS (search.py:82-108); pretty-printed JSON has no blank lines so chunks would be arbitrary and key-noisy",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "culture_library/mcp/tools.py",
+      "finding": "no MCP tool touches /api/repodocs today (tools.py:129-236, _handlers :459-487); EVAL_ROUTES (:244-257) is the parity pattern to copy",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "core/feed.py",
+      "finding": "feed rows require NOT NULL item_id referencing items and kind in KINDS (feed.py:22-31, 41-66); RepoDocs.push (repodocs.py:218) never appends an event \u2014 repodoc events need a schema change or a separate stream",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "culture_library/render/devague.py",
+      "finding": "detect_kind only knows plan (tasks/targets) and frame (claims) (devague.py:77-85); delivery JSON (keys plan_slug, deviations, evidence, deltas, supersessions) falls to raw_view; MAX_SCHEMA=6 (:17); reviews/questions .md are served as plain text",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "web/static (app.js, home.js, state.js, reader.js)",
+      "finding": "repodocs are merged into the day-grouped catalog (app.js:229-244) and the only grouping is a flat 'repo' chip (state.js:55); exported md is `YYYY-MM-DD-<slug>.md` while JSON is `.devague/<dir>/<slug>.json`, so the join key is the slug, not the filename",
+      "seeds": [
+        "c15"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "repodocs.py docstring + library-culture-dev spec non-goal",
+      "finding": "repodocs.py:19-20 'nothing here (or anywhere in culture_library) runs git or devague', pinned by a grep/AST test per plan t8; spec lines 81,101 make the library a reader/mirror of committed state",
+      "seeds": [
+        "c16"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "devague on-disk contract (../devague/docs/spec-contract.md)",
+      "finding": "devague owns frame/plan/delivery JSON with an integer schema_version that its loader checks and rejects when newer (frame.py parse_schema_version); no push/sync hook or domain field exists upstream, so the library must not mutate that state",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "~/git .devague survey (find -maxdepth 3)",
+      "finding": "264 .devague dirs found, only 78 in top-level repos \u2014 the rest are worktree checkouts (e.g. .worktrees.culture-nodes/tca-t* each ~86 tracked files); library-culture-dev spec:48 already requires dedup by (remote, path, commit)",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "~/git size survey (du -shc)",
+      "finding": "du -shc */.devague = 52M and */docs/{specs,plans,deliveries} = 32M; lobes-cli, -orin-deciders, -orin-nano and -stt-m4a have near-identical spec/plan counts (55/68, 53/61, 53/61, 52/59)",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "item visibility + key scopes (core/keys.py, uploaders.py)",
+      "finding": "visibility is private|public per item, repodoc and version, defaulting private (store.py:44; repodocs re-push tightens never loosens, :269-273); keys have read/write/admin scopes plus a kinds allow-list (keys.py:45); spec:44 lists the 17 private repos",
+      "seeds": [
+        "c20"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "docs/operations/deploy.md + cli/_commands/deploy.py",
+      "finding": "deploy.md:55,68,106,123 store keys with 'grant set NAME - --hidden' and inject via 'grant run --inject'; deploy restart already injects GATEWAY_API_KEY from grant (deviation d2)",
+      "seeds": [
+        "c21"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / adjacent-systems lens: .devague/plans + .devague/deliveries JSON (devague 0.24.2)",
+      "finding": "devague records carry no commit or PR link: plan task keys are id/summary/origin/status/acceptance_criteria/deps/covers/instruction; eval-suites-and-radar delivery has 32 evidence/4 deviations/4 deltas with ~4 sha-like strings and 0 PR refs \u2014 the spec<->commit link must be derived from git by culture-rules, since the library never runs git (c16)",
+      "seeds": []
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / lifecycle lens: core/repodocs.py push/_recompute",
+      "finding": "push() only inserts versions and _recompute picks the newest default-branch version (repodocs.py:218-320); there is no delete path, so a deleted frame or abandoned draft stays 'current' forever",
+      "seeds": [
+        "c41"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / data-flow lens: repodocs current rule + decision c25",
+      "finding": "current is defined as newest default-branch version (repodocs.py:10-13, _recompute); a mutable working draft (c25) is a second 'latest' \u2014 which one readers see by default is undecided",
+      "seeds": []
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / failure-mode + observability lens: core/store.py write_blob, routes_status.py",
+      "finding": "push writes the local blob inside the request (repodocs.py:244) with no async machinery for side effects; c7 promises catch-up when S3 is down but nothing records what is pending, so drift would be invisible",
+      "seeds": [
+        "c42"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / security + reversibility lens: decisions c22, c23, c25, c28",
+      "finding": "the readable tree overwrites `<repo>/<path>@working` on every draft push (c7); without bucket versioning an overwrite is irreversible, and broad credentials could delete the private corpus",
+      "seeds": [
+        "c43"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / migration lens: core/models.py KINDS, core/feed.py, server/auth.py check()",
+      "finding": "feed rows require kind in KINDS (feed.py:41-66); check(principal,'write',kind) enforces a key's kinds allow-list (auth.py:182-191); infer_kind has no design prefix (repodocs.py:68-73) \u2014 a new kind means the documented items CHECK rebuild",
+      "seeds": [
+        "c44"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / data-flow lens: ~/git corpus probe (4,604 files) + routes_repodocs.py",
+      "finding": "binaries also live outside docs/design (innereye/docs/deliveries/assets/*.png, 1.3 MB; climate-cli/docs/design/*.png ~0.7 MB); the repodocs PushBody has no size limit while routes_library enforces UPLOAD_LIMITS (routes_library.py:236,287)",
+      "seeds": [
+        "c45"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / unstated-assumption lens: ~/git/*/.devague non-json/md probe",
+      "finding": "found mjolnir-agent/.devague/helpdump.py and golden.sh, plus loose md in culture-rules/.devague; 'all internal .devague sources' may or may not mean arbitrary files",
+      "seeds": []
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / operations lens: docs/evidence/t7-embedding-cost.md + core/indexer.py index_queue",
+      "finding": "gemma2-embed measured 13-22 chunks/s on the lobes gateway, which also went backend_unavailable for minutes (t7 lines 20-29); 4,604 corpus files arriving in one migration would compete with live item indexing",
+      "seeds": [
+        "c46"
+      ]
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / adjacent-systems lens: routes_rag.py + eval baseline (sets 1-8, #7)",
+      "finding": "the stored baseline (recall@5 0.89/0.78 books, 1.00 newspapers) assumes the item-only corpus; indexing ~4,600 repo docs into the same embeddings would change rankings for every set and break comparability with runs 1-22+",
+      "seeds": [
+        "c47"
+      ]
+    },
+    {
+      "id": "s30",
+      "surface": "challenge pass / overlooked-actors lens: deploy/compose.yaml mcp service, core/keys.py private flag",
+      "finding": "the MCP container has no server-side key; each client sends its own Bearer (compose.yaml:92), and private items are visible only to keys with private or to the uploader (library.py:26-28) \u2014 under all-private, most existing machine keys would see nothing",
+      "seeds": [
+        "c48"
+      ]
+    },
+    {
+      "id": "s31",
+      "surface": "challenge pass / reversibility + data-loss lens: decision c30, park v2, success signal c36",
+      "finding": "c36 samples 5 repos; once v2 removes files from GitHub, a document the mirror missed is lost with no second copy, so the removal needs its own complete check",
+      "seeds": [
+        "c49"
+      ]
+    },
+    {
+      "id": "s32",
+      "surface": "challenge pass / recovery lens: core/backup.py _referenced_blobs",
+      "finding": "backup collects blobs from every table with a sha256 column (backup.py:137) and excludes the feed; a drafts table with sha256 is covered for free, but only if it uses that column name",
+      "seeds": [
+        "c50"
+      ]
+    },
+    {
+      "id": "s33",
+      "surface": "challenge pass / concurrency lens: core/store.py WAL + busy_timeout",
+      "finding": "single SQLite writer with WAL and 30 s busy_timeout (store.py:195-198); culture-rules pushes serially per cycle, so no new locking is needed \u2014 residual risk only if pushes are parallelised during backfill",
+      "seeds": []
+    }
+  ],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "t3 (spec links core): tests were written before the implementation but never run against the missing module, so the red phase of TDD was not observed",
+      "skipped_check": "run the new tests and see them fail before implementing",
+      "refs": [
+        "plan task t3",
+        "devague-work/t3 e7fd71a"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c1",
+      "seam": "POST /api/repodocs -> GET /api/repodocs/{id}/content, MCP read tool, S3 mirror",
+      "behavior": "one fixture file of each kind (spec, plan, devague-record, design) pushed once is readable byte-identical through the API, the MCP tool and the S3 key",
+      "source_text": "culture-library holds every repo's devague work as it evolves \u2014 specs, plans, delivery summaries, designs and the raw .devague state (frames, plans, deliveries, reviews, questions) \u2014 browsable and searchable by repo/project and by domain, with the artifact bytes kept in an S3 bucket",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c3",
+      "seam": "core/repodocs.py RepoDocs.push / list / get",
+      "behavior": "existing repodoc tests pass unchanged: same (repo, path, commit) re-push is a no-op, a new commit adds a version, visibility only tightens",
+      "source_text": "Committed specs, plans and devague records already have a home: core/repodocs.py stores them as (repo, path) docs with one commit-pinned version per push (repodoc_versions), current = newest default-branch version, kind inferred from path prefix (docs/specs \u2192 spec, docs/plans \u2192 plan, docs/deliveries and .devague/ \u2192 devague-record), visibility failing closed",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c4",
+      "seam": "repodoc_versions UNIQUE(doc_id, commit_sha)",
+      "behavior": "pushing the same (repo, path, commit) twice returns 200 and adds no row; a new commit adds exactly one version row",
+      "source_text": "Reuse, don't replace, the repodocs identity and versioning model \u2014 (repo, path) identity, (repo, path, commit) dedup and the default-branch 'current' rule stay; the original spec's promises (docs/specs/2026-10-23-library-culture-dev.md lines 40-48) remain the contract this extends",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "POST /api/repodocs with commit=working",
+      "behavior": "two working pushes leave one draft holding the second content and zero new version rows; a later commit push adds one version and leaves the draft",
+      "source_text": "Work-in-progress state is captured, not only committed state: a version can be pushed for uncommitted/working-tree content (e.g. a frame mid-/think, a plan mid-run) and for the gitignored .devague/reviews and .devague/questions, without fabricating a commit sha \u2014 today every version requires commit_sha matching a 40/64-hex regex",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c5",
+      "seam": "working push for .devague/reviews/*.md and .devague/questions/*.md",
+      "behavior": "a gitignored review or question file pushed as working is stored and readable, with no commit sha required",
+      "source_text": "Work-in-progress state is captured, not only committed state: a version can be pushed for uncommitted/working-tree content (e.g. a frame mid-/think, a plan mid-run) and for the gitignored .devague/reviews and .devague/questions, without fabricating a commit sha \u2014 today every version requires commit_sha matching a 40/64-hex regex",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c6",
+      "seam": "GET /api/repodocs?domain=&project=&connected=",
+      "behavior": "domain=X returns only docs of projects declaring X; project=P&connected=1 adds only P's declared connections; an unknown domain returns an empty list, not an error",
+      "source_text": "Repo documents carry project and domain scope: the project is the repo, its domains come from the repo's culture.yaml (pushed by culture-rules), and projects can declare connections to other projects; documents can be listed and filtered by project (including connected projects) and by domain through the API, the MCP tools and the site",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c6",
+      "seam": "project metadata from push (culture.yaml domains/connected)",
+      "behavior": "a push carrying new domains for a repo replaces that project's domains; documents of the repo are re-scoped without re-pushing them",
+      "source_text": "Repo documents carry project and domain scope: the project is the repo, its domains come from the repo's culture.yaml (pushed by culture-rules), and projects can declare connections to other projects; documents can be listed and filtered by project (including connected projects) and by domain through the API, the MCP tools and the site",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c7",
+      "seam": "storage interface (core protocol) + S3 backend",
+      "behavior": "a version write produces object key <repo>/<path>@<commit> (draft: @working) with the pushed bytes and content-type; the local blob is still written first",
+      "source_text": "Every repo document version is written through to an AWS S3 bucket as a human-readable mirror tree \u2014 committed versions at `<repo>/<path>@<commit>`, the working draft at `<repo>/<path>@working` \u2014 behind a storage interface; the local content-addressed blob store stays the library's primary copy and backup source",
+      "origin": "llm",
+      "status": "rejected"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c8",
+      "seam": "tests/test_zero_deps.py + core/ imports",
+      "behavior": "base dependencies stay [], the S3 client package is in its own optional extra, importing culture_library.cli with it blocked succeeds, and no module under core/ imports a network library",
+      "source_text": "core/ stays stdlib-only and network-free and base dependencies stay empty: any S3 client is an optional extra imported lazily outside core/, behind a protocol core/ defines",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c9",
+      "seam": "repodoc push + reader for docs/design/**",
+      "behavior": "a PNG and an HTML prototype round-trip byte-identical; the site shows the image inline and the HTML as a downloadable/sandboxed view, never executed in the library origin",
+      "source_text": "Designs are a supported artifact: design docs with their binary assets (screenshots, HTML prototypes, images) \u2014 e.g. this repo's docs/design/library-site.md, prototype.html and 30 reference screenshots \u2014 can be stored and viewed, not only UTF-8 text",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c10",
+      "seam": "GET /api/search and POST /api/rag/retrieve with source=repodoc",
+      "behavior": "a phrase only in a spec body returns that doc with source=repodoc; a key without private access gets zero repodoc hits",
+      "source_text": "Specs, plans, deliveries and devague records are searchable (full-text and RAG) with the same visibility rule as items, closing issue #4",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c11",
+      "seam": "indexer text extractor for devague JSON",
+      "behavior": "a frame's indexed text contains every claim text and honesty condition text; no chunk consists only of JSON punctuation or keys",
+      "source_text": "Indexing devague JSON goes through a JSON-aware text extractor (claims, honesty conditions, tasks, risks as prose), not the raw pretty-printed JSON",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c12",
+      "seam": "mcp/tools.py repodoc tools <-> /api/repodocs routes",
+      "behavior": "a parity test fails if a repodoc route has no tool or a tool has no route",
+      "source_text": "Agents get MCP tools for repo documents (list by repo/project/domain, read current or a version, push, search) mirroring the HTTP routes one to one, like EVAL_ROUTES",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c13",
+      "seam": "GET /api/feed after a repodoc push",
+      "behavior": "each new version or draft overwrite appends exactly one event carrying repo, path and commit-or-working; a no-op re-push appends none",
+      "source_text": "A repo document change emits a feed event so subscribers (culture-rules, agents) can react to a spec or plan update",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c14",
+      "seam": "render/devague.py delivery + GET /api/repodocs/{id}/rendered",
+      "behavior": "every delivery JSON under ~/git top-level repos renders without the raw fallback; review/question markdown renders as Markdown",
+      "source_text": "Delivery JSON, reviews and questions render as readable pages like frames and plans do",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c15",
+      "seam": "site #projects / #domains views",
+      "behavior": "the site lists projects and domains; a project page groups each slug's spec, plan, delivery and frame, and shows connected projects",
+      "source_text": "The site gets a browse view by repo/project and by domain, with a spec's linked plan, delivery and frame shown together (joined on devague slug)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c16",
+      "seam": "culture_library package (grep/AST test)",
+      "behavior": "no subprocess, git or devague invocation exists anywhere in culture_library, including the new storage and S3 code",
+      "source_text": "The library only receives pushed content: nothing in culture_library runs git or devague; the collector that reads repos and .devague dirs lives outside this package (a culture-rules rule, a devague hook, or a separate client)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c18",
+      "seam": "push from a repo and from its worktree",
+      "behavior": "the same (remote, path, commit) from two checkout paths yields one doc and one version",
+      "source_text": "Git worktree copies (.worktrees.*/, *-worktrees/) never multiply documents: dedup stays on (repo, path, commit) and working-state pushes are keyed by repo, not by checkout path",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c20",
+      "seam": "repodoc visibility at push + S3 reads",
+      "behavior": "every pushed doc lands private whatever the request says; a read key without private access sees none; S3 bytes are only reachable through the library",
+      "source_text": "Migrated documents are private: every repo document pushed by culture-rules lands private regardless of the repo's GitHub visibility (decision c31), and the S3 bucket is never publicly readable \u2014 bytes reach readers only through the library's visibility check",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c36",
+      "seam": "sampling verifier (5 repos)",
+      "behavior": "for each sampled repo file the sha256 equals the library current/draft sha256 and the S3 object's sha256; the report lists 0 missing and 0 mismatched",
+      "source_text": "For at least 5 sampled repos, 100% of committed docs/{specs,plans,deliveries}/*.md, docs/design/** and .devague/** files pushed by culture-rules appear in the library and in S3 with sha256 matching the repo file",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c37",
+      "seam": "culture-rules cycle -> draft overwrite",
+      "behavior": "a frame edit shows up as the draft within one cycle; repodoc_versions row count for that doc is unchanged",
+      "source_text": "A working-draft edit to a frame reaches the library within 1 culture-rules cycle and replaces the previous draft without adding a version (versions count unchanged, draft sha256 updated)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o22",
+      "claim_id": "c38",
+      "seam": "filter API, MCP tool and site with 3 projects in 2 domains",
+      "behavior": "each filter returns exactly the expected document set in all three surfaces, and 0 documents from other repos",
+      "source_text": "Filtering by one domain or one project (with connected projects) returns exactly the documents of the repos declaring it \u2014 0 from others \u2014 in the API, MCP and site",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o23",
+      "claim_id": "c39",
+      "seam": "culture-rules sibling issue (communicate skill)",
+      "behavior": "the filed issue links this spec and states endpoints, payload fields (repo, path, commit-or-working, bytes, domains, connected, spec links, tombstones), worktree exclusion and the all-private rule",
+      "source_text": "culture-rules receives the push contract as a sibling-repo issue (via the communicate skill): endpoints, payload (repo, path, commit or working, content bytes, culture.yaml domains/connected), worktree exclusion and the all-private rule",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o24",
+      "claim_id": "c40",
+      "seam": "push payload spec links + spec view",
+      "behavior": "a delivered spec shows its PR and merge commit; after a later commit renames an implementing file, the spec's code links show the new path; a Spec: trailer commit is linked even if it touches files outside the merge diff",
+      "source_text": "A spec is tied to the repo and commits that realize it: first to the merge that delivered it (repo, PR, merge commit), and later to the code that currently represents it \u2014 the link follows the implementing code forward as it changes, rather than freezing at the merge (operator, 2026-10-30)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o25",
+      "claim_id": "c41",
+      "seam": "tombstone push",
+      "behavior": "a tombstone hides the doc from current listings at that commit, keeps its history readable, discards its draft, and deletes nothing in S3",
+      "source_text": "Deletions propagate: when a file disappears from a repo (git rm, a deleted frame, a never-committed draft discarded), culture-rules sends a tombstone; the library marks the doc removed at that commit (history kept, hidden from current lists) and drops a stale working draft \u2014 nothing is deleted from S3",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o26",
+      "claim_id": "c42",
+      "seam": "S3 outbox table + reconcile verb + /api/status",
+      "behavior": "with the S3 backend failing, pushes return 2xx and the outbox grows; /api/status reports pending count and oldest age; after recovery a reconcile leaves 0 pending",
+      "source_text": "S3 mirroring runs from a durable outbox table (doc version, key, state, attempts, last error) drained outside the push request; a reconcile verb re-mirrors anything missing, and /api/status reports mirror lag and failures",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o27",
+      "claim_id": "c43",
+      "seam": "deploy check against the AWS bucket",
+      "behavior": "the check fails if Block Public Access, default encryption or versioning is off, or the library's credentials can call DeleteObject",
+      "source_text": "The bucket is private and append-only from the library's side: Block Public Access on, SSE encryption on, S3 Versioning on (so @working overwrites keep prior bytes), and the library's IAM credentials allow only PutObject/GetObject/ListBucket on that one bucket \u2014 no DeleteObject",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o28",
+      "claim_id": "c44",
+      "seam": "items kind CHECK rebuild + key kinds allow-list",
+      "behavior": "first open after upgrade accepts kind design with row counts unchanged; the culture-rules key can write spec, plan, devague-record and design and is refused book",
+      "source_text": "A design kind is added (docs/design/** and binary assets under the other prefixes), widening KINDS \u2014 so the items kind CHECK rebuild runs once on first open \u2014 and the culture-rules push key is a write key scoped to kinds spec, plan, devague-record, design",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o29",
+      "claim_id": "c45",
+      "seam": "POST /api/repodocs size limit",
+      "behavior": "a 1.3 MB binary round-trips; a body over the configured limit gets 413 with a structured code and stores nothing",
+      "source_text": "Repo document pushes accept binary content (multipart or base64) up to a configured size limit like UPLOAD_LIMITS, refusing larger files with a structured 413; the largest file in the corpus today is 1.3 MB",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o30",
+      "claim_id": "c46",
+      "seam": "index_queue priority during backfill",
+      "behavior": "with 4,000+ repodocs queued, a newly uploaded library item is indexed before them; a gateway outage pauses and then resumes the backfill without losing queued work",
+      "source_text": "The initial backfill indexes through the existing index queue at low priority so it never starves item indexing or the gateway: about 4,600 files at roughly 13-22 chunks/s for gemma2-embed is tens of minutes of embedding, not one burst",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o31",
+      "claim_id": "c47",
+      "seam": "POST /api/rag/retrieve default + eval run config",
+      "behavior": "without a source filter, retrieval returns library items only; eval runs store the source filter; eval set 1 retrieves the same ids before and after the corpus is indexed",
+      "source_text": "Adding repo documents to search does not move the existing eval baseline: /api/rag/retrieve keeps returning library items only unless a caller opts into repodocs (source filter), and eval runs record that filter in their retrieval config",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o32",
+      "claim_id": "c48",
+      "seam": "API keys + docs/operations runbook",
+      "behavior": "a read key without private access lists 0 migrated docs; a private-access key lists them all; the runbook names each client's key and whether it has private access",
+      "source_text": "Agents that should read the migrated corpus hold keys with private access (all docs are private, c31); a shared read-only key without private access sees none of it, and this is documented per client (Gwen, xteink, culture-rules, mesh MCP)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o33",
+      "claim_id": "c49",
+      "seam": "v2 follow-up plan",
+      "behavior": "the GitHub-removal plan includes a full-corpus verify task (every repo, every file) that must pass before any file is removed",
+      "source_text": "Removing documents from GitHub (follow-up v2) is gated on a full-corpus verification across every repo \u2014 sha256 of each repo file equals library and S3 \u2014 not on the 5-repo sample of c36",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o34",
+      "claim_id": "c50",
+      "seam": "culture-library backup run / verify / restore",
+      "behavior": "backup covers draft blobs and the outbox; restoring onto an empty data dir restores drafts and pending outbox rows with S3 unreachable",
+      "source_text": "S3 is a mirror, not the backup: culture-library backup keeps working from the local blob store, now also covering working drafts and the outbox (any new table with sha256 is picked up automatically)",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o35",
+      "claim_id": "c7",
+      "seam": "storage interface (core protocol) + S3 backend",
+      "behavior": "a version write produces object key `<repo>/<path>@<commit>` (draft: `@working`) with the pushed bytes and content-type; the local blob is still written first",
+      "source_text": "Every repo document version is written through to an AWS S3 bucket as a human-readable mirror tree \u2014 committed versions at `<repo>/<path>@<commit>`, the working draft at `<repo>/<path>@working` \u2014 behind a storage interface; the local content-addressed blob store stays the library's primary copy and backup source",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
+}

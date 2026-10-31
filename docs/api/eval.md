@@ -407,6 +407,9 @@ item the key cannot see, and its latency has no HTTP in it (`config.latency_sour
 running at a time. A server restart closes a running run as `partial` (or `failed` when no
 question was done) and records `config.closed_reason`.
 
+Every stored run records `config.corpora`, always `["item"]`: eval retrieves from library
+items only, so repo documents indexed for search never move a baseline (deviation d16).
+
 A judged suite (`judged`) is refused with 422 `needs_judge`: use the CLI, see
 [What needs the CLI](#what-needs-the-cli-or-the-python-client).
 

@@ -12,6 +12,8 @@
 import { $, KINDS, S, api, apiText, chip, fill, fmtSize, h, kc, repoShort } from './app.js';
 import { parseChecklist } from './checklist.js';
 import { linkedNodes } from './links.js';
+import { projectsHash } from './hashroute.js';
+import { chooseView, designMode, markdownBlocks, prototypeSandbox, removedNotice, specLinksModel } from './reader-model.js';
 import * as search from './search.js';
 import * as send from './send.js';
 
@@ -277,35 +279,107 @@ function frameBody(f) {
 function renderDoc(i, art, my) {
   const where = h('span', {}, `${i.path.split('/').slice(0, -1).join('/') || '/'}, ${dayMonth(i.at.slice(0, 10))}`);
   const title = h('h2', { class: 'title', dir: 'auto' }, i.heading || i.title);
+  const bar = h('div', { class: 'docbar' });
   const prose = h('div', { class: 'prose', dir: 'auto' }, loading());
-  fill(art, head(i, [h('span', {}, repoShort(i.repo)), where]), title, prose);
-  const done = kids => { if (my === token) fill(prose, kids); };
-  const fail = e => done(failed(e));
+  fill(art, head(i, [h('span', {}, repoShort(i.repo)), where]), title, bar, prose);
   const setTitle = t => { if (t && my === token) { title.textContent = t; i.heading = t; } };
   const setWhere = status => { if (status && my === token) where.textContent = `${i.path.split('/').slice(0, -1).join('/')}, ${status}`; };
-  docBody(i, setTitle, setWhere).then(done).catch(fail);
+  // choice: null (the default view), 'working' or 'current'; a toggle click reloads with it.
+  const load = choice => {
+    api(`/api/repodocs/${i.id}`).then(async meta => {
+      const view = chooseView(meta, choice);
+      const kids = await docBody(i, meta, view, setTitle, setWhere);
+      if (my !== token) return;
+      fill(bar, docBar(meta, view, load, i.repo));
+      fill(prose, kids);
+    }).catch(e => { if (my === token) fill(prose, failed(e)); });
+  };
+  load(null);
+}
+/** The strip above a repo doc: removed notice, the working badge and its switch, spec links. */
+function docBar(meta, view, load, repo) {
+  const out = [];
+  if (repo) out.push(h('a', { class: 'projlink', href: projectsHash(repo), 'data-project-link': repo }, `Project: ${repoShort(repo)}`));
+  const gone = removedNotice(meta.removed);
+  if (gone) out.push(h('p', { class: 'removed', role: 'status', dir: 'auto' }, gone));
+  if (view.badge || view.toggle) {
+    const kids = [];
+    if (view.badge) kids.push(h('span', { class: 'chip working', title: 'Not committed yet: the version in the working tree' }, 'working'));
+    if (view.toggle) {
+      const btn = h('button', { class: 'btn', type: 'button', 'data-doc-view': view.toggle },
+        view.toggle === 'current' ? 'View the committed version' : 'View the working draft');
+      btn.addEventListener('click', () => load(view.toggle));
+      kids.push(btn);
+    }
+    out.push(h('div', { class: 'viewbar' }, kids));
+  }
+  const sl = specLinksModel(meta.spec_links);
+  if (sl) out.push(specLinksBox(sl));
+  return out;
+}
+/** A spec's PR, merge commit and current code paths, with the commit they were computed at. */
+function specLinksBox(sl) {
+  const rows = [];
+  if (sl.pr) rows.push(h('div', {}, h('dt', {}, 'PR'), h('dd', {}, sl.pr.href
+    ? h('a', { href: sl.pr.href, target: '_blank', rel: 'noopener noreferrer' }, sl.pr.label) : sl.pr.label)));
+  if (sl.merge) rows.push(h('div', {}, h('dt', {}, 'Merge commit'), h('dd', {}, h('code', {}, sl.merge))));
+  if (sl.paths.length) {
+    rows.push(h('div', {}, h('dt', {}, `Code paths, ${sl.paths.length}`),
+      h('dd', {}, h('ul', { class: 'paths' }, sl.paths.map(p => h('li', {}, h('code', { dir: 'auto' }, p)))),
+        sl.computed ? h('span', { class: 'asof' }, sl.computed) : null)));
+  }
+  return h('dl', { class: 'speclinks' }, rows);
 }
 /** A devague frame (claims, no tasks, schema 6 or older) is drawn here from its JSON. */
 const isFrame = data => data && typeof data === 'object' && Array.isArray(data.claims) && !Array.isArray(data.tasks) && (data.schema_version ?? 0) <= 6;
+/** ``?version=...`` for the shown version, or '' for the server's default (current). */
+const versionQuery = view => view.version ? `?version=${encodeURIComponent(view.version)}` : '';
 /** A JSON repo doc's parsed content, or null (not JSON, or it does not parse). */
-async function docJson(i) {
+async function docJson(i, view) {
   if (!/\.json$/i.test(i.path)) return null;
-  const t = await apiText(`/api/repodocs/${i.id}/content`);
+  const t = await apiText(`/api/repodocs/${i.id}/content${versionQuery(view)}`);
   try {
     return JSON.parse(t);
   } catch (e) {
     return null; // not valid JSON: fall back to the server's rendering below
   }
 }
-/** The reader body for a repo doc: a frame from its JSON, else the server's rendering. */
-async function docBody(i, setTitle, setWhere) {
-  const data = await docJson(i);
+/** Inline tokens from reader-model.js as text nodes, <b> and <code>: never markup from the source. */
+const INLINE_TAGS = { b: 'b', code: 'code' };
+const inlineNodes = toks => toks.map(t => (INLINE_TAGS[t.t] ? h(INLINE_TAGS[t.t], {}, t.s) : hl(t.s)));
+/** Reviews and questions: Markdown blocks as DOM built from text nodes only. */
+function markdownNodes(md) {
+  return markdownBlocks(md).map(b => {
+    if (b.type === 'h') return h(`h${Math.min(6, b.level + 1)}`, { class: 'sh', dir: 'auto' }, inlineNodes(b.inline));
+    if (b.type === 'p') return h('p', { class: 'para', dir: 'auto' }, inlineNodes(b.inline));
+    if (b.type === 'quote') return h('blockquote', { class: 'para', dir: 'auto' }, inlineNodes(b.inline));
+    if (b.type === 'code') return h('pre', { class: 'text', dir: 'auto' }, b.text);
+    return h(b.type, {}, b.items.map(it => h('li', { class: 'para', dir: 'auto' }, inlineNodes(it))));
+  });
+}
+/** A design: an image inline, an HTML prototype sandboxed (srcdoc, no scripts, never same-origin). */
+async function designBody(i, view) {
+  const src = `/api/repodocs/${i.id}/content${versionQuery(view)}`;
+  const download = h('a', { class: 'btn', href: src, download: i.path.split('/').pop() }, 'Download the file');
+  const mode = designMode(i.path);
+  if (mode === 'image') return [h('img', { class: 'design-img', src, alt: i.heading || i.title }), h('p', { class: 'dl' }, download)];
+  if (mode === 'html') {
+    const html = await apiText(src);
+    return [h('iframe', { class: 'design-frame', sandbox: prototypeSandbox(), srcdoc: html, title: i.heading || i.title, loading: 'lazy' }),
+      note('This prototype runs sandboxed: no scripts, and it cannot reach the library.'), h('p', { class: 'dl' }, download)];
+  }
+  return [note('This file cannot be shown here.'), h('p', { class: 'dl' }, download)];
+}
+/** The reader body for a repo doc: a design, a frame from its JSON, else the server's rendering. */
+async function docBody(i, meta, view, setTitle, setWhere) {
+  if (i.apiKind === 'design') return designBody(i, view);
+  const data = await docJson(i, view);
   if (isFrame(data)) {
     setTitle(data.title || data.slug);
     setWhere(data.status);
     return frameBody(data);
   }
-  const [r, meta] = await Promise.all([api(`/api/repodocs/${i.id}/rendered`), api(`/api/repodocs/${i.id}`)]);
+  const r = await api(`/api/repodocs/${i.id}/rendered${versionQuery(view)}`);
   setTitle(r.title);
   if (r.format === 'html') {
     const box = h('div', { class: 'fragment' });
@@ -315,6 +389,7 @@ async function docBody(i, setTitle, setWhere) {
     if (inner) inner.remove();
     return [box, versionNote(meta.versions)];
   }
+  if (r.format === 'markdown') return [h('div', { class: 'md' }, markdownNodes(r.text)), versionNote(meta.versions)];
   const p = parseSpec(r.text);
   if (/\.md$/i.test(i.path) && isSpec(p)) return specBody(p, meta.versions);
   return [h('pre', { class: 'text', dir: 'auto' }, hl(r.text)), versionNote(meta.versions)];

@@ -1,0 +1,38 @@
+/* Browse by project and by domain (plan task t20). Scoped to .projects and prefixed pj-;
+   colors are the site tokens from styles.css. Logical properties only (claim c39). */
+.projects { padding-block: 0 56px; }
+.pj-crumb { padding-top: 22px; font-size: 13.5px; color: var(--ink-2); }
+.pj-crumb a, .pj-card h2 a, .pj-doc a { color: var(--accent); text-decoration: none; }
+.pj-crumb a:hover, .pj-card h2 a:hover, .pj-doc a:hover { text-decoration: underline; }
+.pj-intro { padding-block: 36px 18px; }
+.pj-crumb + .pj-intro { padding-top: 6px; }
+.pj-title { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.1; font-weight: 900; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.pj-intro p { margin: 10px 0 0; color: var(--ink-2); font-size: 17px; max-width: 66ch; overflow-wrap: anywhere; }
+.pj-domains { color: var(--ink-2); font-size: 14px; margin: 0 0 4px; }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.pj-tile { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--ink); text-decoration: none; }
+.pj-tile:hover, .pj-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pj-name { font-size: 19px; font-weight: 900; overflow-wrap: anywhere; }
+.pj-repo { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.pj-meta { font-size: 13.5px; color: var(--ink-2); }
+.pj-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.pj-chip { font-size: 12.5px; font-weight: 700; padding: 2px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink); text-decoration: none; }
+a.pj-chip:hover { outline: 1px solid var(--accent); }
+.pj-card { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 20px 22px; margin-top: 16px; min-width: 0; overflow-wrap: anywhere; }
+.pj-card > h2, .pj-head h2 { font-size: 19px; }
+.pj-head { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.pj-group { margin-top: 14px; }
+.pj-slug { font-size: 15px; margin: 0 0 6px; }
+.pj-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pj-doc { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 14px; }
+.pj-role { flex: none; min-inline-size: 7.5em; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+.pj-foot { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+.projects .empty { padding: 12px 0; }
+
+/* Phone: the header keeps its original tabs; Projects and Domains are reached from a doc's
+   "Project:" link (reader) so the 400px header does not scroll sideways (deviation d23). */
+@media (max-width: 720px) { .tabs button.tab-wide { display: none; } }
+.projlink { justify-self: start; font-size: 14px; font-weight: 700; color: var(--accent); text-decoration: none; }
+.projlink:hover, .projlink:focus-visible { text-decoration: underline; }
+/* Desktop has the Projects tab, so the reader's doc bar stays as it was there. */
+@media (min-width: 721px) { .projlink, .docbar:has(> .projlink:only-child) { display: none; } }

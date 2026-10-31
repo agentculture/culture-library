@@ -17,6 +17,7 @@
 import * as evals from './evals.js';
 import { evalsHash, parseHash } from './hashroute.js';
 import * as home from './home.js';
+import * as projects from './projects.js';
 import * as reader from './reader.js';
 import * as search from './search.js';
 import * as send from './send.js';
@@ -302,14 +303,16 @@ export function setPane(open) {
 }
 
 /* ---------- views ---------- */
-const VIEWS = ['home', 'read', 'state', 'evals'];
+const VIEWS = ['home', 'read', 'state', 'evals', 'projects'];
 /** Show one view; ``page`` picks the Evals page ('overview', 'radar' or 'compare') and
  * ``params`` is that page's route parameters (the hash after "?"). */
 export function show(view, page = 'overview', params = '') {
-  for (const v of VIEWS) $('view-' + v).hidden = v !== view;
+  const section = view === 'domains' ? 'projects' : view; // #domains shares the projects section
+  for (const v of VIEWS) $('view-' + v).hidden = v !== section;
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === (view === 'read' ? 'home' : view))));
   if (view === 'state') void siteState.draw();
   if (view === 'evals') evals.show(page, params);
+  if (view === 'projects' || view === 'domains') void projects.show(view, page === 'overview' ? null : page);
 }
 /** Open an Evals page and give it its canonical hash (an unknown #evals/... is the overview). */
 export function openEvals(page = 'overview', params = '') {
@@ -342,6 +345,7 @@ function route() {
   const r = parseHash(location.hash, k => Boolean(byKey(k)));
   if (r.view === 'state') return show('state');
   if (r.view === 'evals') return openEvals(r.page, r.params);
+  if (r.view === 'projects' || r.view === 'domains') { S.current = null; return show(r.view, r.repo ?? r.domain ?? null); }
   if (r.view === 'read') return openItem(r.key);
   S.current = null; show('home'); home.drawHome();
 }
@@ -367,6 +371,7 @@ document.addEventListener('click', e => {
 });
 function tab(view) {
   if (view === 'state') { show('state'); history.replaceState(null, '', '#state'); window.scrollTo({ top: 0 }); }
+  else if (view === 'projects' || view === 'domains') { S.current = null; history.replaceState(null, '', '#' + view); show(view, null); window.scrollTo({ top: 0 }); }
   else if (view === 'evals') { openEvals(); window.scrollTo({ top: 0 }); }
   else goHome();
 }

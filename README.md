@@ -128,7 +128,9 @@ new noun groups on the same contract.
 The library ingests, indexes, searches and serves the catalog at
 library.culture.dev today. These are still open:
 
-- search over repo documents (#4);
+- deploy the devague-work branch: repo-document search (#4), working drafts,
+  project and domain browsing, and the private S3 mirror are built but not
+  live, and wait on culture-rules#124 to push the repos' devague work;
 - faster passage retrieval, so Gwen can recall from the library on a live
   turn (#25);
 - in-progress items that grow as culture-rules writes them (#22);

@@ -32,7 +32,16 @@ def seeded(env):
 def test_rag_retrieve_is_specced(env):
     spec = next(s for s in tools.tool_specs() if s["name"] == "rag_retrieve")
     props = spec["inputSchema"]["properties"]
-    assert set(props) == {"query", "k", "mode", "kind", "item_ids", "rerank", "candidates"}
+    assert set(props) == {
+        "query",
+        "k",
+        "mode",
+        "kind",
+        "item_ids",
+        "rerank",
+        "candidates",
+        "corpora",
+    }
     assert spec["inputSchema"]["required"] == ["query"]
     assert spec["inputSchema"]["additionalProperties"] is False
     assert props["mode"]["enum"] == ["semantic", "hybrid"]

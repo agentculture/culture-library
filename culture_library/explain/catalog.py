@@ -236,6 +236,34 @@ Back up the library to a second location and prove it restores.
 - `backup overview` — describe this noun.
 """
 
+_MIRROR = """\
+# culture-library mirror
+
+Inspect and reconcile the S3 mirror of repo documents. Every pushed version (and changed
+working draft) queues a row in the `mirror_outbox` table; the server's mirror worker uploads
+it to `<repo>/<path>@<commit>` (`@working` for drafts), retrying with backoff while the
+bucket is unreachable. Pushes never fail because the mirror is down.
+
+- `mirror status [--data-dir D]` — the outbox backlog: `pending`, `parked`, `done`,
+  `oldest_pending_age_s`, the newest `last_error` among pending and parked rows, and whether a
+  backend is configured (`CULTURE_LIBRARY_S3_BUCKET`). Opens the store directly, like `backup`.
+- `mirror reconcile [--data-dir D]` — compare every repo-document version and draft with the
+  bucket (`head`) and queue the keys that are missing or hold different bytes (parked rows
+  included, attempts reset); reports
+  `enqueued` and the resulting `pending`. Needs `CULTURE_LIBRARY_S3_BUCKET` (plus `_REGION`,
+  `_PREFIX` and AWS credentials) and boto3 from the `[s3]` extra; without them it exits 2.
+  It only queues rows and never deletes objects; the server's worker uploads them.
+- `mirror overview` — describe this noun.
+
+The server: with `CULTURE_LIBRARY_S3_BUCKET` set, the worker drains every
+`CULTURE_LIBRARY_MIRROR_INTERVAL_S` seconds (default 5), backing off from
+`CULTURE_LIBRARY_MIRROR_BACKOFF_S` (5) up to `CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S` (300) while
+a pass uploads nothing and still has rows to retry. A row that fails 8 times is parked (state
+`failed`) so it stops delaying the healthy ones. Without a bucket it does nothing.
+`GET /api/status` reports a `mirror` block
+`{enabled, pending, parked, oldest_pending_age_s, last_error}`.
+"""
+
 _DEPLOY = """\
 # culture-library deploy
 
@@ -257,6 +285,18 @@ runbook's "Restart the live stack" (`docs/operations/deploy.md`).
   `/api/health`, and list the send targets the new container loads. `--build` rebuilds the
   image first; `--dry-run` prints the commands and runs nothing. A schema change still needs
   the upgrade runbook (tag, back up, then restart).
+  When the env file sets `CULTURE_LIBRARY_S3_BUCKET`, the same `grant run` also injects
+  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (`--aws-key-id-secret`, default
+  `CULTURE_LIBRARY_AWS_ACCESS_KEY_ID`; `--aws-secret-key-secret`, default
+  `CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY`; optional `--aws-session-secret`;
+  `--no-aws-credentials` skips them). A placeholder `CULTURE_LIBRARY_S3_*` value, or AWS
+  credentials in the env file, are refused.
+- `deploy check-bucket [--bucket B] [--region R]` — audit the S3 mirror bucket (needs the
+  `[s3]` extra): Block Public Access (all four flags), a default encryption rule, versioning
+  Enabled, and that the configured credentials cannot `s3:DeleteObject` (IAM policy
+  simulation; if simulation is not permitted the check is `unknown` and counts as unhealthy).
+  Emits `{healthy, bucket, checks: [{id, passed, status, severity, message, remediation}]}`;
+  exit 1 when unhealthy.
 - `deploy overview` — describe this noun.
 """
 
@@ -289,8 +329,13 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("backup", "overview"): _BACKUP,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
+    ("mirror",): _MIRROR,
+    ("mirror", "status"): _MIRROR,
+    ("mirror", "reconcile"): _MIRROR,
+    ("mirror", "overview"): _MIRROR,
     ("deploy",): _DEPLOY,
     ("deploy", "restart"): _DEPLOY,
+    ("deploy", "check-bucket"): _DEPLOY,
     ("deploy", "overview"): _DEPLOY,
     ("server",): _SERVER,
     ("server", "serve"): _SERVER,

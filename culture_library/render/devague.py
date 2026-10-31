@@ -15,6 +15,7 @@ from html import escape
 from typing import Any, Iterable
 
 MAX_SCHEMA = 6
+_DELIVERY_KEYS = ("deviations", "evidence", "deltas")
 
 
 def _e(value: Any) -> str:
@@ -75,22 +76,24 @@ def raw_view(data: Any, notice: str) -> str:
 
 
 def detect_kind(data: Any) -> str | None:
-    """Return ``"plan"``, ``"frame"`` or ``None`` for an unrecognised dict."""
+    """Return ``"plan"``, ``"frame"``, ``"delivery"`` or ``None`` for an unrecognised dict."""
     if not isinstance(data, dict):
         return None
     if "tasks" in data or "targets" in data:
         return "plan"
     if "claims" in data:
         return "frame"
+    if "plan_slug" in data and any(k in data for k in _DELIVERY_KEYS):
+        return "delivery"
     return None
 
 
 def _header(data: dict, kind: str) -> str:
-    title = data.get("title") or data.get("slug") or kind
+    title = data.get("title") or data.get("slug") or data.get("plan_slug") or kind
     meta = [
         _badge("kind", kind),
         _badge("status", data.get("status")),
-        _badge("slug", data.get("slug")),
+        _badge("slug", data.get("slug") or data.get("plan_slug")),
         _badge("schema", f"schema {data['schema_version']}" if "schema_version" in data else None),
         _badge("created", data.get("created")),
         _badge("updated", data.get("updated")),
@@ -283,6 +286,46 @@ def _risks(data: dict) -> str:
     return _section("risks", "Risks", _list("dv-risk-list", items))
 
 
+def _deviations(data: dict) -> str:
+    items = []
+    for d in _dicts(data.get("deviations")):
+        items.append(
+            f'<span class="dv-id">{_e(d.get("id"))}</span> {_badge("status", d.get("status"))} '
+            f'{_badge("classification", d.get("classification"))} {_e(d.get("what"))}'
+            + _para("reason", "Reason", d.get("reason"))
+            + _para("task-ref", "Task", d.get("task_ref"))
+            + _para("affects", "Affects", ", ".join(_strs(d.get("affects"))))
+        )
+    return _section("deviations", "Deviations", _list("dv-deviation-list", items))
+
+
+def _evidence(data: dict) -> str:
+    items = []
+    for e in _dicts(data.get("evidence")):
+        items.append(
+            f'<span class="dv-id">{_e(e.get("id"))}</span> '
+            f'{_badge("strength", e.get("strength"))} {_badge("outcome", e.get("outcome"))} '
+            f'{_badge("status", e.get("status"))} {_badge("type", e.get("evidence_type"))} '
+            f'{_e(e.get("behavior_text"))}'
+            + _para("obligation-ref", "Obligation", e.get("obligation_ref"))
+            + _para("test-ref", "Test", e.get("test_ref"))
+            + _para("strength-basis", "Strength basis", e.get("strength_basis"))
+        )
+    return _section("evidence", "Evidence", _list("dv-evidence-list", items))
+
+
+def _deltas(data: dict) -> str:
+    items = []
+    for b in _dicts(data.get("deltas")):
+        items.append(
+            f'<span class="dv-id">{_e(b.get("id"))}</span> {_badge("kind", b.get("kind"))} '
+            f'{_badge("status", b.get("status"))} {_e(b.get("behavior_text"))}'
+            + _para("caused-by", "Caused by", ", ".join(_strs(b.get("caused_by"))))
+            + _para("evidence-refs", "Evidence", ", ".join(_strs(b.get("evidence_refs"))))
+        )
+    return _section("deltas", "Behavioral deltas", _list("dv-delta-list", items))
+
+
 def render(data: Any) -> str:
     """Render a parsed devague frame or plan to an HTML fragment."""
     if not isinstance(data, dict):
@@ -299,9 +342,13 @@ def render(data: Any) -> str:
     kind = detect_kind(data)
     if kind is None:
         return raw_view(
-            data, "Unrecognised devague shape (no claims or tasks); showing the raw file."
+            data,
+            "Unrecognised devague shape (no claims, tasks or delivery records); "
+            "showing the raw file.",
         )
-    if kind == "plan":
+    if kind == "delivery":
+        sections = [_deviations(data), _evidence(data), _deltas(data)]
+    elif kind == "plan":
         sections = [_targets(data), _waves(data), _risks(data), _obligations(data)]
     else:
         sections = [

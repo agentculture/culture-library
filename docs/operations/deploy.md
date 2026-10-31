@@ -222,6 +222,9 @@ grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
   --profile remote up -d --no-deps library mcp
 ```
 
+With an S3 bucket in the env file, the command also injects the AWS credentials
+(see "S3 mirror").
+
 Then check it came back with its settings:
 
 ```bash
@@ -302,7 +305,145 @@ Rollback: run `deploy restart --no-gateway-key` (and drop the `LOBES_*` lines fr
 `live.env` if you like). Existing embeddings stay in the database but are unused, and
 full-text search keeps working; a gateway outage alone also degrades to full-text.
 
+## S3 mirror
+
+The library can mirror repo documents (kinds `spec`, `plan`, `devague-record`, `design`) to
+an S3 bucket in the operator's own AWS account. The mirror is off while
+`CULTURE_LIBRARY_S3_BUCKET` is unset. The documents are private, so the bucket must be too.
+
+### Create the bucket
+
+Create it in your private AWS account (not a shared one), with Block Public Access, default
+encryption and versioning on:
+
+```bash
+aws s3api create-bucket --bucket <bucket> --region <region> \
+  --create-bucket-configuration LocationConstraint=<region>
+aws s3api put-public-access-block --bucket <bucket> --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-encryption --bucket <bucket> --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-bucket-versioning --bucket <bucket> --versioning-configuration Status=Enabled
+```
+
+### The IAM policy: put, get and list only
+
+Attach this to the IAM user (or role) whose access key the library uses. It carries no
+delete permission, so a bug or a leaked key cannot remove mirrored objects (versioning keeps
+overwritten ones):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::<bucket>/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::<bucket>"
+    }
+  ]
+}
+```
+
+### Settings and grant names
+
+Non-secret settings go in `live.env` (single-quoted like the rest):
+
+```bash
+CULTURE_LIBRARY_S3_BUCKET=<bucket>
+CULTURE_LIBRARY_S3_REGION=<region>      # optional
+CULTURE_LIBRARY_S3_PREFIX=<prefix>      # optional key prefix
+```
+
+Optional tuning: `CULTURE_LIBRARY_MIRROR_INTERVAL_S` (default 5),
+`CULTURE_LIBRARY_MIRROR_BACKOFF_S` (5), `CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S` (300) and
+`CULTURE_LIBRARY_REPODOC_MAX_BYTES` (16 MiB per pushed document). `deploy restart` refuses a
+placeholder such as `<bucket>` or `...` in any of the three S3 settings.
+
+The AWS credentials are secrets and live in `grant`, never in `live.env` (an env file that
+sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or `AWS_SESSION_TOKEN` is refused). Store
+them under these names:
+
+| grant secret | injected as | flag to rename it |
+|--------------|-------------|-------------------|
+| `CULTURE_LIBRARY_AWS_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | `--aws-key-id-secret` |
+| `CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | `--aws-secret-key-secret` |
+| (none by default) | `AWS_SESSION_TOKEN` | `--aws-session-secret` |
+
+```bash
+grant set CULTURE_LIBRARY_AWS_ACCESS_KEY_ID - --hidden
+grant set CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY - --hidden
+```
+
+When `CULTURE_LIBRARY_S3_BUCKET` is set, `deploy restart` checks both secrets exist and adds
+`--inject AWS_ACCESS_KEY_ID=... --inject AWS_SECRET_ACCESS_KEY=...` to the `grant run`
+command. Without a bucket nothing is injected; `--no-aws-credentials` skips them (the mirror
+then cannot upload).
+
+### Check the bucket
+
+```bash
+uv run culture-library deploy check-bucket            # bucket from $CULTURE_LIBRARY_S3_BUCKET
+uv run culture-library deploy check-bucket --bucket <bucket> --json
+```
+
+It needs boto3 (`pip install 'culture-library[s3]'`) and AWS credentials in the shell, and
+exits 1 unless all four checks pass: `public_access_block` (all four flags on),
+`default_encryption` (a rule is present), `versioning` (`Enabled`), and
+`delete_object_denied` (IAM policy simulation of `s3:DeleteObject` for the calling
+identity must come back `implicitDeny` or `explicitDeny`). If your identity may not call
+`iam:SimulatePrincipalPolicy` that last check is reported `unknown`, which counts as
+unhealthy: run it with an identity that can, or verify the policy by hand. Simulation does
+not read the bucket policy, so review that too.
+
+### Watching the mirror
+
+```bash
+uv run culture-library mirror status      # outbox backlog, parked rows, oldest pending age, newest error
+uv run culture-library mirror reconcile   # queue repo-doc keys missing or stale in the bucket
+```
+
+`GET /api/status` carries the same `mirror` block. A row whose upload fails 8 times
+(`core.mirror.MAX_ATTEMPTS`; a missing local blob, say) is **parked**: it leaves the pending
+set, shows as `parked` with its `last_error`, and no longer holds the worker in backoff. Fix the
+cause, then run `mirror reconcile`: it re-queues every parked key that is still missing or
+stale in the bucket, with its attempts reset. Nothing is deleted, here or in the bucket.
+
+## Machine client keys
+
+Every document migrated from xteink and every pushed repo document is `private` (decision
+c31), so only a key with private access (`--private`, or an admin key) sees them. Mint one
+key per client and list them by id.
+
+| Client | Key | Scope and kinds | Private access |
+|--------|-----|-----------------|----------------|
+| Gwen | read key | `read` | Yes, to answer from private documents |
+| xteink | reader and uploader key | `read`, plus `write` on the kinds its uploads use | Yes |
+| culture-rules (todo, newspapers) | push key | `write` on `todo`, `newspaper` | Not needed: it only writes |
+| culture-rules (repo documents) | repodoc push key | `write` on spec, plan, devague-record, design | Yes, so the pushed documents are stored private and readable |
+| Mesh MCP clients | one `Authorization: Bearer` key each | `read` | Only for agents that should see private documents |
+
+Mint the repodoc key with:
+
+```bash
+uv run culture-library keys mint --name culture-rules-repodocs --scope write --private \
+  --kind spec --kind plan --kind devague-record --kind design
+```
+
+(`--kind` is repeatable and limits writes; see `culture-library keys overview`.) Give no
+other key those four kinds. Rotate any of them as described under
+"Rotate a client's key".
+
 ## Upgrading across a schema change
+
+The release that adds repo-document mirroring widens the items kind CHECK again (the new
+'design' kind), so the first open rebuilds the `items` table. Take a backup first (step 1
+below) and keep the old image.
 
 Some releases change the database schema. Release 0.12.0 widens the `items.kind`
 CHECK constraint so the `todo` kind is accepted. On first open after the upgrade the
