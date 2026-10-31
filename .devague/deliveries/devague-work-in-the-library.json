@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T05:26:02Z",
+  "updated": "2026-10-31T06:18:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -307,6 +307,17 @@
       "status": "approved",
       "classification": null,
       "seq": 57
+    },
+    {
+      "id": "d25",
+      "what": "t23 live verification found GET /api/repodocs?remote= refusing the bare repo id the API itself returns (github.com/org/repo); RepoDocs.list now accepts it via repo_filter_id (pushes keep normalize_remote), and verify-mirror.py sends a URL form so it works against live 0.19.0 before the fix is deployed",
+      "task_ref": "t23",
+      "reason": "verify-mirror (c36) answered HTTP 400 on every lookup against live; fixed test-first (2 tests red then green), 1663 passed",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": null,
+      "seq": 65
     }
   ],
   "evidence": [
@@ -1063,6 +1074,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 64
+    },
+    {
+      "id": "e41",
+      "obligation_ref": "o20",
+      "test_ref": "scripts/verify-mirror.py --repos culture-library,culture-rules,devague,notion-agent,reachy_nova (live, with S3)",
+      "behavior_text": "for 394 files across 5 repos (incl. notion-agent, which gitignores .devague, and reachy_nova, which has no origin/HEAD) the file sha256 equals the library current/draft sha256 and the S3 object; 0 missing, 0 mismatched in both",
+      "contract_text": "for each sampled repo file the sha256 equals the library current/draft sha256 and the S3 object's sha256; the report lists 0 missing and 0 mismatched",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "ran against live library 0.19.0 and the private bucket after the outbox drained (3853 done, 0 pending)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T06:15:39",
+        "commit": "f3c6c93"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 66
+    },
+    {
+      "id": "e42",
+      "obligation_ref": "o21",
+      "test_ref": "live: checkout switch at ~06:02Z changed 2 culture-library docs on disk; culture-rules run 06:15:04Z",
+      "behavior_text": "both edited docs show the new bytes as their working draft (pushed_at 06:15:06Z, ~13 min later, within one */15 cycle); each doc keeps 1 version row and total repodoc_versions stays 2871",
+      "contract_text": "a frame edit shows up as the draft within one cycle; repodoc_versions row count for that doc is unchanged",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on live: verify-mirror reported 2 mismatches before the 06:15 run and 0 after; DB read-only check of repodoc_drafts and repodoc_versions",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T06:18:17",
+        "commit": "f3c6c93"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 67
     }
   ],
   "deltas": [

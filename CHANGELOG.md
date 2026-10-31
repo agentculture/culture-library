@@ -9,7 +9,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Delivery summary for devague work in the library: the d24 code-review fix round (evidence e34-e40, deltas b4-b7) and the t23 live-migration baseline (0 repo docs on live 0.18.2) and pre-upgrade backup.
+- Delivery summary for devague work in the library: the d24 code-review fix round (evidence e34-e40, deltas b4-b7) and the t23 live migration (baseline, private bucket, backup, 0.19.0 deploy, culture-rules push, 5-repo verify e41 and draft cycle e42).
+
+### Fixed
+
+- `GET /api/repodocs?remote=` accepts the repo id the API returns (`github.com/org/repo`), not only URL forms; `scripts/verify-mirror.py` sends a URL form so it works against 0.19.0 (d25).
 
 ## [0.19.0] - 2026-10-30
 

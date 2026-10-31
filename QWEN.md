@@ -13,9 +13,9 @@ Qwen Code session.
 your own content and media**: recordings, books, newspapers, articles, EPUBs,
 PDFs, docs and more. The goal is one catalog to ingest, index, search and
 serve it all, published at library.culture.dev.
-It is also becoming the private home of every repo's devague work (specs,
-plans, deliveries, designs and raw `.devague/` state), pushed by culture-rules
-and mirrored to a private S3 bucket; that work is built but not yet deployed.
+It is also the private home of every repo's devague work (specs, plans,
+deliveries, designs and raw `.devague/` state), pushed by culture-rules and
+mirrored to a private S3 bucket; that work is live since 2026-10-31.
 
 **Status: built and live** at library.culture.dev (behind Cloudflare Access)
 since 2026-10-24. The library lives in `culture_library/`:
