@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T20:46:32Z",
+  "updated": "2026-10-31T20:53:04Z",
   "claims": [
     {
       "id": "c1",
@@ -1155,6 +1155,17 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t2's agent wrote tests/conftest.py before tests/test_pg_fixture.py, so the fixture tests were never red before the implementation existed",
+      "skipped_check": "write the failing tests first (TDD)",
+      "refs": [
+        "plan task t2, branch pg/t2"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": []

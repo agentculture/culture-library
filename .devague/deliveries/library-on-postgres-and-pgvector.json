@@ -1,0 +1,22 @@
+{
+  "plan_slug": "library-on-postgres-and-pgvector",
+  "schema_version": 2,
+  "created": "2026-10-31T20:53:04Z",
+  "updated": "2026-10-31T20:53:04Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t2 also added the pgvector service and test DSN to the visual and ragas CI jobs, and added psycopg[binary] to the dev dependency group",
+      "task_ref": "t2",
+      "reason": "both jobs run pytest and load the root conftest, so without a database they would fail at session start; no driver was installed for the fixture before t1 adds the pg extra",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
