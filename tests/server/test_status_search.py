@@ -177,7 +177,7 @@ def test_visibility_scope_and_archived(tmp_path):
     _add(store, "Whale hidden", visibility="private")
     gone = _add(store, "Whale archived", visibility="public")
     with store.connect() as conn:
-        conn.execute("UPDATE items SET archived_at='2026-01-01T00:00:00Z' WHERE id=?", (gone.id,))
+        conn.execute("UPDATE items SET archived_at='2026-01-01T00:00:00Z' WHERE id=%s", (gone.id,))
     titles = [h["title"] for h in c.get("/api/search?q=whale").json()["hits"]]
     assert titles == ["Whale open"]
     _, c2 = _client(tmp_path / "p", Principal("k", READ, private=True))

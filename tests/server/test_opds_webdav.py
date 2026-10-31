@@ -353,7 +353,7 @@ def _replace_later(env, monkeypatch, stamp="2030-01-02T03:04:05+00:00"):
     library.replace(env.store, env.pub_md.id, b"# p2\n", "p.md", include_private=True)
     with env.store.reader() as conn:
         (at,) = conn.execute(
-            "SELECT at FROM feed WHERE item_id = ? AND type = 'updated' ORDER BY cursor DESC",
+            "SELECT at FROM feed WHERE item_id = %s AND type = 'updated' ORDER BY seq DESC",
             (env.pub_md.id,),
         ).fetchone()
     assert at > env.pub_md.created_at
