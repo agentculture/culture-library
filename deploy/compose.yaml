@@ -3,6 +3,7 @@
 #   docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
 #
 # Services
+#   postgres     pgvector/pgvector:pg17, internal only (no published port), own volume
 #   library      server :8796 (site + API); machine clients use this with API keys
 #   mcp          MCP streamable-http :8797, LAN/loopback only, talks to library over the network
 #   cloudflared  ONLY with `--profile remote` (needs TUNNEL_TOKEN); fronts library.culture.dev
@@ -16,6 +17,30 @@
 x-image: &image ${LIBRARY_IMAGE:-culture-library:local}
 
 services:
+  # Internal only: no `ports:`, reachable as postgres:5432 on the compose network.
+  # The init scripts in deploy/postgres-init/ run once, on an empty data volume. Both
+  # passwords are secrets injected from grant by `deploy restart`; empty defaults here only
+  # keep `docker compose` interpolation valid for steps that do not start postgres.
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      # Superuser password (grant: CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD); never given to library.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      # The application role's password; read by postgres-init/01-library.sql via \getenv.
+      CULTURE_LIBRARY_PG_PASSWORD: ${CULTURE_LIBRARY_PG_PASSWORD:-}
+    volumes:
+      - culture-library-pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 matters: the init-time server listens on the unix socket only, so a
+      # socket probe would report ready before the init scripts finish.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U culture_library -d culture_library"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   library:
     build:
       context: ..
@@ -29,6 +54,13 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       CULTURE_LIBRARY_DATA_DIR: /data
+      # Postgres (service below). The password is a secret: `deploy restart` injects it from
+      # grant (CULTURE_LIBRARY_PG_PASSWORD), it never lives in the env file.
+      CULTURE_LIBRARY_PG_HOST: postgres
+      CULTURE_LIBRARY_PG_PORT: "5432"
+      CULTURE_LIBRARY_PG_DATABASE: culture_library
+      CULTURE_LIBRARY_PG_USER: culture_library
+      CULTURE_LIBRARY_PG_PASSWORD: ${CULTURE_LIBRARY_PG_PASSWORD:-}
       # Cloudflare Access verification for the web UI. Set both or neither.
       CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN: ${CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN:-}
       CULTURE_LIBRARY_ACCESS_AUD: ${CULTURE_LIBRARY_ACCESS_AUD:-}
@@ -62,6 +94,9 @@ services:
     volumes:
       # Named volume by default; set LIBRARY_DATA=/host/dir in .env for a bind mount.
       - ${LIBRARY_DATA:-culture-library-data}:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${LIBRARY_PUBLISH_BIND:-127.0.0.1}:${LIBRARY_PUBLISH_PORT:-8796}:8796"
     healthcheck:
@@ -138,3 +173,4 @@ services:
 
 volumes:
   culture-library-data:
+  culture-library-pgdata:

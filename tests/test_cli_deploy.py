@@ -59,18 +59,44 @@ def _restart(*extra):
     return main(["deploy", "restart", *extra, "--json"])
 
 
+def _db_step(compose, env):
+    return [
+        "grant",
+        "run",
+        "--inject",
+        "POSTGRES_PASSWORD=CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD",
+        "--inject",
+        "CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD",
+        "--",
+        "docker",
+        "compose",
+        "-f",
+        str(compose),
+        "--env-file",
+        str(env),
+        "up",
+        "-d",
+        "--no-deps",
+        "--wait",
+        "postgres",
+    ]
+
+
 def test_dry_run_prints_the_exact_command_and_runs_nothing(tmp_path, compose, calls, capsys):
     env = _env(tmp_path)
     assert _restart("--env-file", str(env), "--compose", str(compose), "--dry-run") == 0
     out = json.loads(capsys.readouterr().out)
     assert calls == []
     assert out["dry_run"] is True
-    assert out["steps"] == [
+    assert out["steps"][0] == _db_step(compose, env)
+    assert out["steps"][1:] == [
         [
             "grant",
             "run",
             "--inject",
             "TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN",
+            "--inject",
+            "CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD",
             "--inject",
             "GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY",
             "--",
@@ -105,16 +131,19 @@ def test_build_adds_an_image_build_first(tmp_path, compose, calls, capsys):
         "build",
         "library",
     ]
-    assert steps[1][0] == "grant"
+    assert steps[1] == _db_step(compose, env)
+    assert steps[2][0] == "grant"
 
 
 def test_restart_runs_then_checks_health_and_send_targets(tmp_path, compose, calls, capsys):
     env = _env(tmp_path)
     assert _restart("--env-file", str(env), "--compose", str(compose)) == 0
     out = json.loads(capsys.readouterr().out)
-    assert calls[0][0] == "grant"
-    assert calls[1][:2] == ["docker", "compose"]
-    assert "exec" in calls[1]
+    assert [c[0] for c in calls[:2]] == ["grant", "grant"]
+    assert calls[0][-1] == "postgres"
+    assert calls[1][-2:] == ["library", "mcp"]
+    assert calls[2][:2] == ["docker", "compose"]
+    assert "exec" in calls[2]
     assert out["health"]["status"] == "ok"
     assert out["send_targets"] == ["x3"]
 
@@ -324,7 +353,7 @@ def test_gateway_key_is_injected_from_grant_by_default(tmp_path, compose, calls,
     rc, out = _dry(tmp_path, compose, capsys)
     assert rc == 0
     step = json.loads(out.out)["steps"][-1]
-    assert step[: step.index("--")].count("--inject") == 2
+    assert step[: step.index("--")].count("--inject") == 3
     assert "GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY" in step
 
 
@@ -423,3 +452,62 @@ def test_secret_with_dollar_is_refused_as_a_secret_not_interpolation(
     assert rc == 1
     err = json.loads(out.err)
     assert "must not be in the env file" in err["message"]
+
+
+def test_postgres_comes_up_healthy_before_library_and_mcp(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys)
+    steps = json.loads(out.out)["steps"]
+    flat = [" ".join(s) for s in steps]
+    db = next(i for i, f in enumerate(flat) if f.endswith("--wait postgres"))
+    app = next(i for i, f in enumerate(flat) if f.endswith("library mcp"))
+    assert db < app
+    assert "library" not in steps[db] and "mcp" not in steps[db]
+
+
+def test_pg_passwords_are_injected_from_grant_to_the_right_steps(tmp_path, compose, calls, capsys):
+    rc, out = _dry(tmp_path, compose, capsys)
+    db, app = json.loads(out.out)["steps"]
+    db_inj = db[: db.index("--")]
+    app_inj = app[: app.index("--")]
+    assert "POSTGRES_PASSWORD=CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD" in db_inj
+    assert "CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD" in db_inj
+    assert "CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD" in app_inj
+    # the library never sees the superuser password
+    assert not any(a.startswith("POSTGRES_PASSWORD") for a in app_inj)
+
+
+def test_pg_secret_names_can_change(tmp_path, compose, calls, capsys):
+    rc, out = _dry(
+        tmp_path,
+        compose,
+        capsys,
+        "--pg-password-secret",
+        "APP_PW",
+        "--pg-superuser-secret",
+        "SU_PW",
+    )
+    db, app = json.loads(out.out)["steps"]
+    assert "POSTGRES_PASSWORD=SU_PW" in db and "CULTURE_LIBRARY_PG_PASSWORD=APP_PW" in db
+    assert "CULTURE_LIBRARY_PG_PASSWORD=APP_PW" in app
+
+
+@pytest.mark.parametrize("key", ["CULTURE_LIBRARY_PG_PASSWORD", "POSTGRES_PASSWORD"])
+def test_pg_password_in_the_env_file_is_refused(tmp_path, compose, calls, capsys, key):
+    env = _env(tmp_path, **{key: "hunter2"})
+    assert _restart("--env-file", str(env), "--compose", str(compose)) == 1
+    err = json.loads(capsys.readouterr().err)
+    assert key in err["message"] and "grant" in err["remediation"]
+    assert calls == []
+
+
+def test_missing_pg_grant_secret_is_refused_before_compose(tmp_path, compose, monkeypatch, capsys):
+    ran = []
+    monkeypatch.setattr(deploy, "_run", lambda argv, **kw: ran.append(argv))
+    monkeypatch.setattr(deploy, "_which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(
+        deploy, "_grant_secret_exists", lambda name, env: name != "CULTURE_LIBRARY_PG_PASSWORD"
+    )
+    env = _env(tmp_path)
+    assert _restart("--env-file", str(env), "--compose", str(compose)) == 2
+    assert "CULTURE_LIBRARY_PG_PASSWORD" in json.loads(capsys.readouterr().err)["message"]
+    assert ran == []
