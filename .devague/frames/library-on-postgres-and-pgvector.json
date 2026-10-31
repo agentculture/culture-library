@@ -1,0 +1,470 @@
+{
+  "slug": "library-on-postgres-and-pgvector",
+  "title": "Library on Postgres and pgvector",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-10-31T19:24:50Z",
+  "updated": "2026-10-31T19:27:11Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The library runs on PostgreSQL with pgvector on spark: documents, repo documents, full text and vectors live in one self-hosted database with a real vector index, API and MCP clients see no contract change, and retrieval quality is re-baselined at cutover",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "boundary",
+      "text": "API and MCP clients see no contract change: the HTTP routes, MCP tools and /api/status shape stay as they are; only the storage under them moves",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "boundary",
+      "text": "Sibling clients (culture-rules, Gwen, xteink) keep using the HTTP API on 127.0.0.1:8796 with their API keys; nothing outside the library reads the database",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "Item and repo-doc file bytes stay on the filesystem under data/files/<aa>/<sha256>, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "Embedding and reranking stay on the local lobes gateway (gemma2-embed, reranker); no document text goes to a third-party service, so MongoDB-style automated embedding via a cloud API is out",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "non_goal",
+      "text": "The xteink migration keeps reading its source database with sqlite3; only its destination lookup moves to the new store",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Documents, repo documents, full text, vectors and every other library table live in one self-hosted PostgreSQL database with the pgvector extension, run as a service in the spark compose stack",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Vectors are stored as pgvector vector(768) with an HNSW index, and the in-process vector cache, vector_log table and its triggers are removed",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Does core/ keep SQLite as a second backend behind a storage interface (for tests, offline use and the zero-dependency rule), or does the library become Postgres-only?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Full-text search is reimplemented on Postgres: title weighted above body, English stemming, prefix match on the last term, and highlighted snippets, for items and repo docs separately",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "assumption",
+      "text": "Search scores and rankings change at cutover; stored eval sets stay valid because they are anchored by chunk text sha, and the baseline (sets 1-8, rerank on and off) is re-run on Postgres as the new comparison point",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "Full-text ranking: accept Postgres ts_rank (simpler, rankings move), or add a BM25 extension so ranking stays close to today's bm25?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The push transaction stays atomic in Postgres: a repo-doc version or draft, its feed event and its mirror outbox row commit together on one connection, as do tombstones",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "SQLite-only locking workarounds get Postgres equivalents: the unlink-after-commit of unreferenced blobs, and API-key last_used stamping that never waits on a writer",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "SQLite-specific SQL is ported in every core module: AUTOINCREMENT + lastrowid become identity + RETURNING, integer booleans become boolean, MAX(a,b) becomes GREATEST, json_extract on TEXT becomes jsonb, INSERT OR REPLACE/IGNORE become ON CONFLICT, the feed column named cursor is quoted or renamed, and ? placeholders change",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Schema changes run through a one-time, versioned migration runner instead of DDL and migrations re-applied on every open",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "Cutover style: a one-shot migration during a short write freeze with the SQLite backup and image as rollback, or a period where both stores run side by side?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Backup and restore are rebuilt on pg_dump/pg_restore plus the existing verified blob copy and manifest, with a restore drill before cutover",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "deploy restart starts and checks the Postgres service too, and the database password comes from grant like every other secret, never from live.env",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "Postgres version and image: which major version and pgvector build, and does the library connect with psycopg 3 (the code is synchronous)?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Tests run against Postgres in CI and locally, with an isolated database or schema per xdist worker, and the SQLite-coupled tests are rewritten",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Runbooks and agent docs describe the Postgres stack: deploy.md (what runs, backups, restart, schema upgrades, rollback), backup.md, and CLAUDE.md and its sibling harness files",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "How well HNSW recall holds under our filters (private/public, owner, kind, item ids) at low selectivity, since pgvector filters after the index scan; measure with the eval harness after the port",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether the spark stack has the RAM and disk headroom for Postgres plus an HNSW index over about 70k (and growing) 768-dimension vectors next to the current services",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "docs/api/*.md, tests/mcp/test_repodoc_tools.py:52-57, tests/mcp/test_eval_tools.py:76-81, server/routes_status.py:124-155",
+      "finding": "The written API contracts (repodocs.md, eval.md) never mention SQLite; MCP parity tests compare tool names to the HTTP routes; /api/status exposes counts, index, retrieval and mirror blocks but no db path or WAL setting. routes_status.py runs raw COUNT/MAX/COALESCE SQL that must keep its output shape",
+      "seeds": [
+        "c2"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "CLAUDE.md machine-clients note; migrate/xteink.py:76,92",
+      "finding": "Only the library reads library.db; siblings call the HTTP API with scoped keys. The one other sqlite3 reader is the xteink import, which reads xteink's own old database",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "core/store.py:187,277-316; storage/s3.py; core/mirror.py",
+      "finding": "The DB holds only metadata (sha256, size, format); bytes are written atomically to data/files before the DB insert. The S3 mirror is the only existing storage abstraction (S3Backend). Postgres replaces the metadata store only; the data volume stays",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture_library/gateway.py:33; repodoc privacy decision c31; MongoDB automated-embedding docs",
+      "finding": "Embeddings come from the gateway with Retrieval-document/Retrieval-query prompts. All repo docs are private. Postgres only stores and indexes vectors the library already computes",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "migrate/xteink.py:76,92 and _dest_lookup",
+      "finding": "xteink.py opens the old xteink library.db read-only with sqlite3 (a legacy source format) and looks up the destination by the library.db path, which must ask the Postgres store instead",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "deploy/compose.yaml:19,79,121,139-140; deploy/Dockerfile:150,157",
+      "finding": "Compose has library, mcp and cloudflared and one data volume; a postgres service (pgvector image), its own volume and a pg_isready healthcheck are new. library needs depends_on service_healthy. The Dockerfile installs .[server,s3]; a Postgres driver extra joins it",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "core/search.py:59-80,121; core/vector_cache.py; live DB",
+      "finding": "Vectors are float32 BLOBs (pack_vec) with a model column, scored by brute force in Python with the 0.19.8 cache. The live dimension is 768 (gemma2-embed), measured on spark; 7,855 item and 61,932 repo-doc chunks. Search scores mixed-model rows together today",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "core/search.py:56-72,284-290,343-363,555,569",
+      "finding": "FTS5 tables search_fts and repodoc_fts use porter unicode61, bm25 weights 5.0 (title) and 1.0 (body), snippet() with [ ] markers and 12 tokens, and quoted AND terms with a * prefix on the last. Postgres has tsvector setweight + ts_rank/ts_headline, which do not reproduce bm25",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "core/search.py:523-525; core/eval_store.py; delivery 2026-10-30 c47/d12; tests/core/test_repodoc_index.py::test_item_ranking_unchanged_by_indexed_repodocs",
+      "finding": "Eval samples anchor on sha256 of the chunk text, so sets survive; runs store retrieved shas and ID metrics, never raw bm25 scores. c47 (baseline must not move) cannot hold through an FTS engine change and must be re-argued. Several tests pin exact scores",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "core/repodocs.py:384-418; server/routes_repodocs.py:258,327",
+      "finding": "RepoDocs.push runs under one store.connect() and calls on_write(conn, result) inside it (d6), where the route appends the feed event and enqueues the mirror. Cross-module atomicity of version + feed + outbox is the invariant to keep",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "core/library.py:~548-570; core/keys.py:236-250,263",
+      "finding": "library._unlink_unreferenced relies on SQLite's single writer lock; keys._stamp_last_used opens a raw sqlite3 connection with a 100 ms busy_timeout and string-matches 'no such table'. Both need advisory locks or lock_timeout/SKIP LOCKED style equivalents",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "core/repodocs.py, feed.py, keys.py, eval_store.py, library.py, mirror.py, uploaders.py, projects.py, speclinks.py, sources.py",
+      "finding": "AUTOINCREMENT in 6 modules with cur.lastrowid; bare INTEGER booleans (on_default_branch, private, running); scalar MAX() in repodocs; json_extract in library.py:71,539; INSERT OR REPLACE in eval_store:312; feed.cursor is a Postgres reserved word; uploaders.visible_sql splices ? fragments into other modules' SQL; library._sha_tables introspects sqlite_master",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "core/store.py:165-174,201-247; core/mirror.py:48-73; triggers in indexer.py:115 and vector_cache.py:51",
+      "finding": "register_schema fragments are split on ';' and run on every open; register_migration callbacks use PRAGMA table_info, sqlite_master and a CHECK-rebuild of items (sqlite_sequence preserved); mirror widens its CHECK by editing sqlite_master SQL. None of this ports",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "live spark database, 2026-10-31 (read-only counts)",
+      "finding": "Live holds 110 items (max id 113), 3,811 repo docs, 2,895 versions, 990 drafts, 7,855 + 61,932 vectors, 3,896 outbox rows, eval runs 1-71 and API keys 1-19, in a 419 MB library.db. sqlite_sequence is kept so purged ids are never reused",
+      "seeds": [
+        "c15"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "core/backup.py:92-99,175,248-265,324-343; docs/operations/backup.md",
+      "finding": "Backups use the SQLite online backup API into snapshots/<stamp>/library.db plus a sha-verified shared files tree and manifest.json; restore needs an empty target and re-verifies. The blob half stays; the database half is replaced",
+      "seeds": [
+        "c16"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "cli/_commands/deploy.py:43-67,162-173,228-257; CLAUDE.md d2",
+      "finding": "SECRET_SETTINGS maps env vars to grant secrets; _refuse_secrets rejects them in live.env; plan() runs up -d --no-deps library mcp, so a postgres service would never be started by restart. A PG password fits as a new grant secret; the DSN is built in-app so live.env never holds it",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "tests/*/conftest.py (6 Store(tmp_path) fixtures); 19 files importing sqlite3; .github/workflows/tests.yml:32, publish.yml:29; culture.yaml gate",
+      "finding": "1,695 tests. Stores are built per area with Store(tmp_path/'data'); 19 test files use sqlite3 directly (83 sites), 10 read sqlite_master, 2 monkeypatch store._open. CI test jobs run pytest -n auto on ubuntu-latest, where a pgvector service container fits; the culture.yaml gate has no service",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "docs/operations/deploy.md:9-30,170,177,447-575; docs/operations/backup.md:3-59; CLAUDE.md",
+      "finding": "deploy.md's What runs, Backups, Restart, Upgrading across a schema change (sqlite3 and sqlite_sequence commands) and Rollback sections, every section of backup.md, and CLAUDE.md's 'SQLite WAL store' and items kind-CHECK notes all assume SQLite",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "tests/test_zero_deps.py:43,72,88; pyproject.toml:16; core/store.py:181-275",
+      "finding": "Base dependencies must stay empty (asserted three times), so a Postgres driver can only live in an extra. No storage seam exists today: 68 functions take sqlite3.Connection. Keeping SQLite means building and testing two backends; dropping it means core/ needs the driver at runtime",
+      "seeds": [
+        "q1"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "live spark stack and backups (2026-10-31)",
+      "finding": "Rollback today is a verified snapshot plus a tagged image (culture-library:0.19.7). culture-rules pushes every 15 minutes, so a one-shot cutover needs a short write freeze or a re-push after; a side-by-side period doubles the write paths",
+      "seeds": [
+        "q2"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "core/search.py:343-363 bm25(\u2026, 5.0, 1.0); Postgres ts_rank",
+      "finding": "Today's ranking is FTS5 bm25 with title weight 5. Postgres core full text ranks by ts_rank/ts_rank_cd without IDF, so exact rankings move either way; a BM25 extension would stay closer but adds a non-core dependency to the database image",
+      "seeds": [
+        "q3"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "deploy/Dockerfile (python:3.12-slim-bookworm); core code is synchronous",
+      "finding": "No Postgres image or driver is referenced anywhere yet; the library's core and routes are synchronous, which matches psycopg 3's sync API",
+      "seeds": [
+        "q4"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
