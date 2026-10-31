@@ -17,36 +17,31 @@ Stdlib only, no network.
 
 from __future__ import annotations
 
-import sqlite3
+from typing import Any
 
-from .store import register_schema
-
-register_schema("""
-CREATE TABLE IF NOT EXISTS item_uploaders (
-    item_id INTEGER PRIMARY KEY,
-    key_id TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS item_uploaders_key ON item_uploaders(key_id)
-""")
-
-_OWNED = "IN (SELECT item_id FROM item_uploaders WHERE key_id = ?)"
+_OWNED = "IN (SELECT item_id FROM item_uploaders WHERE key_id = %s)"
 
 
-def record(conn: sqlite3.Connection, item_id: int, key_id: str | None) -> None:
+def record(conn: Any, item_id: int, key_id: str | None) -> None:
     """Record (or clear) the uploader of a newly inserted item, on the caller's transaction."""
-    conn.execute("DELETE FROM item_uploaders WHERE item_id = ?", (item_id,))
     if key_id:
         conn.execute(
-            "INSERT INTO item_uploaders (item_id, key_id) VALUES (?, ?)", (item_id, key_id)
+            "INSERT INTO item_uploaders (item_id, key_id) VALUES (%s, %s) "
+            "ON CONFLICT (item_id) DO UPDATE SET key_id = excluded.key_id",
+            (item_id, key_id),
         )
+    else:
+        conn.execute("DELETE FROM item_uploaders WHERE item_id = %s", (item_id,))
 
 
-def uploader(conn: sqlite3.Connection, item_id: int) -> str | None:
-    row = conn.execute("SELECT key_id FROM item_uploaders WHERE item_id = ?", (item_id,)).fetchone()
+def uploader(conn: Any, item_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT key_id FROM item_uploaders WHERE item_id = %s", (item_id,)
+    ).fetchone()
     return row[0] if row else None
 
 
-def uploaded_by(conn: sqlite3.Connection, item_id: int, key_id: str | None) -> bool:
+def uploaded_by(conn: Any, item_id: int, key_id: str | None) -> bool:
     """True when ``key_id`` is the key whose upload created ``item_id``."""
     return bool(key_id) and uploader(conn, item_id) == key_id
 
@@ -60,6 +55,8 @@ def visible_sql(
 ) -> tuple[str, list[str]]:
     """``(condition, params)``: public, or private access, or uploaded by ``owner``.
 
+    The condition uses ``%s`` placeholders (psycopg style).
+
     ``visibility`` and ``item_id`` name the columns (e.g. ``i.visibility``, ``i.id``).
     """
     if include_private:
@@ -70,7 +67,7 @@ def visible_sql(
 
 
 def is_visible(
-    conn: sqlite3.Connection,
+    conn: Any,
     item_id: int,
     visibility: str,
     include_private: bool,

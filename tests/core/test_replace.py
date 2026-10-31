@@ -1,8 +1,8 @@
 """library.replace(): swap an item's bytes under the same id (index, feed and blob effects)."""
 
 import hashlib
-import sqlite3
 
+import psycopg
 import pytest
 
 from culture_library.core import feed, library, repodocs, search  # noqa: F401
@@ -37,12 +37,12 @@ def _hits(store, word):
 
 def _queue(store, item_id):
     with store.reader() as conn:
-        return conn.execute("SELECT * FROM index_queue WHERE item_id = ?", (item_id,)).fetchone()
+        return conn.execute("SELECT * FROM index_queue WHERE item_id = %s", (item_id,)).fetchone()
 
 
 def _row(store, item_id):
     with store.reader() as conn:
-        return conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        return conn.execute("SELECT * FROM items WHERE id = %s", (item_id,)).fetchone()
 
 
 def test_replace_swaps_bytes_keeping_metadata(store):
@@ -140,7 +140,7 @@ def test_old_blob_kept_when_repodoc_version_references_it(store):
         )
         conn.execute(
             "INSERT INTO repodoc_versions (doc_id, commit_sha, committed_at, visibility, sha256,"
-            " size, pushed_at) VALUES (1, ?, 't', 'public', ?, 1, 't')",
+            " size, pushed_at) VALUES (1, %s, 't', 'public', %s, 1, 't')",
             ("c" * 40, item.sha256),
         )
     _rep(store, item.id, b"other bytes\n", "n.md")
@@ -174,7 +174,7 @@ def test_duplicate_of_another_item_raises_before_update(store):
     assert exc.value.other_id == b.id
     assert exc.value.other_visibility == "private"
     assert isinstance(exc.value, library.CoreError)
-    assert not isinstance(exc.value, sqlite3.IntegrityError)
+    assert not isinstance(exc.value, psycopg.errors.UniqueViolation)
     assert _row(store, a.id)["sha256"] == a.sha256
     assert store.blob_path(a.sha256).exists()
 
@@ -196,7 +196,7 @@ def test_archived_or_missing_or_invisible_raises_not_found(store):
 def _embedded_text(store, item_id):
     with store.reader() as conn:
         rows = conn.execute(
-            "SELECT text FROM embeddings WHERE item_id = ? ORDER BY chunk_no", (item_id,)
+            "SELECT text FROM embeddings WHERE item_id = %s ORDER BY chunk_no", (item_id,)
         ).fetchall()
     return " ".join(r[0] for r in rows)
 
@@ -286,13 +286,13 @@ def test_concurrent_replaces_never_leave_a_live_item_without_its_blob(store):
     def reader():
         while not stop.is_set():
             with store.reader() as conn:
-                sha = conn.execute("SELECT sha256 FROM items WHERE id = ?", (item.id,)).fetchone()[
+                sha = conn.execute("SELECT sha256 FROM items WHERE id = %s", (item.id,)).fetchone()[
                     0
                 ]
                 if not store.blob_path(sha).exists():
                     # the row is read inside a snapshot; re-check after the snapshot is current
                     row = conn.execute(
-                        "SELECT sha256 FROM items WHERE id = ?", (item.id,)
+                        "SELECT sha256 FROM items WHERE id = %s", (item.id,)
                     ).fetchone()[0]
                     if row == sha and not store.blob_path(sha).exists():
                         errors.append(f"blob missing for live sha {sha[:12]}")
@@ -320,7 +320,7 @@ def test_cleanup_failure_after_commit_does_not_fail_the_replace(store, monkeypat
     item = _add(store, b"# Old\n\nalpha\n")
 
     def broken(store_, shas):
-        raise sqlite3.OperationalError("database is locked")
+        raise psycopg.OperationalError("connection lost")
 
     monkeypatch.setattr(library, "_unlink_now", broken)
     out = _rep(store, item.id, b"# New\n\nomega\n", "a.md")
@@ -331,8 +331,10 @@ def test_cleanup_failure_after_commit_does_not_fail_the_replace(store, monkeypat
 def test_still_referenced_old_blob_takes_no_cleanup_transaction(store, monkeypatch):
     item = _add(store, b"# Old\n\nalpha\n")
     with store.connect() as conn:  # a repo-doc version also names the old bytes
-        conn.execute("CREATE TABLE IF NOT EXISTS extra_refs (sha256 TEXT NOT NULL)")
-        conn.execute("INSERT INTO extra_refs VALUES (?)", (item.sha256,))
+        conn.execute(
+            "INSERT INTO mirror_outbox (key, sha256, enqueued_at) VALUES ('k', %s, 't')",
+            (item.sha256,),
+        )
     calls = []
     monkeypatch.setattr(library, "_unlink_now", lambda s, shas: calls.append(shas))
     _rep(store, item.id, b"# New\n\nomega\n", "a.md")
