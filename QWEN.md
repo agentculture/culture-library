@@ -17,19 +17,15 @@ It is also the private home of every repo's devague work (specs, plans,
 deliveries, designs and raw `.devague/` state), pushed by culture-rules and
 mirrored to a private S3 bucket; that work is live since 2026-10-31.
 
-**Storage.** The code in this tree stores everything in PostgreSQL 17 with
-pgvector (compose service `postgres`); the driver is the optional `[pg]` extra.
-Live on spark still runs the SQLite 0.19.x release until the cutover
-(`docs/operations/cutover-postgres.md`). The operator decided on 2026-10-31 to migrate
-before any further SQLite optimisation (issue #47).
-
+**Storage.** On disk: PostgreSQL 17 with pgvector. Live on spark runs SQLite 0.19.x until
+the cutover (`docs/operations/cutover-postgres.md`); the operator decided on 2026-10-31
+to migrate before more SQLite optimisation (#47).
 **Status: built and live** at library.culture.dev (behind Cloudflare Access)
 since 2026-10-24. The library lives in `culture_library/`:
 
-- `core/`: the Postgres store and its migrations, ingest, keys, feed, search, repo documents, send, backup;
+- `core/`: the Postgres store, ingest, keys, feed, search, repo docs, send, backup;
 - `server/`: the HTTP API, OPDS, WebDAV and the site;
-- `mcp/`: the agents' MCP server;
-- `web/static/`: the site's files;
+- `mcp/`: the agents' MCP server; `web/static/`: the site;
 - `eval/` and the `eval` CLI verbs: RAG evals over `/api/rag/retrieve` (needs
   the optional `[eval]` extra). Metric suites live in `eval/suites/`
   (id_retrieval, judged, result_quality, speed, freshness); `eval radar`
@@ -37,8 +33,7 @@ since 2026-10-24. The library lives in `culture_library/`:
   `docs/api/eval.md`) with twelve `eval_*` MCP tools. The Evals tab's radar
   and compare pages are planned.
 
-`CLAUDE.md` describes the layout. Deploying and provisioning
-library.culture.dev are still open (see [Roadmap](#roadmap)). Some inherited prose (CLI help/`explain` text, a few
+`CLAUDE.md` describes the layout. Some inherited prose (CLI help/`explain` text, a few
 comments, the `docs/harness-*.md` pages) still calls the repo "a clonable
 template". That wording came from the scaffold and does not describe the
 repo's purpose.
