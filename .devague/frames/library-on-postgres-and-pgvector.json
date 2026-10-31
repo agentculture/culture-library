@@ -2,9 +2,9 @@
   "slug": "library-on-postgres-and-pgvector",
   "title": "Library on Postgres and pgvector",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T19:58:12Z",
+  "updated": "2026-10-31T20:00:14Z",
   "claims": [
     {
       "id": "c1",
@@ -66,9 +66,9 @@
     {
       "id": "c4",
       "kind": "boundary",
-      "text": "Item and repo-doc file bytes stay on the filesystem under data/files/<aa>/<sha256>, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
+      "text": "Item and repo-doc file bytes stay on the filesystem under `data/files/<aa>/<sha256>`, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
       "origin": "llm",
-      "status": "confirmed",
+      "status": "proposed",
       "honesty_conditions": [
         {
           "id": "h4",
@@ -80,7 +80,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Item and repo-doc file bytes stay on the filesystem under data/files/<aa>/<sha256>, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
+          "kind": "boundary",
+          "reason": "Markdown lint: backtick the path placeholder (MD033); wording unchanged"
+        }
+      ]
     },
     {
       "id": "c5",
@@ -135,7 +141,7 @@
     {
       "id": "c8",
       "kind": "requirement",
-      "text": "Vectors are stored as pgvector vector(768) with an HNSW index, and the in-process vector cache, vector_log table and its triggers are removed",
+      "text": "Vectors are stored in a pgvector column with a model tag, with one HNSW index per embedding model (768 dimensions for embeddinggemma-2 today, room for 1024 for Qwen3-Embedding), and the in-process vector cache, vector_log table and its triggers are removed",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -157,7 +163,13 @@
       ],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Vectors are stored as pgvector vector(768) with an HNSW index, and the in-process vector cache, vector_log table and its triggers are removed",
+          "kind": "requirement",
+          "reason": "Operator 2026-10-31: the gateway also serves Qwen3-Embedding-0.6B at 1024 dimensions (s34); a single vector(768) column would block the model comparison in #7"
+        }
+      ]
     },
     {
       "id": "c9",
@@ -215,7 +227,7 @@
         {
           "id": "h36",
           "text": "Every stored eval set (1-8) runs on Postgres with no sample reporting an unmatched reference chunk, so no set needs a re-anchor after cutover",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -781,6 +793,25 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "Every stored vector records its model id (the real model, e.g. `google/embeddinggemma-2`, not the gateway role name) and its embedding strategy: the document and query prompt names, the chunker and its max_chars, the dimension and the normalisation. Each per-model HNSW index, every search and every eval run selects vectors by (model id, strategy), so vectors from two strategies never mix",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h37",
+          "text": "A query never scores vectors from a different model id or strategy than the one it embedded with, shown by a test that stores two strategies side by side, and the cutover fills model id and strategy for all existing vectors from the gateway's /capabilities (embeddinggemma-2, 768, l2, Retrieval-document/Retrieval-query, max_chars 1000)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -937,7 +968,7 @@
     {
       "id": "s15",
       "surface": "core/backup.py:92-99,175,248-265,324-343; docs/operations/backup.md",
-      "finding": "Backups use the SQLite online backup API into snapshots/<stamp>/library.db plus a sha-verified shared files tree and manifest.json; restore needs an empty target and re-verifies. The blob half stays; the database half is replaced",
+      "finding": "Backups use the SQLite online backup API into `snapshots/<stamp>/library.db` plus a sha-verified shared files tree and manifest.json; restore needs an empty target and re-verifies. The blob half stays; the database half is replaced",
       "seeds": [
         "c16"
       ]
@@ -1085,6 +1116,14 @@
       "surface": "lobes gateway /capabilities and /v1/embeddings probe (2026-10-31)",
       "finding": "The library's gemma2-embed role IS google/embeddinggemma-2: 768 dimensions, L2-normalised, with Matryoshka sizes 128/256/512/768. The gateway's other embedding role, 'embedder' (and embedder-spark2), is Qwen/Qwen3-Embedding-0.6B at 1024 dimensions. Both fit pgvector's HNSW limit of 2,000; supporting more than one model means an untyped vector column with a per-model partial HNSW index on a cast (vec::vector(N)) WHERE model = ..., instead of a single vector(768) column. Bears on parked v3 and #7",
       "seeds": []
+    },
+    {
+      "id": "s35",
+      "surface": "live library DB and /api/status retrieval block (2026-10-31)",
+      "finding": "All 7,855 item and 61,980 repo-doc vectors carry the label 'gemma2-embed+Retrieval-document' (768 dims). 'gemma2-embed' is a gateway role, so a role repointed to another model would write indistinguishable labels; the model id, chunker settings and dimension are only in the status config, never per vector",
+      "seeds": [
+        "c42"
+      ]
     }
   ],
   "lapses": [],
