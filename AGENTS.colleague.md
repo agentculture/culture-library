@@ -36,7 +36,10 @@ your own content and media (recordings, books, newspapers, articles, EPUBs,
 PDFs, docs), aiming at one catalog to ingest, index, search and serve it all
 at library.culture.dev. The library is built and live there. It is also the private
 home of every repo's devague work, pushed by culture-rules and mirrored to S3
-(live since 2026-10-31). It also serves
+(live since 2026-10-31). The code on disk stores everything in PostgreSQL 17 with
+pgvector; live still runs the SQLite 0.19.x release until the cutover
+(`docs/operations/cutover-postgres.md`), after the operator's 2026-10-31 decision to
+migrate before more SQLite optimisation (#47). It also serves
 RAG passages (`/api/rag/retrieve`) and has an `eval` CLI noun (optional
 `[eval]` extra) with metric suites, a shape radar and an `/api/eval` API
 (`docs/api/eval.md`). `culture_library/` holds the

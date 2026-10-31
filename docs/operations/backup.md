@@ -80,11 +80,43 @@ systemctl --user enable --now culture-library-backup.timer
 systemctl --user list-timers
 ```
 
+### On the live stack
+
+`postgres` publishes no port and the host has no PostgreSQL 17 client tools, so the dump
+has to run inside a container built from the library image (which has `pg_dump`). The
+compose file mounts only the files volume into `library`, so a backup needs a one-off
+container that also mounts the backup directory and gets the app role's password from
+grant. The backup directory must be writable by uid 10001 (the image's user):
+
+```bash
+B=/mnt/second-disk/culture-library-backup; mkdir -p "$B"; chmod o+w "$B"
+grant run --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD -- \
+  docker compose -p culture-library -f deploy/compose.yaml \
+  --env-file "$HOME/.config/culture-library/live.env" run --rm --no-deps \
+  -v "$B":/backup library culture-library backup run --to /backup
+```
+
+For the timer, pass that same command as `--command` (systemd needs absolute paths for the
+first word, and no shell is involved unless you write `/bin/sh -c '...'`):
+
+```bash
+culture-library backup schedule --data-dir /data --to "$B" \
+  --command "/bin/sh -c '<the grant run ... command above>'"
+```
+
+This form is written from the code and the compose file; run it once by hand and check
+`backup overview` before trusting the timer.
+
 The service reads `~/.config/culture-library/live.env` if it exists. `backup schedule
 --print [--kind systemd|cron]` only prints the text. `backup overview` shows the last
 successful backup (the newest snapshot with a manifest), so a missed day is visible.
 
-## Restore drill (spark, 2026-10-24)
+## Restore drill (spark, 2026-10-24; SQLite era)
+
+This is the drill from before the move to Postgres, kept as a record. It exercised the
+old SQLite backup and is not how a backup is taken or restored now. The Postgres restore
+drill is plan task t18 (restore a snapshot into an empty database and an empty files
+directory, then compare against the manifest); its result goes in the delivery summary.
 
 Run on spark before any teardown. Scratch space only; all copies deleted afterwards.
 The live xteink service was only read: `docker cp xteink-api-1:/data` copies out of the
@@ -131,5 +163,4 @@ Result: 17/17 ids, sha256 and visibility reproduced on a clean directory. The sa
 is covered by `tests/core/test_backup.py` and `tests/test_cli_backup.py`.
 
 Not yet drilled: restoring from a second host, and a restore of a snapshot taken while
-the HTTP server is under write load (the unit test holds an open write transaction, but
-that is not a load test). Repeat the drill after the first real deployment.
+the HTTP server is under write load. Repeat the drill on the Postgres stack (t18).

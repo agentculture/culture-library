@@ -28,6 +28,7 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 - `culture-library cli overview` — describe the CLI surface.
 - `culture-library server serve` — run the HTTP server (`[server]` extra).
 - `culture-library migrate from-xteink` — copy an xteink library in.
+- `culture-library migrate sqlite-to-postgres` — copy a SQLite library.db into Postgres.
 
 ## Exit-code policy
 
@@ -216,6 +217,15 @@ One-off migrations into the catalog.
   or sha256 is an error (exit 1), never an overwrite. A `--data-dir` without
   `library.db` is refused with a hint. The destination is `--dest`, else
   `CULTURE_LIBRARY_DATA_DIR`.
+- `culture-library migrate sqlite-to-postgres --from <library.db> [--to DSN]
+  [--gateway-url U] [--embed-model M] [--drop-stale-vectors] [--verify-only]` — copy a
+  0.19.x SQLite `library.db` (opened read-only) into an empty Postgres in one
+  transaction, then compare every table (counts, max ids, digests). It refuses a
+  non-empty target, NaN/Infinity/NUL values, orphan rows and unknown columns, and
+  writes nothing in those cases. It makes no embedding call: `model_id` and `strategy`
+  come from the gateway's `/capabilities`. `--verify-only` compares an already copied
+  target again. Exit 0 ok, 1 problems or a mismatch, 2 gateway or database error.
+  Runbook: `docs/operations/cutover-postgres.md`.
 - `culture-library migrate overview` — describe this noun.
 """
 
@@ -348,6 +358,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("server", "overview"): _SERVER,
     ("migrate",): _MIGRATE,
     ("migrate", "from-xteink"): _MIGRATE,
+    ("migrate", "sqlite-to-postgres"): _MIGRATE,
     ("migrate", "overview"): _MIGRATE,
     ("eval",): _EVAL,
     ("eval", "generate"): _EVAL,
