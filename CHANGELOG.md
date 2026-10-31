@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3] - 2026-10-31
+
+### Added
+
+- Deltas b8–b12 (proposed) for the now-approved deviations d9, d10, d11, d16 and d18
+
+### Changed
+
+- The operator approved the devague-work deviations d2–d6, d9–d11, d13–d21, d23, d25 and d26, evidence e1–e42, deltas b4–b7 and lapse l1; the delivery summary now says so, and lapse l1 caps the spec-link claim at medium
+
 ## [0.19.2] - 2026-10-31
 
 ### Changed

@@ -1,6 +1,6 @@
 [project]
 name = "culture-library"
-version = "0.19.2"
+version = "0.19.3"
 description = "Culture's library of your own content and media: recordings, books, newspapers, articles, EPUBs, PDFs, docs and more. One catalog to ingest, index, search and serve it all, published at library.culture.dev."
 readme = "README.md"
 license = "Apache-2.0"

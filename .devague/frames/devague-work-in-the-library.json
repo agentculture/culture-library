@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-30T17:43:01Z",
-  "updated": "2026-10-30T18:46:51Z",
+  "updated": "2026-10-31T12:45:39Z",
   "claims": [
     {
       "id": "c1",
@@ -1257,7 +1257,7 @@
         "devague-work/t3 e7fd71a"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
