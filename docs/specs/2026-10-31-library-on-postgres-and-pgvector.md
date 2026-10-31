@@ -24,7 +24,7 @@
 - Full-text search is reimplemented on Postgres: title weighted above body, English stemming, prefix match on the last term, and highlighted snippets, for items and repo docs separately
   - honesty: Title matches outrank body-only matches, stemmed forms match (cats finds cat), the last query term matches as a prefix, and snippets mark hits with \[ \]
 - The push transaction stays atomic in Postgres: a repo-doc version or draft, its feed event and its mirror outbox row commit together on one connection, as do tombstones
-  - honesty: Every stored eval set (1-8) runs on Postgres with no sample reporting an unmatched reference chunk, so no set needs a re-anchor after cutover
+  - honesty: Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in `on_write` rolls all three back)
 - SQLite-only locking workarounds get Postgres equivalents: the unlink-after-commit of unreferenced blobs, and API-key `last_used` stamping that never waits on a writer
   - honesty: Concurrent unlinks never delete a blob a committed row references, and an API request is never delayed by more than 100 ms waiting to stamp `last_used`
 - SQLite-specific SQL is ported in every core module: AUTOINCREMENT + lastrowid become identity + RETURNING, integer booleans become boolean, MAX(a,b) becomes GREATEST, `json_extract` on TEXT becomes jsonb, INSERT OR REPLACE/IGNORE become ON CONFLICT, the feed column named cursor is quoted or renamed, and ? placeholders change
@@ -63,9 +63,9 @@
 - After cutover, the library container's database settings point at Postgres and no library.db is opened by the running service
 - tests/contract and the MCP parity tests pass unchanged against the Postgres build, and /api/status returns the same top-level keys and nested shape
 - No sibling repo or deploy script opens library.db; a grep of culture-rules, Gwen and xteink deploys for library.db finds nothing
-- After cutover every item's sha256 still resolves to data/files/<aa>/<sha256>, and the mirror outbox drains new rows to the same bucket keys
+- After cutover every item's sha256 still resolves to `data/files/<aa>/<sha256>`, and the mirror outbox drains new rows to the same bucket keys
 - No code path sends document text to any host other than the configured lobes gateway; vectors stored in Postgres are the gateway's 768-dimension outputs
-- Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in `on_write` rolls all three back)
+- Every stored eval set (1-8) runs on Postgres with no sample reporting an unmatched reference chunk, so no set needs a re-anchor after cutover
 - Each named client keeps working through cutover without a code or configuration change on its side
 - The before-state figures match measurements taken on live 0.19.8 on 2026-10-31
 - The operator decided on 2026-10-31 to migrate before further SQLite optimisation

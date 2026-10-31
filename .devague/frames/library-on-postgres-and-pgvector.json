@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T20:02:36Z",
+  "updated": "2026-10-31T20:46:32Z",
   "claims": [
     {
       "id": "c1",
@@ -73,13 +73,13 @@
         {
           "id": "h4",
           "text": "After cutover every item's sha256 still resolves to data/files/<aa>/<sha256>, and the mirror outbox drains new rows to the same bucket keys",
-          "status": "confirmed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h38",
           "text": "After cutover every item's sha256 still resolves to `data/files/<aa>/<sha256>`, and the mirror outbox drains new rows to the same bucket keys",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -206,13 +206,13 @@
         {
           "id": "h9",
           "text": "Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in on_write rolls all three back)",
-          "status": "confirmed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h40",
           "text": "Every stored eval set (1-8) runs on Postgres with no sample reporting an unmatched reference chunk, so no set needs a re-anchor after cutover",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -239,13 +239,13 @@
         {
           "id": "h36",
           "text": "Every stored eval set (1-8) runs on Postgres with no sample reporting an unmatched reference chunk, so no set needs a re-anchor after cutover",
-          "status": "confirmed",
+          "status": "rejected",
           "instruction": ""
         },
         {
           "id": "h39",
           "text": "Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in on_write rolls all three back)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -1154,7 +1154,7 @@
         "/think honesty pass, c10 and c11"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": []

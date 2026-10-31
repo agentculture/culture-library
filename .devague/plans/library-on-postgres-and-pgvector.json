@@ -3,9 +3,9 @@
   "title": "Library on Postgres and pgvector",
   "frame_slug": "library-on-postgres-and-pgvector",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-10-31T20:05:26Z",
+  "updated": "2026-10-31T20:46:39Z",
   "targets": [
     {
       "id": "c1",
@@ -57,9 +57,9 @@
       "deferred_reason": ""
     },
     {
-      "id": "h4",
+      "id": "h38",
       "kind": "honesty",
-      "text": "After cutover every item's sha256 still resolves to data/files/<aa>/<sha256>, and the mirror outbox drains new rows to the same bucket keys",
+      "text": "After cutover every item's sha256 still resolves to `data/files/<aa>/<sha256>`, and the mirror outbox drains new rows to the same bucket keys",
       "deferred": false,
       "deferred_reason": ""
     },
@@ -127,9 +127,9 @@
       "deferred_reason": ""
     },
     {
-      "id": "h36",
+      "id": "h39",
       "kind": "honesty",
-      "text": "Every stored eval set (1-8) runs on Postgres with no sample reporting an unmatched reference chunk, so no set needs a re-anchor after cutover",
+      "text": "Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in on_write rolls all three back)",
       "deferred": false,
       "deferred_reason": ""
     },
@@ -517,7 +517,7 @@
       "id": "t1",
       "summary": "Postgres store foundation: connection handling and a versioned migration runner",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "core/store.py opens psycopg 3 connections from CULTURE_LIBRARY_PG_* settings plus a password env var; connect() is one transaction committed on success and rolled back on error, reader() never takes row locks",
         "core/migrations/ applies numbered SQL files once each, records them in schema_version, and a second Store() open runs no DDL (asserted by counting statements)",
@@ -537,7 +537,7 @@
       "id": "t2",
       "summary": "Test infrastructure on Postgres: one database per test worker, in CI and locally",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a root tests/conftest.py fixture creates an isolated database per xdist worker from a migrated template and drops it after the session",
         ".github/workflows/tests.yml (test job) and publish.yml (test job) run a pgvector/pgvector:pg17 service and pass its DSN to pytest",
@@ -554,7 +554,7 @@
       "id": "t3",
       "summary": "Compose and deploy: a least-privilege pgvector service started by deploy restart",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "deploy/compose.yaml has a postgres service on pgvector/pgvector:pg17 with its own volume, a pg_isready healthcheck and no published port; library depends on it being healthy",
         "an init script creates the library database with the C collation and the vector extension, and an application role that owns it but cannot create roles or databases",
@@ -575,7 +575,7 @@
       "id": "t4",
       "summary": "Initial Postgres schema: every library table, typed for Postgres",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "core/migrations/0001_initial.sql creates every table the SQLite store has, with identity ids, boolean flags, jsonb for JSON columns and the same TEXT ISO timestamps, and a test lists the tables and columns against the SQLite schema",
         "items and repo docs have weighted tsvector columns (title A, body B, english config) with GIN indexes",
@@ -599,7 +599,7 @@
       "id": "t5",
       "summary": "Port core/library.py, uploaders.py and sources.py to Postgres",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "library.py uses an explicit list of sha256-bearing tables instead of sqlite_master; json_extract becomes jsonb operators; blob unlink after commit runs under a transaction advisory lock and a concurrent-unlink test never deletes a referenced blob",
         "tests/core/test_library*.py, test_uploader*.py and test_sources*.py pass on Postgres; uploaders.visible_sql returns %s-style fragments"
@@ -613,7 +613,8 @@
         "c12",
         "h10",
         "c4",
-        "h4"
+        "h4",
+        "h38"
       ],
       "instruction": "Own culture_library/core/library.py, uploaders.py, sources.py, ingest.py on_insert and their tests."
     },
@@ -621,7 +622,7 @@
       "id": "t6",
       "summary": "Port core/feed.py and server/routes_feed.py with commit-ordered cursors",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "feed appends take a transaction-level advisory lock, so a test with two concurrent writers and a cursor-paging reader sees every event exactly once in cursor order",
         "the /api/feed response shape, including the cursor field name, is unchanged (existing feed tests pass)"
@@ -641,7 +642,7 @@
       "id": "t7",
       "summary": "Port core/keys.py with non-blocking last_used stamping",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "authenticate never waits more than 100 ms on a writer to stamp last_used (lock_timeout or SKIP LOCKED), shown by a test holding a row lock",
         "key mint, rotate, revoke and scope checks pass unchanged on Postgres"
@@ -661,7 +662,7 @@
       "id": "t8",
       "summary": "Port core/mirror.py, server/routes_mirror.py and the mirror CLI",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "mirror.enqueue is one INSERT ... ON CONFLICT (key) and two concurrent enqueues of one key leave one row (test)",
         "the outbox CHECK-widening migration is gone, _has_table uses to_regclass, and drained rows still upload to the same bucket keys (existing mirror tests pass on the fake backend)"
@@ -675,7 +676,8 @@
         "c35",
         "h29",
         "c4",
-        "h4"
+        "h4",
+        "h38"
       ],
       "instruction": "Own core/mirror.py, server/routes_mirror.py, culture_library/cli/_commands/mirror.py and their tests."
     },
@@ -683,7 +685,7 @@
       "id": "t9",
       "summary": "Port core/eval_store.py, eval_reanchor.py, eval_radar.py and the eval routes",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "INSERT OR REPLACE becomes ON CONFLICT DO UPDATE and close_running_runs is safe against a concurrent run start (test)",
         "tests/core/test_eval_store*.py, tests/eval and tests/contract/test_eval_contract.py pass on Postgres unchanged"
@@ -703,7 +705,7 @@
       "id": "t10",
       "summary": "Port the remaining server routes and add the database block to /api/status",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "/api/status gains a database block (reachable, schema version, vector index state) and still answers with the database stopped, while /api/health fails",
         "routes_status, routes_read, routes_opds, routes_send and routes_sources run their SQL on Postgres and every existing status key keeps its shape"
@@ -725,7 +727,7 @@
       "id": "t11",
       "summary": "Port core/repodocs.py, projects.py, speclinks.py and server/routes_repodocs.py to Postgres",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a forced error in on_write leaves no version, draft, feed event or outbox row (test)",
         "scalar MAX becomes GREATEST, integer booleans become boolean, lastrowid becomes RETURNING; speclinks.record is race-free under two concurrent pushes (test)"
@@ -738,7 +740,8 @@
       "covers": [
         "c11",
         "c35",
-        "h29"
+        "h29",
+        "h39"
       ],
       "instruction": "Own those four files and tests/core/test_repodocs*.py, test_projects.py, test_speclinks.py, tests/server/test_routes_repodocs*.py. Keep the on_write hook inside the push transaction (d6)."
     },
@@ -746,7 +749,7 @@
       "id": "t12",
       "summary": "Port core/search.py to Postgres full text and pgvector, and remove the vector cache",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "full text ranks with ts_rank over the weighted tsvector: title matches outrank body-only matches, cats finds cat, the last term matches as a prefix, and snippets use ts_headline with [ ] markers and about 12 words (tests)",
         "semantic and hybrid retrieval order by the pgvector cosine operator through the HNSW index for the query's (model id, strategy), shown by EXPLAIN in a test, and never score rows of another model or strategy",
@@ -773,7 +776,7 @@
       "id": "t13",
       "summary": "Port core/indexer.py: queues, dirty marks as Postgres triggers, and model id plus strategy on every vector",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "repodoc_dirty is fed by plpgsql triggers that mark only changed shown columns, and the #39 tests (idle tick reads no repodocs rows) pass on Postgres",
         "every vector the indexer writes carries the real model id from the gateway's /capabilities and the strategy (prompts, chunker and max_chars, dimension, normalisation), and the first vector of a new (model, strategy) creates its HNSW index",
@@ -794,7 +797,7 @@
       "id": "t14",
       "summary": "One-shot SQLite-to-Postgres copy command with a verification report",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture-library migrate sqlite-to-postgres --from `<library.db>` copies every table with its ids, sets each identity sequence above the copied max id, and is refused on a non-empty target",
         "full-text bodies are copied from search_fts and repodoc_fts and vectors byte for byte, with model id and strategy filled from the gateway's /capabilities; the command makes no embedding call (test with a gateway stub that fails on embed)",
@@ -826,7 +829,7 @@
       "id": "t15",
       "summary": "Backup, restore and schedule on pg_dump",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture-library backup run writes `snapshots/<stamp>/` with a pg_dump custom-format dump plus manifest.json, keeping the verified shared files tree; verify checks the manifest against the dump and the blobs",
         "backup restore into an empty database and files tree reproduces every table count and passes blob sha checks (test against the CI Postgres)",
@@ -849,7 +852,7 @@
       "id": "t16",
       "summary": "Remove the remaining SQLite from the package and pass the full suite on Postgres",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a test greps culture_library/ and fails on AUTOINCREMENT, lastrowid, json_extract, INSERT OR REPLACE/IGNORE, sqlite_master, PRAGMA, ? placeholders or import sqlite3 outside migrate/xteink.py and migrate/sqlite_to_pg.py",
         "pyproject.toml has a pg extra with psycopg 3, the server image installs it, base dependencies stay empty and tests/test_zero_deps.py passes",
@@ -868,7 +871,8 @@
         "c2",
         "h2",
         "c4",
-        "h4"
+        "h4",
+        "h38"
       ],
       "instruction": "Last code task before docs. Fix whatever the grep test still finds; do not change tests/contract or the parity tables. Update test_zero_deps.py's Dockerfile assertion for the new extra."
     },
@@ -876,7 +880,7 @@
       "id": "t17",
       "summary": "Runbooks and agent docs for the Postgres stack, with the cutover runbook",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "docs/operations/deploy.md and backup.md describe Postgres (what runs, restart, backups, schema upgrades, rollback) and no longer present library.db, WAL, FTS5 or sqlite3 commands as current",
         "a cutover runbook names the freeze steps, the go/no-go checks and the point of no return (resuming writes), after which problems are fixed forward",
@@ -899,7 +903,7 @@
       "id": "t18",
       "summary": "Live: restore drill and pre-cutover baseline on spark (operator present)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "a snapshot taken by the new backup code from a scratch Postgres migrated from a live SQLite backup restores into an empty scratch Postgres with identical counts",
         "the before-state figures (sizes, counts, latencies on 0.19.8) are re-measured on live and recorded as evidence"
@@ -919,7 +923,7 @@
       "id": "t19",
       "summary": "Live: one-shot cutover to Postgres (operator present)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "the freeze pauses culture-rules' writer rules, a final SQLite backup is verified, the copy's report shows every table count and max id equal, and writes resume within 30 minutes of the pause",
         "after cutover the library serves from Postgres (no library.db opened), /api/status shows the database block healthy, and verify-mirror --all reports 0 missing and 0 mismatched",
@@ -958,7 +962,7 @@
       "id": "t20",
       "summary": "Live: re-baseline evals and latency on Postgres (operator present)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "complete server-side runs for eval sets 1-8 with rerank on and off show books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank, or the shortfall is reported",
         "40-query timings on live give rerank-off p95 < 300 ms for items only and < 500 ms for items plus repo docs, or the shortfall is reported"

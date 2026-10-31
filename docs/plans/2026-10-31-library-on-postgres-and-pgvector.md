@@ -1,0 +1,205 @@
+# Build Plan — Library on Postgres and pgvector
+
+slug: `library-on-postgres-and-pgvector` · status: `exported` · from frame: `library-on-postgres-and-pgvector`
+
+> The library runs on PostgreSQL with pgvector on spark: documents, repo documents, full text and vectors live in one self-hosted database with a real vector index, API and MCP clients see no contract change, and retrieval quality is re-baselined at cutover
+
+## Tasks
+
+### t1 — Postgres store foundation: connection handling and a versioned migration runner
+
+- instruction: Replace sqlite3 in core/store.py with psycopg 3 (sync, dict-capable row factory that also supports index access). Keep Store(`data_dir`) for the files tree and add the DB settings beside it. Move items CRUD SQL in store.py to Postgres (RETURNING instead of lastrowid). `register_schema`/`register_migration` go away; modules ship SQL in core/migrations/`NNNN_`\*.sql. Write tests first in tests/core/`test_store_pg.py`.
+- covers: c14, h12, c36, h30
+- acceptance:
+  - core/store.py opens psycopg 3 connections from `CULTURE_LIBRARY_PG_`\* settings plus a password env var; connect() is one transaction committed on success and rolled back on error, reader() never takes row locks
+  - core/migrations/ applies numbered SQL files once each, records them in `schema_version`, and a second Store() open runs no DDL (asserted by counting statements)
+  - Store() refuses to open a database whose collation is not C or whose `schema_version` is ahead of the code, with a CoreError naming the fix
+  - rows support both index and column-name access, so callers written for sqlite3.Row keep working; psycopg is imported lazily so the CLI still imports without the extra
+
+### t2 — Test infrastructure on Postgres: one database per test worker, in CI and locally
+
+- instruction: Add a session-scoped template database (migrations applied once) and per-worker clones (CREATE DATABASE ... TEMPLATE). Read the DSN from `CULTURE_LIBRARY_TEST_PG_DSN`; document a one-line docker run for local use. Do not touch module tests; t5-t13 port them.
+- covers: c18, h16
+- acceptance:
+  - a root tests/conftest.py fixture creates an isolated database per xdist worker from a migrated template and drops it after the session
+  - .github/workflows/tests.yml (test job) and publish.yml (test job) run a pgvector/pgvector:pg17 service and pass its DSN to pytest
+  - with no reachable Postgres the suite fails at collection with one clear error naming the setting to set, never by silently skipping tests
+
+### t3 — Compose and deploy: a least-privilege pgvector service started by deploy restart
+
+- instruction: Files: deploy/compose.yaml, deploy/postgres-init/\*.sql, `culture_library`/cli/`_commands`/deploy.py and its tests. Grant secret name `CULTURE_LIBRARY_PG_PASSWORD`. Remove --no-deps or add postgres to SERVICES. Keep scan-secrets clean (no non-localhost DSNs committed).
+- covers: c17, h15, c39, h33, c7, h6
+- acceptance:
+  - deploy/compose.yaml has a postgres service on pgvector/pgvector:pg17 with its own volume, a `pg_isready` healthcheck and no published port; library depends on it being healthy
+  - an init script creates the library database with the C collation and the vector extension, and an application role that owns it but cannot create roles or databases
+  - deploy restart injects the database password from a grant secret, refuses a live.env that sets it, and brings postgres up healthy before library and mcp (dry-run output shows the order)
+
+### t4 — Initial Postgres schema: every library table, typed for Postgres
+
+- instruction: Derive the table list from the current `register_schema` fragments. Keep timestamps as TEXT so API values stay byte-identical. Strategy is a stable string or jsonb key: document and query prompt names, chunker and `max_chars`, dimension, normalisation.
+- depends on: t1
+- covers: c7, h6, c8, h7, c42, h37
+- acceptance:
+  - core/migrations/`0001_initial`.sql creates every table the SQLite store has, with identity ids, boolean flags, jsonb for JSON columns and the same TEXT ISO timestamps, and a test lists the tables and columns against the SQLite schema
+  - items and repo docs have weighted tsvector columns (title A, body B, english config) with GIN indexes
+  - embedding tables hold a dimensionless vector column plus `model_id` and strategy columns, with an HNSW cosine index for (google/embeddinggemma-2, the current strategy) on vec::vector(768)
+  - the feed's cursor column is created under a name that needs no quoting, and the API still returns it as cursor
+
+### t5 — Port core/library.py, uploaders.py and sources.py to Postgres
+
+- instruction: Own `culture_library`/core/library.py, uploaders.py, sources.py, ingest.py `on_insert` and their tests.
+- depends on: t1, t2, t4
+- covers: c12, h10, c4, h4, h38
+- acceptance:
+  - library.py uses an explicit list of sha256-bearing tables instead of `sqlite_master`; `json_extract` becomes jsonb operators; blob unlink after commit runs under a transaction advisory lock and a concurrent-unlink test never deletes a referenced blob
+  - tests/core/`test_library`\*.py, `test_uploader`\*.py and `test_sources`\*.py pass on Postgres; uploaders.`visible_sql` returns %s-style fragments
+
+### t6 — Port core/feed.py and server/`routes_feed.py` with commit-ordered cursors
+
+- instruction: Own core/feed.py, server/`routes_feed.py` and their tests.
+- depends on: t1, t2, t4
+- covers: c34, h28
+- acceptance:
+  - feed appends take a transaction-level advisory lock, so a test with two concurrent writers and a cursor-paging reader sees every event exactly once in cursor order
+  - the /api/feed response shape, including the cursor field name, is unchanged (existing feed tests pass)
+
+### t7 — Port core/keys.py with non-blocking `last_used` stamping
+
+- instruction: Own core/keys.py and tests/core/`test_keys.py`; drop the raw sqlite3 side connection and the 'no such table' string match.
+- depends on: t1, t2, t4
+- covers: c12, h10
+- acceptance:
+  - authenticate never waits more than 100 ms on a writer to stamp `last_used` (`lock_timeout` or SKIP LOCKED), shown by a test holding a row lock
+  - key mint, rotate, revoke and scope checks pass unchanged on Postgres
+
+### t8 — Port core/mirror.py, server/`routes_mirror.py` and the mirror CLI
+
+- instruction: Own core/mirror.py, server/`routes_mirror.py`, `culture_library`/cli/`_commands`/mirror.py and their tests.
+- depends on: t1, t2, t4
+- covers: c35, h29, c4, h4, h38
+- acceptance:
+  - mirror.enqueue is one INSERT ... ON CONFLICT (key) and two concurrent enqueues of one key leave one row (test)
+  - the outbox CHECK-widening migration is gone, `_has_table` uses `to_regclass`, and drained rows still upload to the same bucket keys (existing mirror tests pass on the fake backend)
+
+### t9 — Port core/`eval_store.py`, `eval_reanchor.py`, `eval_radar.py` and the eval routes
+
+- instruction: Own core/`eval_store.py`, `eval_reanchor.py`, `eval_radar.py`, server/`routes_eval`\*.py and their tests.
+- depends on: t1, t2, t4
+- covers: c35, h29
+- acceptance:
+  - INSERT OR REPLACE becomes ON CONFLICT DO UPDATE and `close_running_runs` is safe against a concurrent run start (test)
+  - tests/core/`test_eval_store`\*.py, tests/eval and tests/contract/`test_eval_contract.py` pass on Postgres unchanged
+
+### t10 — Port the remaining server routes and add the database block to /api/status
+
+- instruction: Own server/`routes_status.py`, `routes_read.py`, `routes_opds.py`, `routes_send.py`, `routes_sources.py` and their tests.
+- depends on: t1, t2, t4
+- covers: c40, h34, c2, h2
+- acceptance:
+  - /api/status gains a database block (reachable, schema version, vector index state) and still answers with the database stopped, while /api/health fails
+  - `routes_status`, `routes_read`, `routes_opds`, `routes_send` and `routes_sources` run their SQL on Postgres and every existing status key keeps its shape
+
+### t11 — Port core/repodocs.py, projects.py, speclinks.py and server/`routes_repodocs.py` to Postgres
+
+- instruction: Own those four files and tests/core/`test_repodocs`\*.py, `test_projects.py`, `test_speclinks.py`, tests/server/`test_routes_repodocs`\*.py. Keep the `on_write` hook inside the push transaction (d6).
+- depends on: t1, t2, t4
+- covers: c11, c35, h29, h39
+- acceptance:
+  - a forced error in `on_write` leaves no version, draft, feed event or outbox row (test)
+  - scalar MAX becomes GREATEST, integer booleans become boolean, lastrowid becomes RETURNING; speclinks.record is race-free under two concurrent pushes (test)
+
+### t12 — Port core/search.py to Postgres full text and pgvector, and remove the vector cache
+
+- instruction: Own `culture_library`/core/search.py, delete core/`vector_cache.py` and tests/core/`test_vector_cache.py`, and port tests/core/`test_search.py`, `test_passages.py`, `test_repodoc_index.py`. Rewrite tests that pinned exact bm25 floats to assert orderings instead. Tests that pin exact scores (`test_item_ranking_unchanged_by_indexed_repodocs`) are re-expressed as ordering checks.
+- depends on: t4, t5
+- covers: c9, h8, c8, h7, c42, h37, c5, h5
+- acceptance:
+  - full text ranks with `ts_rank` over the weighted tsvector: title matches outrank body-only matches, cats finds cat, the last term matches as a prefix, and snippets use `ts_headline` with \[ \] markers and about 12 words (tests)
+  - semantic and hybrid retrieval order by the pgvector cosine operator through the HNSW index for the query's (model id, strategy), shown by EXPLAIN in a test, and never score rows of another model or strategy
+  - visibility, owner, kind, `item_ids` and archived filters apply as before, ties break on (corpus, id, `chunk_no`), and hybrid keeps reciprocal-rank fusion with k=60
+  - core/`vector_cache.py`, the `vector_log` table and its triggers are deleted, and no code sends document text anywhere but the configured gateway
+
+### t13 — Port core/indexer.py: queues, dirty marks as Postgres triggers, and model id plus strategy on every vector
+
+- instruction: Own `culture_library`/core/indexer.py, `culture_library`/gateway.py (capabilities lookup) and tests/core/`test_indexer`\*.py, `test_repodoc_dirty.py`. Trigger DDL goes in a numbered migration.
+- depends on: t12
+- covers: c42, h37, c8, h7
+- acceptance:
+  - `repodoc_dirty` is fed by plpgsql triggers that mark only changed shown columns, and the #39 tests (idle tick reads no repodocs rows) pass on Postgres
+  - every vector the indexer writes carries the real model id from the gateway's /capabilities and the strategy (prompts, chunker and `max_chars`, dimension, normalisation), and the first vector of a new (model, strategy) creates its HNSW index
+  - `index_queue` and `repodoc_index_queue` keep their state machine, priority, retries and backoff (existing indexer tests pass)
+
+### t14 — One-shot SQLite-to-Postgres copy command with a verification report
+
+- instruction: New module `culture_library`/migrate/`sqlite_to_pg.py` plus a verb in cli/`_commands`/migrate.py; the SQLite source is read with the stdlib sqlite3 module (the one allowed use besides xteink). Test against a fixture SQLite built by the 0.19.8 code path (keep a frozen copy of the old schema in tests/migrate/fixtures).
+- depends on: t13, t11, t6, t7, t8, t9, t10
+- covers: c42, h37, c15, h13, c37, h31, c26, h24
+- acceptance:
+  - culture-library migrate sqlite-to-postgres --from `<library.db>` copies every table with its ids, sets each identity sequence above the copied max id, and is refused on a non-empty target
+  - full-text bodies are copied from `search_fts` and `repodoc_fts` and vectors byte for byte, with model id and strategy filled from the gateway's /capabilities; the command makes no embedding call (test with a gateway stub that fails on embed)
+  - it prints and returns a per-table report of count(\*) and max(id) on both sides and exits non-zero on any difference
+  - migrate/xteink.py still reads its xteink source with sqlite3 and looks up destinations through the Postgres store
+
+### t15 — Backup, restore and schedule on `pg_dump`
+
+- instruction: Own `culture_library`/core/backup.py, `culture_library`/cli/`_commands`/backup.py, deploy/Dockerfile and tests/core/`test_backup.py`. Snapshot dirs keep the same layout so prune and --keep work as today.
+- depends on: t3, t4
+- covers: c16, h14, c41, h35
+- acceptance:
+  - culture-library backup run writes `snapshots/<stamp>/` with a `pg_dump` custom-format dump plus manifest.json, keeping the verified shared files tree; verify checks the manifest against the dump and the blobs
+  - backup restore into an empty database and files tree reproduces every table count and passes blob sha checks (test against the CI Postgres)
+  - backup schedule installs a systemd user timer that runs the backup daily, and backup overview shows the last success
+  - deploy/Dockerfile installs the PostgreSQL 17 client tools needed for `pg_dump` and `pg_restore`
+
+### t16 — Remove the remaining SQLite from the package and pass the full suite on Postgres
+
+- instruction: Last code task before docs. Fix whatever the grep test still finds; do not change tests/contract or the parity tables. Update `test_zero_deps.py`'s Dockerfile assertion for the new extra.
+- depends on: t14, t15, t3
+- covers: c13, h11, c27, h25, c2, h2, c4, h4, h38
+- acceptance:
+  - a test greps `culture_library`/ and fails on AUTOINCREMENT, lastrowid, `json_extract`, INSERT OR REPLACE/IGNORE, `sqlite_master`, PRAGMA, ? placeholders or import sqlite3 outside migrate/xteink.py and migrate/`sqlite_to_pg.py`
+  - pyproject.toml has a pg extra with psycopg 3, the server image installs it, base dependencies stay empty and tests/`test_zero_deps.py` passes
+  - the full suite, including tests/contract and the MCP parity tests unchanged, passes in CI's test and publish jobs on Postgres with no new skip markers
+
+### t17 — Runbooks and agent docs for the Postgres stack, with the cutover runbook
+
+- instruction: Own docs/operations/\*.md, CLAUDE.md and the sibling harness files, README.md. Keep the harness-smoke facts true.
+- depends on: t16
+- covers: c19, h17, c38, h32, c22, h20
+- acceptance:
+  - docs/operations/deploy.md and backup.md describe Postgres (what runs, restart, backups, schema upgrades, rollback) and no longer present library.db, WAL, FTS5 or sqlite3 commands as current
+  - a cutover runbook names the freeze steps, the go/no-go checks and the point of no return (resuming writes), after which problems are fixed forward
+  - CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md and README describe the Postgres store and record the operator's 2026-10-31 decision to migrate before further SQLite optimisation; markdownlint passes
+
+### t18 — Live: restore drill and pre-cutover baseline on spark (operator present)
+
+- instruction: Operator-gated. Use a scratch database and directory, never the live volume. Record commands and outputs for the delivery summary.
+- depends on: t17
+- covers: c28, h26, c21, h19
+- acceptance:
+  - a snapshot taken by the new backup code from a scratch Postgres migrated from a live SQLite backup restores into an empty scratch Postgres with identical counts
+  - the before-state figures (sizes, counts, latencies on 0.19.8) are re-measured on live and recorded as evidence
+
+### t19 — Live: one-shot cutover to Postgres (operator present)
+
+- instruction: Operator-gated, following the t17 runbook. Go/no-go before resuming writes; before that point rollback is the SQLite snapshot plus the old image.
+- depends on: t18
+- covers: c1, h1, c23, h21, c7, h6, c26, h24, c29, h27, c40, h34, c41, h35, c20, h18, c3, h3, c5, h5, c38, h32
+- acceptance:
+  - the freeze pauses culture-rules' writer rules, a final SQLite backup is verified, the copy's report shows every table count and max id equal, and writes resume within 30 minutes of the pause
+  - after cutover the library serves from Postgres (no library.db opened), /api/status shows the database block healthy, and verify-mirror --all reports 0 missing and 0 mismatched
+  - a scheduled Postgres backup succeeds, and culture-rules, Gwen and xteink requests succeed with no change on their side
+
+### t20 — Live: re-baseline evals and latency on Postgres (operator present)
+
+- instruction: Use a temporary write key and revoke it after; record runs as the new baseline.
+- depends on: t19
+- covers: c24, h22, c25, h23
+- acceptance:
+  - complete server-side runs for eval sets 1-8 with rerank on and off show books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank, or the shortfall is reported
+  - 40-query timings on live give rerank-off p95 < 300 ms for items only and < 500 ms for items plus repo docs, or the shortfall is reported
+
+## Risks
+
+- [follow_up] Rankings move with `ts_rank`; if recall falls below the c24 margin, a BM25 extension is the fallback (decision q3) (task t20)
+- [unknown_nonblocking] HNSW recall under low-selectivity visibility filters (frame park v1) is measured only in t20; pgvector iterative scans are the first lever (task t12)
