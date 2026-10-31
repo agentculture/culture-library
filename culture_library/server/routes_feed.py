@@ -1,8 +1,12 @@
-"""``GET /api/feed?since=<cursor>[&item_id=N][&subject=item|repodoc]``:
+"""``GET /api/feed?since=<cursor>[&item_id=N][&subject=item|repodoc|all]``:
 ordered change events (read scope).
 
-``item_id`` keeps only that item's events (served from the ``feed(item_id)`` index). Events
-about private items appear to callers with private access and to the key that uploaded them.
+``subject`` defaults to ``item``: the feed reads exactly as it did before repo-document
+events existed, so an ``item_id`` is always an item id. ``repodoc`` reads repo-document
+events (their ``item_id`` is the repodoc id), ``all`` both, told apart by each event's
+``subject``. ``item_id`` keeps only that item's events (served from the ``feed(item_id)``
+index). Events about private items appear to callers with private access and to the key that
+uploaded them.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ def feed(
     since: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     item_id: int | None = Query(None, ge=1),
-    subject: str | None = Query(None, pattern="^(item|repodoc)$"),
+    subject: str = Query("item", pattern="^(item|repodoc|all)$"),
     principal: Principal = Depends(current_principal),
     store: Store = Depends(get_store),
 ) -> dict:

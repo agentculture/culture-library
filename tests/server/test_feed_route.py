@@ -102,3 +102,19 @@ def test_feed_and_repodocs_resolve_the_store_through_auth_get_store(tmp_path):
         visibility="public",
     )
     assert [d["path"] for d in c.get("/api/repodocs").json()["docs"]] == ["docs/specs/a.md"]
+
+
+def test_feed_defaults_to_items_and_subject_all_mixes(tmp_path):
+    """Review finding 5: GET /api/feed without subject is the item feed it always was."""
+    from culture_library.core.feed import append_repodoc
+
+    store, c = _client(tmp_path, Principal("k", frozenset({"read"}), private=True))
+    _seed(store)
+    with store.connect() as conn:
+        append_repodoc(conn, 9, "spec", "c" * 64, {"repo": "r", "path": "docs/specs/a.md"})
+    plain = c.get("/api/feed").json()["events"]
+    assert [(e["subject"], e["item_id"]) for e in plain] == [("item", 1), ("item", 2), ("item", 3)]
+    both = c.get("/api/feed?subject=all").json()["events"]
+    assert [e["subject"] for e in both] == ["item", "item", "item", "repodoc"]
+    assert [e["item_id"] for e in c.get("/api/feed?subject=repodoc").json()["events"]] == [9]
+    assert c.get("/api/feed?subject=nope").status_code == 422

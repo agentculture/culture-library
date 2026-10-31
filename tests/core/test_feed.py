@@ -164,7 +164,9 @@ def test_repodoc_events_interleave_in_cursor_order(store):
         c3 = append_repodoc(conn, 6, "plan", SHA, {"repo": "r", "path": "b.md"})
         c4 = append(conn, _ev("updated", item_id=5))
     with store.reader() as conn:
-        evs = read_since(conn, 0)["events"]
+        # review finding 5: no subject keeps the pre-repodoc behaviour, items only
+        assert [e["cursor"] for e in read_since(conn, 0)["events"]] == [c1, c4]
+        evs = read_since(conn, 0, subject="all")["events"]
         assert [e["cursor"] for e in evs] == [c1, c2, c3, c4]
         assert [e["subject"] for e in evs] == ["item", "repodoc", "repodoc", "item"]
         assert evs[1]["data"] == {"repo": "r", "path": "a.md", "commit": "abc"}
@@ -181,7 +183,7 @@ def test_repodoc_private_hidden_from_public_and_owner(store):
         append_repodoc(conn, 1, "spec", SHA, {"repo": "r", "path": "a"}, visibility="public")
         append_repodoc(conn, 2, "spec", SHA, {"repo": "r", "path": "b"})
     with store.reader() as conn:
-        shown = read_since(conn, 0, include_private=False, owner="k")["events"]
+        shown = read_since(conn, 0, include_private=False, owner="k", subject="all")["events"]
         assert [e["item_id"] for e in shown] == [1]
 
 
@@ -206,3 +208,25 @@ def test_subject_column_migrates_old_db(tmp_path):
     ensure_subject_column(conn)
     ensure_subject_column(conn)
     assert conn.execute("SELECT subject FROM feed").fetchone() == ("item",)
+
+
+def test_default_subject_is_items_only_and_all_is_both(store):
+    """Review finding 5: old clients (no subject) never see a repodoc id as an item_id."""
+    from culture_library.core.feed import append_repodoc
+
+    with store.connect() as conn:
+        append_repodoc(conn, 1, "spec", SHA, {"repo": "r", "path": "a.md"})
+        c2 = append(conn, _ev("created", item_id=1))
+        append_repodoc(conn, 2, "plan", SHA, {"repo": "r", "path": "b.md"})
+    with store.reader() as conn:
+        page = read_since(conn, 0)
+        assert [e["cursor"] for e in page["events"]] == [c2]
+        assert {e["subject"] for e in page["events"]} == {"item"}
+        assert page["cursor"] == c2  # a cursor never skips past an unread item event
+        assert [e["subject"] for e in read_since(conn, 0, subject="all")["events"]] == [
+            "repodoc",
+            "item",
+            "repodoc",
+        ]
+        with pytest.raises(ValidationError):
+            read_since(conn, 0, subject="everything")

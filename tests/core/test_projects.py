@@ -80,3 +80,16 @@ def test_stdlib_only() -> None:
         elif isinstance(node, ast.ImportFrom) and not node.level:
             mods.add((node.module or "").split(".")[0])
     assert mods <= {"__future__", "json", "sqlite3", "typing"}
+
+
+def test_org_repo_shorthand_means_github(projects: Projects) -> None:
+    """Review finding 2: ``org/repo`` (no scheme, no dot in the first segment) is GitHub."""
+    from culture_library.core.projects import _norm
+
+    assert _norm("agentculture/daria") == DARIA
+    assert _norm("agentculture/daria.git") == DARIA
+    assert _norm("gitlab.com/agentculture/daria") == "gitlab.com/agentculture/daria"
+    assert _norm("example.org/daria") == "example.org/daria"
+    assert _norm("spark:/home/spark/git/x") == "spark:/home/spark/git/x"
+    projects.upsert(LIB, [], ["agentculture/daria"])
+    assert projects.get(LIB)["connected"] == [DARIA]

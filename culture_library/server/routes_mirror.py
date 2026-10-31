@@ -9,10 +9,13 @@ same pattern as the library's ``Purger``) when a backend is available, and nothi
   error is logged and kept on ``app.state.mirror_error`` for ``/api/status``; the server still
   starts and pushes keep queueing.
 
-The worker drains every ``CULTURE_LIBRARY_MIRROR_INTERVAL_S`` seconds (default 5). A pass with
-failures waits ``CULTURE_LIBRARY_MIRROR_BACKOFF_S`` (default 5), doubling per failing pass up to
-``CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S`` (default 300), so a down backend never spins; a clean
-pass resets it. Pushes never wait on the mirror: they only write outbox rows.
+The worker drains every ``CULTURE_LIBRARY_MIRROR_INTERVAL_S`` seconds (default 5). A pass that
+uploaded nothing and still left rows to retry waits ``CULTURE_LIBRARY_MIRROR_BACKOFF_S``
+(default 5), doubling per such pass up to ``CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S`` (default
+300), so a down backend never spins. Any other pass (clean, one that uploaded something, or one
+whose only failures were parked) resets it. A row that fails ``MAX_ATTEMPTS`` times is parked
+(``core.mirror``), so one bad row cannot hold every healthy row in backoff. Pushes never wait on
+the mirror: they only write outbox rows.
 """
 
 from __future__ import annotations
@@ -81,8 +84,11 @@ class MirrorWorker(threading.Thread):
         self._stop_event = threading.Event()
 
     def next_delay(self, result: dict[str, int]) -> float:
-        """Seconds to wait after a pass: the interval when clean, else a doubling backoff."""
-        if not result.get("failed"):
+        """Seconds to wait after a pass: a doubling backoff when the pass made no progress
+        and rows are still waiting to be retried, else the interval (and the backoff resets).
+        """
+        retry = result.get("retry", result.get("failed", 0))
+        if result.get("done") or not retry:
             self._backoff = None
             return self.interval_s
         if self._backoff is None:
@@ -98,7 +104,7 @@ class MirrorWorker(threading.Thread):
                 self.last_error = None
             except Exception as exc:  # noqa: BLE001 - e.g. a locked database; retry later
                 self.last_error = f"{type(exc).__name__}: {exc}"
-                result = {"done": 0, "failed": 1}
+                result = {"done": 0, "failed": 1, "parked": 0, "retry": 1}
             self.passes += 1
             if result.get("failed"):
                 self.failed_passes += 1
@@ -157,17 +163,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def newest_error(store: Store) -> str | None:
-    """The ``last_error`` of the most recently enqueued failing pending row, or None."""
+    """The ``last_error`` of the most recently enqueued failing row (pending or parked)."""
     with store.reader() as conn:
         row = conn.execute(
-            "SELECT last_error FROM mirror_outbox WHERE state = 'pending' AND last_error != ''"
-            " ORDER BY enqueued_at DESC, id DESC LIMIT 1"
+            "SELECT last_error FROM mirror_outbox WHERE state IN ('pending', 'failed')"
+            " AND last_error != '' ORDER BY enqueued_at DESC, id DESC LIMIT 1"
         ).fetchone()
     return row[0] if row else None
 
 
 def status_block(store: Store, state=None, private: bool = True) -> dict:
-    """``{enabled, pending, oldest_pending_age_s, last_error}`` for ``/api/status``.
+    """``{enabled, pending, parked, oldest_pending_age_s, last_error}`` for ``/api/status``.
+
+    ``parked`` counts rows that stopped retrying after ``MAX_ATTEMPTS`` failures; ``culture-
+    library mirror reconcile`` re-queues them.
 
     ``enabled`` means a backend is in place (injected or built at startup). ``last_error`` is
     the backend-config error if there is one, else the newest error among pending rows. A row
@@ -181,6 +190,7 @@ def status_block(store: Store, state=None, private: bool = True) -> dict:
     return {
         "enabled": enabled,
         "pending": stats["count"],
+        "parked": stats["parked"],
         "oldest_pending_age_s": stats["oldest_age_seconds"],
         "last_error": error,
     }

@@ -9,9 +9,11 @@ one item through the ``feed(item_id)`` index, so no catalog or log scan is neede
 Repo-document events share the log. The ``subject`` column (``item`` by default, ``repodoc``
 for :func:`append_repodoc`) says what an event is about. ``item_id`` stays ``NOT NULL`` and
 holds the repo document's id for a ``repodoc`` event, so only ``subject`` tells the two id
-spaces apart: item consumers filter ``subject == "item"`` and must never read a repodoc's
-``item_id`` as an item. ``subject`` is added by ``ALTER TABLE ADD COLUMN`` (no table rebuild),
-so existing rows read as ``item``. Uploader ownership applies to items only; a private
+spaces apart. :func:`read_since` therefore reads ``item`` events unless asked otherwise: a
+client written before repodoc events (culture-rules, Gwen, xteink) never sees a repodoc id in
+``item_id``. ``subject="repodoc"`` reads only repo-document events, ``subject="all"`` both.
+``subject`` is added by ``ALTER TABLE ADD COLUMN`` (no table rebuild), so existing rows read
+as ``item``. Uploader ownership applies to items only; a private
 repodoc event is shown only to callers with private access.
 """
 
@@ -45,6 +47,8 @@ CREATE TABLE IF NOT EXISTS feed (
 register_schema("CREATE INDEX IF NOT EXISTS feed_item_id ON feed(item_id)")
 
 SUBJECTS = ("item", "repodoc")
+ALL = "all"
+DEFAULT_SUBJECT = "item"
 _REPODOC_KINDS = ("document", "spec", "plan", "devague-record", "design")
 
 
@@ -144,10 +148,12 @@ def read_since(
     ``limit`` bounds the raw rows scanned. With ``include_private=False`` events about
     private items are omitted unless ``owner`` (a key id) uploaded the item, but ``cursor``
     still advances past them. ``item_id`` keeps only that item's events (indexed; it implies
-    ``subject='item'``). ``subject`` keeps only ``item`` or ``repodoc`` events.
+    ``subject='item'``). ``subject`` is ``item`` (the default, also for ``None``),
+    ``repodoc``, or ``all`` for both interleaved in cursor order.
     """
-    if subject is not None and subject not in SUBJECTS:
-        raise ValidationError(f"subject must be one of {', '.join(SUBJECTS)}")
+    subject = DEFAULT_SUBJECT if subject is None else subject
+    if subject != ALL and subject not in SUBJECTS:
+        raise ValidationError(f"subject must be one of {', '.join((*SUBJECTS, ALL))}")
     limit = max(1, min(int(limit), MAX_LIMIT))
     vis, vis_params = uploaders.visible_sql(include_private, owner, item_id="item_id")
     if include_private:
@@ -157,7 +163,7 @@ def read_since(
     where, params = "cursor > ?", [since]
     if item_id is not None:
         where, params = "subject = 'item' AND item_id = ? AND cursor > ?", [int(item_id), since]
-    elif subject is not None:
+    elif subject != ALL:
         where, params = "subject = ? AND cursor > ?", [subject, since]
     rows = conn.execute(
         "SELECT cursor, type, item_id, sha256, kind, visibility, at, data, subject,"

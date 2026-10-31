@@ -404,11 +404,15 @@ not read the bucket policy, so review that too.
 ### Watching the mirror
 
 ```bash
-uv run culture-library mirror status      # outbox backlog, oldest pending age, newest error
+uv run culture-library mirror status      # outbox backlog, parked rows, oldest pending age, newest error
 uv run culture-library mirror reconcile   # queue repo-doc keys missing or stale in the bucket
 ```
 
-`GET /api/status` carries the same `mirror` block.
+`GET /api/status` carries the same `mirror` block. A row whose upload fails 8 times
+(`core.mirror.MAX_ATTEMPTS`; a missing local blob, say) is **parked**: it leaves the pending
+set, shows as `parked` with its `last_error`, and no longer holds the worker in backoff. Fix the
+cause, then run `mirror reconcile`: it re-queues every parked key that is still missing or
+stale in the bucket, with its attempts reset. Nothing is deleted, here or in the bucket.
 
 ## Machine client keys
 

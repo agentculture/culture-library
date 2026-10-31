@@ -17,9 +17,12 @@ works unchanged):
 - ``visibility``: accepted for compatibility and ignored. Every pushed doc, version and draft
   is stored private (the all-private rule, decision c31).
 - ``project``: ``{domains: [str], connected: [remote]}`` from the repo's culture.yaml; the
-  latest push wins.
+  latest push wins. A ``connected`` entry that does not normalize is dropped and reported in
+  the response's ``warnings`` (present only when there are any); ``org/repo`` is GitHub.
 - ``spec_links`` (specs only): ``{pr, merge_commit, code_paths, at_commit, at_committed_at,
-  trailer_commits}``, see :class:`culture_library.core.speclinks.SpecLinks`.
+  trailer_commits}``, see :class:`culture_library.core.speclinks.SpecLinks`. The response
+  then carries ``spec_links_applied``: false when the code paths were older than the stored
+  ones and were not kept, so the pusher must not record them as delivered.
 
 A new version, or a draft whose bytes changed, queues one mirror outbox row and appends one
 repodoc feed event in the version/draft's own transaction (the ``on_write`` hook of
@@ -55,6 +58,7 @@ from pydantic import BaseModel, StrictInt, StrictStr, field_validator, model_val
 from culture_library.core import NotFoundError, Store, ValidationError, feed, mirror
 from culture_library.core.projects import Projects
 from culture_library.core.projects import _norm as _project_id
+from culture_library.core.projects import clean_connected
 from culture_library.core.repodocs import (
     WORKING,
     PushResult,
@@ -99,18 +103,11 @@ def _body_cap() -> int:
 
 
 class ProjectScope(BaseModel):
+    """``connected`` entries that do not normalize are dropped with a warning, not refused
+    (see :func:`culture_library.core.projects.clean_connected`)."""
+
     domains: list[str] = []
     connected: list[str] = []
-
-    @field_validator("connected")
-    @classmethod
-    def _remotes(cls, value: list[str]) -> list[str]:
-        for remote in value:
-            try:
-                _project_id(remote)
-            except ValidationError as exc:
-                raise ValueError(f"connected {remote!r}: {exc}") from None
-        return value
 
 
 class PullRef(BaseModel):
@@ -268,15 +265,23 @@ def _tombstone(docs: RepoDocs, body: RepoDocPush) -> tuple[RepoDoc, bool]:
 
 
 def _scope(store: Store, body: RepoDocPush, doc: RepoDoc) -> dict[str, Any]:
-    """Write the project and spec links (after the push's transaction committed)."""
+    """Write the project and spec links (after the push's transaction committed).
+
+    Adds ``spec_links_applied`` when the push carried spec links (false when its code paths
+    were older than the stored ones and so not kept), and ``warnings`` when any ``connected``
+    entry was dropped.
+    """
     out: dict[str, Any] = {"project": None, "spec_links": None}
     try:
         if body.project is not None:
-            out["project"] = Projects(store).upsert(
-                body.remote, body.project.domains, body.project.connected
-            )
+            connected, warnings = clean_connected(body.project.connected)
+            out["project"] = Projects(store).upsert(body.remote, body.project.domains, connected)
+            if warnings:
+                out["warnings"] = warnings
         if body.spec_links is not None:
-            out["spec_links"] = SpecLinks(store).set_links(doc.id, **body.spec_links.model_dump())
+            links, applied = SpecLinks(store).record(doc.id, **body.spec_links.model_dump())
+            out["spec_links"] = links
+            out["spec_links_applied"] = applied
     except ValidationError as exc:
         raise _bad(exc) from exc
     return out

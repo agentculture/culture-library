@@ -6,9 +6,11 @@ trailer commits when present, else the files of the delivering merge followed th
 
 The library cannot run git, so "newer" is decided from data the sender gives: each push of
 code paths carries ``at_commit`` and ``at_committed_at`` (that commit's ISO-8601 commit time).
-A push replaces the stored code paths only when its ``at_committed_at`` is strictly later than
-the stored one, so a rename pushed later shows the new path and an older (or equal-time,
-different-commit) push never regresses it. Re-sending the stored commit is a no-op.
+A push replaces the stored code paths when its ``at_committed_at`` is the same as or later
+than the stored one, so a rename pushed later shows the new path and an older push never
+regresses it. At an equal time (two merges in the same second, a force-push) the latest push
+wins. :meth:`SpecLinks.record` says whether the push's code paths were kept, so the sender
+can tell an older, ignored push from a stored one and resend instead of recording it.
 """
 
 from __future__ import annotations
@@ -86,7 +88,11 @@ class SpecLinks:
     def __init__(self, store: Store) -> None:
         self.store = store
 
-    def set_links(
+    def set_links(self, doc: int, **links: Any) -> dict[str, Any]:
+        """Record links for spec ``doc`` and return them (see :meth:`record`)."""
+        return self.record(doc, **links)[0]
+
+    def record(
         self,
         doc: int,
         pr: Any = None,
@@ -95,12 +101,13 @@ class SpecLinks:
         at_commit: str | None = None,
         trailer_commits: list[str] | None = None,
         at_committed_at: str | None = None,
-    ) -> dict[str, Any]:
-        """Record links for spec ``doc`` and return them.
+    ) -> tuple[dict[str, Any], bool]:
+        """Record links for spec ``doc``; return ``(links, applied)``.
 
         ``pr`` and ``merge_commit`` overwrite when given. ``code_paths`` (with ``at_commit``,
-        ``at_committed_at`` and ``trailer_commits``) replace the stored set only when
-        ``at_committed_at`` is later than the stored one.
+        ``at_committed_at`` and ``trailer_commits``) replace the stored set when
+        ``at_committed_at`` is the same as or later than the stored one. ``applied`` is false
+        only when code paths were sent and kept out because they were older.
         """
         pr_url, pr_number = _pr(pr)
         paths = None if code_paths is None else _str_list(code_paths, "code_paths")
@@ -126,14 +133,15 @@ class SpecLinks:
                     "UPDATE spec_links SET merge_commit = ? WHERE doc_id = ?", (merge_commit, doc)
                 )
             stored = row[0] if row else None
-            if paths is not None and (stored is None or when > _parse_time(stored)):
+            applied = paths is None or stored is None or when >= _parse_time(stored)
+            if paths is not None and applied:
                 conn.execute(
                     "UPDATE spec_links SET code_paths_json = ?, at_commit = ?, "
                     "at_committed_at = ?, trailer_commits_json = ? WHERE doc_id = ?",
                     (json.dumps(paths), at_commit, at_committed_at, json.dumps(trailers), doc),
                 )
             conn.execute("UPDATE spec_links SET updated_at = ? WHERE doc_id = ?", (now(), doc))
-        return self.links(doc)
+        return self.links(doc), applied
 
     def links(self, doc: int) -> dict[str, Any]:
         """The spec's merge, PR, current code paths and trailer commits (empty if none)."""

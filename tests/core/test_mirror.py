@@ -9,6 +9,7 @@ import pytest
 
 from culture_library.core import Store
 from culture_library.core.mirror import (
+    MAX_ATTEMPTS,
     FakeBackend,
     MirrorBackend,
     drain,
@@ -72,10 +73,10 @@ def test_enqueue_and_drain_success(store: Store):
         sha,
     )
     backend = FakeBackend()
-    assert drain(store, backend) == {"done": 1, "failed": 0}
+    assert drain(store, backend) == {"done": 1, "failed": 0, "parked": 0, "retry": 0}
     assert backend.objects["k1"] == (b"hello", "text/plain")
     assert _rows(store)[0]["state"] == "done"
-    assert drain(store, backend) == {"done": 0, "failed": 0}
+    assert drain(store, backend) == {"done": 0, "failed": 0, "parked": 0, "retry": 0}
 
 
 def test_enqueue_is_on_callers_connection_and_rolls_back(store: Store):
@@ -111,7 +112,7 @@ def test_drain_failure_records_and_does_not_raise(store: Store):
         enqueue(conn, "k", sha)
     backend = FakeBackend()
     backend.fail = OSError("boom")
-    assert drain(store, backend) == {"done": 0, "failed": 1}
+    assert drain(store, backend) == {"done": 0, "failed": 1, "parked": 0, "retry": 1}
     assert drain(store, backend)["failed"] == 1
     row = _rows(store)[0]
     assert row["state"] == "pending"
@@ -176,7 +177,7 @@ def test_reconcile_covers_drafts(store: Store):
 
 
 def test_pending_stats(store: Store):
-    assert pending_stats(store) == {"count": 0, "oldest_age_seconds": None}
+    assert pending_stats(store) == {"count": 0, "oldest_age_seconds": None, "parked": 0}
     sha = store.write_blob(b"x")
     with store.connect() as conn:
         enqueue(conn, "k1", sha)
@@ -187,3 +188,83 @@ def test_pending_stats(store: Store):
     assert 99 <= stats["oldest_age_seconds"] <= 102
     drain(store, FakeBackend())
     assert pending_stats(store)["count"] == 0
+
+
+def _park(store: Store, key: str = "k", sha: str = "0" * 64) -> None:
+    with store.connect() as conn:
+        enqueue(conn, key, sha)
+    for _ in range(MAX_ATTEMPTS - 1):
+        assert drain(store, FakeBackend())["retry"] == 1
+    assert drain(store, FakeBackend()) == {"done": 0, "failed": 1, "parked": 1, "retry": 0}
+
+
+def test_a_row_that_always_fails_is_parked(store: Store):
+    """Review finding 8: a never-uploadable row leaves the pending set after MAX_ATTEMPTS."""
+    assert MAX_ATTEMPTS == 8
+    _park(store)  # the blob is missing: FileNotFoundError every pass
+    row = _rows(store)[0]
+    assert (row["state"], row["attempts"]) == ("failed", MAX_ATTEMPTS)
+    assert "FileNotFoundError" in row["last_error"]
+    assert pending_stats(store)["count"] == 0
+    assert pending_stats(store)["parked"] == 1
+    assert drain(store, FakeBackend()) == {"done": 0, "failed": 0, "parked": 0, "retry": 0}
+
+
+def test_a_parked_row_does_not_delay_a_healthy_one(store: Store):
+    _park(store, "bad")
+    sha = store.write_blob(b"ok")
+    with store.connect() as conn:
+        enqueue(conn, "good", sha)
+    backend = FakeBackend()
+    assert drain(store, backend) == {"done": 1, "failed": 0, "parked": 0, "retry": 0}
+    assert "good" in backend.objects
+
+
+def test_reconcile_requeues_a_parked_key(store: Store):
+    r = _push(store, "docs/a.md", b"# a")
+    key = key_for(r.doc.repo, "docs/a.md", A)
+    blob = store.blob_path(r.version.sha256)
+    saved = blob.read_bytes()
+    blob.unlink()
+    _park(store, key, r.version.sha256)
+    blob.write_bytes(saved)
+    backend = FakeBackend()
+    assert reconcile(store, backend) == 1
+    row = _rows(store)[0]
+    assert (row["state"], row["attempts"], row["last_error"]) == ("pending", 0, "")
+    assert drain(store, backend)["done"] == 1
+    assert backend.objects[key][0] == b"# a"
+
+
+def test_enqueue_same_sha_requeues_a_parked_row(store: Store):
+    _park(store)
+    with store.connect() as conn:
+        enqueue(conn, "k", "0" * 64)
+    row = _rows(store)[0]
+    assert (row["state"], row["attempts"]) == ("pending", 0)
+
+
+def test_old_outbox_check_is_widened_on_open(tmp_path):
+    """A database from before parking (CHECK pending/done only) accepts 'failed'."""
+    import sqlite3
+
+    data = tmp_path / "data"
+    data.mkdir()
+    conn = sqlite3.connect(data / "library.db")
+    conn.executescript(
+        "CREATE TABLE mirror_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " key TEXT NOT NULL UNIQUE, sha256 TEXT NOT NULL,"
+        " content_type TEXT NOT NULL DEFAULT 'application/octet-stream',"
+        " state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done')),"
+        " attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',"
+        " enqueued_at TEXT NOT NULL, done_at TEXT);"
+        "INSERT INTO mirror_outbox (key, sha256, enqueued_at) VALUES ('k', 'x', 't');"
+    )
+    conn.commit()
+    conn.close()
+    store = Store(data)
+    with store.connect() as c:
+        c.execute("UPDATE mirror_outbox SET state = 'failed' WHERE key = 'k'")
+    assert [(r["key"], r["state"], r["id"]) for r in _rows(store)] == [("k", "failed", 1)]
+    Store(data)  # idempotent
+    assert len(_rows(store)) == 1

@@ -78,6 +78,7 @@ def test_no_backend_configured_starts_no_worker(tmp_path):
         assert m == {
             "enabled": False,
             "pending": 1,
+            "parked": 0,
             "oldest_pending_age_s": m["oldest_pending_age_s"],
             "last_error": None,
         }
@@ -181,6 +182,34 @@ def test_worker_backoff_grows_and_resets(tmp_path):
     assert w.next_delay({"done": 0, "failed": 1}) == 2.0
     assert w.next_delay({"done": 1, "failed": 0}) == 1.0
     assert w.next_delay({"done": 0, "failed": 1}) == 0.5
+
+
+def test_worker_backs_off_only_without_progress_and_with_retryable_rows(tmp_path):
+    """Review finding 8: parked rows, or a pass that uploaded something, keep the interval."""
+    w = routes_mirror.MirrorWorker(
+        Store(tmp_path / "data"), FakeBackend(), interval_s=1.0, backoff_s=0.5, backoff_max_s=2.0
+    )
+    assert w.next_delay({"done": 0, "failed": 1, "parked": 0, "retry": 1}) == 0.5
+    assert w.next_delay({"done": 0, "failed": 1, "parked": 0, "retry": 1}) == 1.0
+    assert w.next_delay({"done": 3, "failed": 1, "parked": 0, "retry": 1}) == 1.0  # progress
+    assert w.next_delay({"done": 0, "failed": 1, "parked": 0, "retry": 1}) == 0.5  # reset
+    assert w.next_delay({"done": 0, "failed": 1, "parked": 1, "retry": 0}) == 1.0  # all parked
+
+
+def test_status_counts_parked_rows(tmp_path):
+    from culture_library.core import mirror as mr
+
+    app = _app(tmp_path)
+    with TestClient(app) as c:
+        store = app.state.store
+        with store.connect() as conn:
+            mr.enqueue(conn, "r/gone.md@working", "0" * 64)
+        for _ in range(mr.MAX_ATTEMPTS):
+            mr.drain(store, FakeBackend())
+        m = _mirror(c)
+        assert m["pending"] == 0
+        assert m["parked"] == 1
+        assert "FileNotFoundError" in m["last_error"]
 
 
 def test_worker_stops_cleanly(tmp_path):

@@ -32,6 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - eval Passage parses repodoc passages (null item_id).
+- PR #38 review: a `connected` entry in a push's `project` that does not normalize is dropped and reported in the response's `warnings`, instead of failing the whole push with 422; `org/repo` in `connected` (and the `project=` filter) means `github.com/org/repo`.
+- PR #38 review: spec-link code paths at the same `at_committed_at` as the stored ones now replace them (latest push wins), and the push response carries `spec_links_applied` (false when older paths were kept out) so the pusher records links as delivered only when they were stored.
+- PR #38 review: `GET /api/feed` (and `core.feed.read_since`) without `subject` returns item events only, as before repo documents; `subject=all` returns both. The OPDS replaced-time join reads item events only.
+- PR #38 review: a mirror outbox row that fails 8 times (`core.mirror.MAX_ATTEMPTS`) is parked as `failed`, so it leaves the pending set; the worker backs off only when a pass uploaded nothing and rows remain to retry; `/api/status` and `mirror status` count `parked`; `mirror reconcile` (and a re-enqueue) re-queues a parked key with its attempts reset. An outbox from an earlier build of this branch has its state CHECK widened on open.
 
 ## [0.18.3] - 2026-10-30
 

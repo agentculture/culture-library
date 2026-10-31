@@ -51,9 +51,24 @@ def test_newer_replaces_older_never_regresses(sl):
     got = sl.set_links(1, code_paths=["old.py"], at_commit="c2", at_committed_at=T1)
     assert got["code_paths"] == ["renamed.py"]
     assert got["at_commit"] == "c3"
-    # equal time, different commit: not newer
+    # equal time, different commit: the latest push wins (review finding 4)
     sl.set_links(1, code_paths=["x.py"], at_commit="cx", at_committed_at=T3)
-    assert sl.links(1)["code_paths"] == ["renamed.py"]
+    assert sl.links(1)["code_paths"] == ["x.py"]
+    assert sl.links(1)["at_commit"] == "cx"
+
+
+def test_record_reports_whether_the_links_were_applied(sl):
+    """Review finding 4: the pusher must learn when its code paths were not stored."""
+    links, applied = sl.record(1, code_paths=["a.py"], at_commit="c2", at_committed_at=T2)
+    assert applied is True
+    assert links["code_paths"] == ["a.py"]
+    links, applied = sl.record(1, code_paths=["old.py"], at_commit="c1", at_committed_at=T1)
+    assert applied is False
+    assert links["code_paths"] == ["a.py"]
+    assert sl.record(1, code_paths=["b.py"], at_commit="c2b", at_committed_at=T2)[1] is True
+    assert sl.record(1, code_paths=["b.py"], at_commit="c2b", at_committed_at=T2)[1] is True
+    # no code paths: pr and merge_commit always apply
+    assert sl.record(1, pr=3, merge_commit="m")[1] is True
 
 
 def test_pr_and_merge_without_paths_keep_paths(sl):

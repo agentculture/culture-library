@@ -32,12 +32,42 @@ def _str_list(value: Any, field: str) -> list[str]:
     return value  # type: ignore[return-value]
 
 
+GITHUB = "github.com"
+
+
 def _norm(remote: str) -> str:
-    """normalize_remote, also accepting the already-normalized ``host/org/repo`` form."""
+    """normalize_remote, also accepting the already-normalized ``host/org/repo`` form.
+
+    A bare ``org/repo`` (two segments, no scheme, no dot in the first segment, as a
+    ``culture.yaml`` ``connected`` entry is often written) means ``github.com/org/repo``.
+    The doc push itself normalizes its ``remote`` with ``normalize_remote``, which refuses
+    that form, so the shorthand never names a pushing repo.
+    """
     raw = (remote or "").strip()
     if raw and "://" not in raw and ":" not in raw.split("/", 1)[0] and "/" in raw:
+        segs = raw.strip("/").split("/")
+        if len(segs) == 2 and "." not in segs[0]:
+            raw = f"{GITHUB}/{raw.strip('/')}"
         raw = "https://" + raw
     return normalize_remote(raw)
+
+
+def clean_connected(connected: list[str]) -> tuple[list[str], list[str]]:
+    """Split ``connected`` into the entries that normalize and a warning per dropped one.
+
+    One bad entry in a repo's ``culture.yaml`` must not block that repo's pushes: it is
+    left out of the stored list and reported as ``connected 'x' ignored: <reason>``.
+    """
+    kept: list[str] = []
+    warnings: list[str] = []
+    for remote in _str_list(connected, "connected"):
+        try:
+            _norm(remote)
+        except ValidationError as exc:
+            warnings.append(f"connected {remote!r} ignored: {exc}")
+        else:
+            kept.append(remote)
+    return kept, warnings
 
 
 def _dedup(values: list[str]) -> list[str]:

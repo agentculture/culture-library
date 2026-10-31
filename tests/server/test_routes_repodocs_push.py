@@ -441,11 +441,31 @@ def test_latest_project_push_wins(client) -> None:
 
 
 def test_bad_project_is_refused_before_anything_is_stored(client, app) -> None:
-    r = client.post("/api/repodocs", json=_body(project={"domains": ["x"], "connected": ["/abs"]}))
-    assert r.status_code == 422
     r = client.post("/api/repodocs", json=_body(project={"domains": "x"}))
     assert r.status_code == 422
+    r = client.post("/api/repodocs", json=_body(project={"connected": [7]}))
+    assert r.status_code == 422
     _nothing_stored(app)
+
+
+def test_bad_connected_entry_is_dropped_with_a_warning(client, app) -> None:
+    """Review finding 2: one bad ``connected`` entry must not block the repo's docs."""
+    r = client.post(
+        "/api/repodocs",
+        json=_body(project={"domains": ["x"], "connected": ["/abs", R3, "agentculture/beta"]}),
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["project"]["connected"] == [
+        "github.com/agentculture/gamma",
+        "github.com/agentculture/beta",
+    ]
+    assert len(data["warnings"]) == 1
+    assert data["warnings"][0].startswith("connected '/abs' ignored: ")
+    assert _rows(app, "repodoc_versions")
+    clean = _ok(client.post("/api/repodocs", json=_body(project={"connected": [R3]})))
+    assert "warnings" not in clean
+    assert "warnings" not in _ok(client.post("/api/repodocs", json=_working()))
 
 
 # --- spec links ---------------------------------------------------------------------------
@@ -483,6 +503,21 @@ def test_spec_links_are_stored_and_follow_renames(client, app) -> None:
     links = SpecLinks(_store(app)).links(doc_id)
     assert links["code_paths"] == ["culture_library/core/repodocs2.py"]
     assert links["at_commit"] == B
+
+
+def test_push_says_whether_spec_links_were_applied(client) -> None:
+    """Review finding 4: an older (not stored) code-path push says so; equal time wins."""
+    first = _ok(client.post("/api/repodocs", json=_body(spec_links=_links())))
+    assert first["spec_links_applied"] is True
+    stale = _links(code_paths=["old.py"], at_commit=A, at_committed_at="2026-09-01T00:00:00Z")
+    data = _ok(client.post("/api/repodocs", json=_body(spec_links=stale)))
+    assert data["spec_links_applied"] is False
+    assert data["spec_links"]["code_paths"] == ["culture_library/core/repodocs.py"]
+    same_time = _links(code_paths=["new.py"], at_commit=B)
+    data = _ok(client.post("/api/repodocs", json=_body(spec_links=same_time)))
+    assert data["spec_links_applied"] is True
+    assert data["spec_links"]["code_paths"] == ["new.py"]
+    assert "spec_links_applied" not in _ok(client.post("/api/repodocs", json=_body()))
 
 
 def test_spec_links_only_on_specs_and_validated_up_front(client, app) -> None:

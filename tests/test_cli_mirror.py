@@ -120,6 +120,23 @@ def test_reconcile_enqueues_missing_and_mismatched(tmp_path, monkeypatch, capsys
     assert json.loads(capsys.readouterr().out)["enqueued"] == 0
 
 
+def test_status_counts_parked_rows(tmp_path, capsys):
+    """Review finding 8: ``mirror status`` shows the rows that stopped retrying."""
+    from culture_library.core.mirror import MAX_ATTEMPTS
+
+    s = _lib(tmp_path, 0)
+    with s.connect() as conn:
+        enqueue(conn, "r/gone.md@w", "0" * 64)
+    for _ in range(MAX_ATTEMPTS):
+        drain(s, FakeBackend())
+    assert main(["mirror", "status", "--data-dir", str(s.data_dir), "--json"]) == 0
+    body = json.loads(capsys.readouterr().out)
+    assert (body["pending"], body["parked"]) == (0, 1)
+    assert "FileNotFoundError" in body["last_error"]
+    assert main(["mirror", "status", "--data-dir", str(s.data_dir)]) == 0
+    assert "parked: 1" in capsys.readouterr().out
+
+
 def REMOTE_REPO(store):  # noqa: N802 - the repo name the push stored
     with store.reader() as conn:
         return conn.execute("SELECT repo FROM repodocs LIMIT 1").fetchone()[0]

@@ -163,7 +163,8 @@ reranker on. Machine clients reach it on spark's loopback
       (`item` or `repodoc`, deviation d8); `/api/search` searches both by
       default, and `/api/rag/retrieve` and eval runs use items only.
     - `/api/projects`, `/api/domains`, MCP `repodoc_*` tools (`REPODOC_ROUTES`
-      keeps the parity), feed events with `subject=repodoc`, and the site's
+      keeps the parity), feed events read with `subject=repodoc` (or `all`; the
+      default stays items only), and the site's
       `#projects` and `#domains` views. The reader shows the working draft
       by default with a "working" badge.
   - `migrate/`: the xteink migration.

@@ -63,22 +63,30 @@ def _backend():
 
 
 def _outbox(store) -> dict:
-    """Outbox figures; ``last_error`` matches ``/api/status`` (newest error among pending)."""
+    """Outbox figures; ``last_error`` matches ``/api/status`` (newest error among pending and
+    parked rows)."""
     from culture_library.core import mirror as mr
 
     stats = mr.pending_stats(store)
     with store.reader() as conn:
         done = conn.execute("SELECT COUNT(*) FROM mirror_outbox WHERE state = 'done'").fetchone()
         err = conn.execute(
-            "SELECT last_error FROM mirror_outbox WHERE state = 'pending' AND last_error != ''"
-            " ORDER BY enqueued_at DESC, id DESC LIMIT 1"
+            "SELECT last_error FROM mirror_outbox WHERE state IN ('pending', 'failed')"
+            " AND last_error != '' ORDER BY enqueued_at DESC, id DESC LIMIT 1"
         ).fetchone()
     return {
         "pending": stats["count"],
+        "parked": stats["parked"],
         "done": done[0],
         "oldest_pending_age_s": stats["oldest_age_seconds"],
         "last_error": err[0] if err else None,
     }
+
+
+def _max_attempts() -> int:
+    from culture_library.core import mirror as mr
+
+    return mr.MAX_ATTEMPTS
 
 
 def cmd_overview(args: argparse.Namespace) -> int:
@@ -88,11 +96,11 @@ def cmd_overview(args: argparse.Namespace) -> int:
             {
                 "title": "Verbs",
                 "items": [
-                    "status [--data-dir D] — outbox backlog (pending, done, oldest pending age, "
-                    "newest error) and whether a backend is configured",
+                    "status [--data-dir D] — outbox backlog (pending, parked, done, oldest "
+                    "pending age, newest error) and whether a backend is configured",
                     "reconcile [--data-dir D] — compare every repo-document version/draft with "
-                    "the bucket and queue the missing or mismatched keys (needs "
-                    f"{BUCKET_ENV} and the [s3] extra)",
+                    "the bucket and queue the missing or mismatched keys, parked ones included "
+                    f"(needs {BUCKET_ENV} and the [s3] extra)",
                     "overview — this description",
                 ],
             },
@@ -101,6 +109,8 @@ def cmd_overview(args: argparse.Namespace) -> int:
                 "items": [
                     "every push queues an outbox row; the server's mirror worker uploads it "
                     "with backoff while the bucket is unreachable",
+                    f"a row that fails {_max_attempts()} times is parked so it stops delaying the "
+                    "rest; status counts it and reconcile re-queues it",
                     "reconcile only queues rows; it never deletes objects",
                     "GET /api/status carries the same figures in its mirror block",
                 ],
@@ -125,6 +135,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         f"backend: {'s3://' + bucket if bucket else f'not configured ({BUCKET_ENV} unset)'}",
         f"pending: {body['pending']} (oldest {_render_age(body['oldest_pending_age_s'])})",
         f"done: {body['done']}",
+        f"parked: {body['parked']} (failed {_max_attempts()} times; reconcile re-queues them)",
         f"last error: {body['last_error'] or '-'}",
     ]
     emit_result("\n".join(lines), json_mode=False)

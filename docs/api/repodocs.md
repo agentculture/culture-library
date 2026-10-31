@@ -80,6 +80,13 @@ connected: [github.com/agentculture/culture-rules]
 The pusher sends them as `project` with every push (or at least once per cycle per repo).
 A project is a repo; `connected` lists other repos (decision c27).
 
+A `connected` entry may be any remote form, `host/org/repo`, or the GitHub shorthand
+`org/repo` (two segments, no scheme, no dot in the first one), which means
+`github.com/org/repo`. An entry that does not normalize (`/abs/path`, say) never blocks the
+push: it is dropped from the stored list and the response carries
+`"warnings": ["connected '/abs/path' ignored: <reason>"]`. `warnings` is present only when
+something was dropped; the pusher should log it.
+
 ### Spec links
 
 For a spec, the pusher computes which code realizes it (decision c53) and sends:
@@ -95,8 +102,16 @@ For a spec, the pusher computes which code realizes it (decision c53) and sends:
 
 How to compute `code_paths`: if any commit carries a `Spec: <slug>` trailer, use the files those
 commits touched; otherwise use the files changed by the delivering merge. Then follow those
-files forward through renames to the current default-branch head. A push whose
-`at_committed_at` is older than the stored one never replaces the stored paths.
+files forward through renames to the current default-branch head.
+
+A push whose `at_committed_at` is older than the stored one never replaces the stored paths;
+one at the same time or later does (at an equal time the latest push wins, so two merges in
+the same second, or a force-push, still update). The push is still `200`/`201`, so the
+response says what happened: `spec_links_applied` is `true` when the sent links were stored
+and `false` when the code paths were older and kept out. **Record the links as delivered
+only when `spec_links_applied` is not `false`**; otherwise resend them with a newer
+`at_commit`. `pr` and `merge_commit` are always stored. The field is present only when the
+push carried `spec_links`.
 
 ### Size limit
 
@@ -109,13 +124,31 @@ stored.
 - `201` when something was created (a new version, or a new or changed draft); `200` otherwise,
   including every tombstone.
 - Body: `{doc, version, draft, created, current_changed, tombstoned, project, spec_links}`.
-  `version` is `null` for a working push; `draft` is `null` for a commit push.
+  `version` is `null` for a working push; `draft` is `null` for a commit push. Two optional
+  fields: `spec_links_applied` (only when `spec_links` was sent) and `warnings` (only when a
+  `connected` entry was dropped).
 - Errors are flat `{"detail": "...", "code": "..."}` (deviation d11): `400 invalid`,
   `403 forbidden_kind`, `404 not_found`, `413 too_large`, `422` for a malformed body.
 
 Every new version or changed draft queues an upload to the private S3 mirror (key
 `<repo>/<path>@<commit>` or `<repo>/<path>@working`) and appends one feed event, in the same
 transaction. A tombstone appends one `archived` event (deviation d10).
+
+### Repo-document events in `GET /api/feed`
+
+Repo-document events share the change feed with item events, but `GET /api/feed` without a
+`subject` returns **item events only**, exactly as before repo documents existed, so a client
+that reads `item_id` as an item id (culture-rules, Gwen, xteink) is never handed a repodoc
+id. Ask for the others explicitly:
+
+| `subject` | Events |
+|-----------|--------|
+| omitted, or `item` | Item events only (the default). |
+| `repodoc` | Repo-document events; `item_id` holds the repodoc id, `data` is `{repo, path, commit}`. |
+| `all` | Both, interleaved in cursor order; each event's `subject` says which id space `item_id` is in. |
+
+The cursor of a filtered read advances only over the events that filter reads, so keep one
+cursor per `subject` you poll.
 
 ## `GET /api/repodocs`
 

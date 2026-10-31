@@ -244,11 +244,12 @@ working draft) queues a row in the `mirror_outbox` table; the server's mirror wo
 it to `<repo>/<path>@<commit>` (`@working` for drafts), retrying with backoff while the
 bucket is unreachable. Pushes never fail because the mirror is down.
 
-- `mirror status [--data-dir D]` — the outbox backlog: `pending`, `done`,
-  `oldest_pending_age_s`, the newest `last_error` among pending rows, and whether a backend
-  is configured (`CULTURE_LIBRARY_S3_BUCKET`). Opens the store directly, like `backup`.
+- `mirror status [--data-dir D]` — the outbox backlog: `pending`, `parked`, `done`,
+  `oldest_pending_age_s`, the newest `last_error` among pending and parked rows, and whether a
+  backend is configured (`CULTURE_LIBRARY_S3_BUCKET`). Opens the store directly, like `backup`.
 - `mirror reconcile [--data-dir D]` — compare every repo-document version and draft with the
-  bucket (`head`) and queue the keys that are missing or hold different bytes; reports
+  bucket (`head`) and queue the keys that are missing or hold different bytes (parked rows
+  included, attempts reset); reports
   `enqueued` and the resulting `pending`. Needs `CULTURE_LIBRARY_S3_BUCKET` (plus `_REGION`,
   `_PREFIX` and AWS credentials) and boto3 from the `[s3]` extra; without them it exits 2.
   It only queues rows and never deletes objects; the server's worker uploads them.
@@ -257,8 +258,10 @@ bucket is unreachable. Pushes never fail because the mirror is down.
 The server: with `CULTURE_LIBRARY_S3_BUCKET` set, the worker drains every
 `CULTURE_LIBRARY_MIRROR_INTERVAL_S` seconds (default 5), backing off from
 `CULTURE_LIBRARY_MIRROR_BACKOFF_S` (5) up to `CULTURE_LIBRARY_MIRROR_BACKOFF_MAX_S` (300) while
-uploads fail. Without a bucket it does nothing. `GET /api/status` reports a `mirror` block
-`{enabled, pending, oldest_pending_age_s, last_error}`.
+a pass uploads nothing and still has rows to retry. A row that fails 8 times is parked (state
+`failed`) so it stops delaying the healthy ones. Without a bucket it does nothing.
+`GET /api/status` reports a `mirror` block
+`{enabled, pending, parked, oldest_pending_age_s, last_error}`.
 """
 
 _DEPLOY = """\
