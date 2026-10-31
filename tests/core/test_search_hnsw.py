@@ -231,3 +231,35 @@ def test_semantic_hits_match_exact_best_chunk_per_item(corpus):
     got = [h.item_id for h in hits]
     assert len(got) == 10
     assert len(set(got) & set(truth)) >= 9
+
+
+def test_exact_ties_at_the_pool_edge_rank_the_same_for_every_k(store):
+    """Identical vectors tie exactly; HNSW cannot order them, so the pool's LIMIT may cut a tie
+    group anywhere. Ranking must still be deterministic: ties break on (corpus, id, chunk_no)
+    and every k is a prefix of a larger k, as on SQLite."""
+    from tests.core.search_helpers import add, index
+
+    same = lambda texts: [es_vec(1.0, 0.0) for _ in texts]  # noqa: E731 - every chunk ties
+    items = [add(store, f"Twin {n}", f"twin body {n}\n\nmore twin text {n}") for n in range(12)]
+    for item in items:
+        index(store, item, embed=same)
+    q = es_vec(1.0, 0.0)
+    runs = {}
+    for k in (1, 2, 3, 5, 8, 13):
+        for _ in range(5):
+            with store.reader() as conn:
+                got = [
+                    (p.item_id, p.chunk_no) for p in sr.passages(conn, q, k, "semantic", sr.Vis())
+                ]
+            runs.setdefault(k, set()).add(tuple(got))
+    assert all(len(v) == 1 for v in runs.values()), runs
+    widest = next(iter(runs[13]))
+    assert widest == tuple(sorted(widest))
+    for k, v in runs.items():
+        assert next(iter(v)) == widest[:k]
+
+
+def es_vec(*head):
+    from tests.core.search_helpers import vec
+
+    return vec(*head)

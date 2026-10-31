@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T21:49:26Z",
+  "updated": "2026-10-31T22:42:44Z",
   "claims": [
     {
       "id": "c1",
@@ -1174,6 +1174,17 @@
       "skipped_check": "write the failing tests first (TDD)",
       "refs": [
         "plan task t12, branch pg/t12"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "control-absent",
+      "what": "t14's agent wrote migrate/sqlite_to_pg.py before its tests and never saw them fail first; one ORDER BY named columns SQLite lacks and passed only because SQLite reads unknown double-quoted names as string literals",
+      "skipped_check": "write the failing tests first (TDD)",
+      "refs": [
+        "plan task t14, branch pg/t14"
       ],
       "origin": "llm",
       "status": "proposed"

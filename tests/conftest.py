@@ -120,12 +120,24 @@ def snapshot_seed(conn) -> list[str]:
     return seeded
 
 
-def reset_database(conn, seeded: list[str]) -> None:
-    """Empty every public table and restart identities, then restore the seeded rows."""
+def _indexes(conn) -> set[str]:
+    rows = conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'").fetchall()
+    return {r[0] for r in rows}
+
+
+def reset_database(conn, seeded: list[str], indexes: set[str] | None = None) -> None:
+    """Empty every public table and restart identities, then restore the seeded rows.
+
+    With ``indexes`` (the public indexes right after migration), also drop any index a test
+    created since: the indexer builds an HNSW index for each new (model, strategy) pair, and a
+    truncate alone would leak it into later tests on the same worker.
+    """
     tables = _tables(conn)
     if not tables:
         return
     conn.execute("SET lock_timeout = '10s'")
+    for name in sorted(_indexes(conn) - indexes) if indexes is not None else ():
+        conn.execute(f"DROP INDEX IF EXISTS {_ident(name)}")
     names = ", ".join(_ident(t) for t in tables)
     conn.execute(f"TRUNCATE {names} RESTART IDENTITY CASCADE")
     for table in seeded:
@@ -192,7 +204,7 @@ def _pg_control(pg_dsn) -> Iterator[tuple]:
     psycopg = _psycopg()
     conn = psycopg.connect(pg_dsn, autocommit=True)
     try:
-        yield conn, snapshot_seed(conn)
+        yield conn, snapshot_seed(conn), _indexes(conn)
     finally:
         conn.close()
 
@@ -200,5 +212,5 @@ def _pg_control(pg_dsn) -> Iterator[tuple]:
 @pytest.fixture(autouse=True)
 def _pg_isolation(_pg_control, pg_dsn) -> None:
     """Every test starts on empty tables in this worker's database."""
-    conn, seeded = _pg_control
-    reset_database(conn, seeded)
+    conn, seeded, indexes = _pg_control
+    reset_database(conn, seeded, indexes)

@@ -520,10 +520,20 @@ def _ann(conn: Any, corpus: int, q: str, flt: tuple[str, list], limit: int, pair
     )  # fixed fragments and escaped literals; values are bound parameters
     with conn.transaction():
         conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
-        ef = str(min(_EF_SEARCH_MAX, max(EF_SEARCH, limit)))
+        ef = str(min(_EF_SEARCH_MAX, max(EF_SEARCH, limit + 1)))
         conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (ef,))
-        rows = conn.execute(sql, (q, *params, q, limit)).fetchall()
-    return [tuple(r) for r in rows]
+        rows = [tuple(r) for r in conn.execute(sql, (q, *params, q, limit + 1)).fetchall()]
+    if len(rows) > limit and rows[limit][0] == rows[limit - 1][0]:
+        # The LIMIT cut a group of exactly tied chunks (identical vectors). HNSW cannot order
+        # them, so which tied chunks made the pool is arbitrary: complete the group exactly so
+        # ties always break on (owner, chunk_no), as the SQLite scan did.
+        tied = _exact(conn, corpus, q, flt, pair, limit=None, at_dist=rows[limit - 1][0])
+        rows = sorted({(r[1], r[2], r[3]): r for r in rows + tied}.values(), key=_ann_order)
+    return rows[:limit]
+
+
+def _ann_order(r: tuple) -> tuple:
+    return (r[0], r[2], r[3])
 
 
 def _exact(
@@ -535,12 +545,14 @@ def _exact(
     *,
     per_owner: int | None = None,
     limit: int | None = None,
+    at_dist: float | None = None,
 ) -> list:
     """Exact cosine scoring of every chunk ``flt`` selects, without the HNSW index.
 
     For narrow filters (given item ids, or the owners full text found), where an index scan
     that filters afterwards could lose rows. ``per_owner`` keeps each owner's nearest chunks
-    only; ``limit`` caps the result.
+    only; ``limit`` caps the result; ``at_dist`` keeps only chunks at exactly that distance
+    (completing a tie group the index pool cut).
     """
     model_id, strategy = pair
     src, owner, meta = _SOURCES[corpus]
@@ -555,9 +567,10 @@ def _exact(
         " AS rn, s.* FROM s)"
         f" SELECT dist, {corpus}, owner, chunk_no, text, title, kind, visibility, repo, path"
         " FROM r WHERE (%s::int IS NULL OR rn <= %s::int)"
+        " AND (%s::float8 IS NULL OR dist = %s::float8)"
         " ORDER BY dist, owner, chunk_no LIMIT %s"
     )  # fixed fragments and escaped literals; values are bound parameters
-    rows = conn.execute(sql, (*params, q, per_owner, per_owner, limit)).fetchall()
+    rows = conn.execute(sql, (*params, q, per_owner, per_owner, at_dist, at_dist, limit)).fetchall()
     return [tuple(r) for r in rows]
 
 

@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T22:19:39Z",
+  "updated": "2026-10-31T23:11:37Z",
   "deviations": [
     {
       "id": "d1",
@@ -141,6 +141,33 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "t14 added --drop-stale-vectors and --verify-only, sets identities to max(max id, sqlite_sequence), drops the HNSW indexes for the copy and rebuilds them serially (maintenance_work_mem 1GB, no parallel workers), lets the xteink dry run open Store(dest) (applies migrations, creates dest/files), and imports two private store helpers",
+      "task_ref": "t14",
+      "reason": "stale labels must be skippable rather than block cutover; SQLite AUTOINCREMENT never reuses ids, so neither may Postgres; inserting 70k distinct vectors with the index in place took over 215 s, and a parallel build exhausted Docker's 64 MB shared memory",
+      "affects": [
+        "t17",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "Main-agent integration after t14 and t16: (1) the per-test reset in tests/conftest.py now drops any public index a test created, so an HNSW index for a new (model, strategy) pair no longer leaks into later tests; (2) search._ann completes a group of exactly tied chunks the pool LIMIT cut (fetch limit+1; on a tie at the edge, score that distance exactly), so ties break on (owner, chunk_no) and every k is a prefix of a larger k",
+      "task_ref": "t16",
+      "reason": "both caused intermittent full-suite failures; the tie case is real on live, where many repo docs are byte-identical (.devague/current), and SQLite's exhaustive scan always ordered ties the same way",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 13
     }
   ],
   "evidence": [],

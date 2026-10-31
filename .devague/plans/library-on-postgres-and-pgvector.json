@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-10-31T22:15:30Z",
+  "updated": "2026-10-31T22:42:44Z",
   "targets": [
     {
       "id": "c1",
@@ -1025,6 +1025,14 @@
       "text": "Search and RAG routes query CURRENT_MODEL_ID / CURRENT_STRATEGY as constants; if /capabilities reports another model the indexer writes vectors under the new pair while queries ask for the old one. Routes should use the query embedder's vector_space()",
       "kind": "follow_up",
       "task_id": "t16",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "The compose postgres service has no shm_size (Docker default 64 MB); a parallel HNSW build fails with DiskFull on shared memory. Set shm_size for the postgres service before cutover",
+      "kind": "follow_up",
+      "task_id": "t19",
       "resolved": false,
       "resolution": ""
     }

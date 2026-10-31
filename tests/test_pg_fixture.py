@@ -75,6 +75,19 @@ def test_each_test_starts_empty_second(pg_dsn):
         assert conn.execute("SELECT count(*) FROM t2_probe").fetchone()[0] == 0
 
 
+def _public_indexes(conn) -> set[str]:
+    rows = conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'").fetchall()
+    return {r[0] for r in rows}
+
+
+def test_reset_drops_indexes_a_test_created_and_keeps_the_schemas(pg_dsn):
+    with psycopg.connect(pg_dsn, autocommit=True) as conn:
+        before = _public_indexes(conn)
+        conn.execute("CREATE INDEX test_leaked_hnsw ON items (title)")
+        infra.reset_database(conn, [], before)
+        assert _public_indexes(conn) == before
+
+
 @pytest.mark.parametrize("dsn_env", [{}, {infra.TEST_DSN_ENV: "postgresql://x@127.0.0.1:1/x"}])
 def test_unreachable_or_unset_postgres_fails_once_naming_the_setting(dsn_env):
     result = _pytest(dsn_env, "tests/test_zero_deps.py", "-q")
