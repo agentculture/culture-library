@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T05:12:00Z",
+  "updated": "2026-10-31T05:26:02Z",
   "deviations": [
     {
       "id": "d1",
@@ -930,6 +930,139 @@
       "status": "proposed",
       "superseded": false,
       "seq": 55
+    },
+    {
+      "id": "e34",
+      "obligation_ref": "o7",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_bad_connected_entry_is_dropped_with_a_warning",
+      "behavior_text": "a push whose project.connected holds an entry that does not normalize is stored (2xx) with that entry dropped and named in warnings",
+      "contract_text": "a push carrying new domains for a repo replaces that project's domains; a bad connected entry must not block the repo's documents (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 58
+    },
+    {
+      "id": "e35",
+      "obligation_ref": "o24",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_push_says_whether_spec_links_were_applied",
+      "behavior_text": "the push response carries spec_links_applied: true for newer-or-equal code paths, false for older ones",
+      "contract_text": "a delivered spec shows its PR, merge commit and current code paths; the pusher learns whether links were stored (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 59
+    },
+    {
+      "id": "e36",
+      "obligation_ref": "o24",
+      "test_ref": "tests/core/test_speclinks.py::test_newer_replaces_older_never_regresses",
+      "behavior_text": "equal at_committed_at replaces the stored code paths (latest push wins); older never does",
+      "contract_text": "spec links never regress to older code paths (d24: equal time now applies)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 60
+    },
+    {
+      "id": "e37",
+      "obligation_ref": "o14",
+      "test_ref": "tests/server/test_feed_route.py::test_feed_defaults_to_items_and_subject_all_mixes",
+      "behavior_text": "GET /api/feed with no subject returns item events only; subject=repodoc returns repodoc events; subject=all interleaves both in cursor order",
+      "contract_text": "each repodoc version or draft overwrite appends one feed event; pre-existing item-feed clients are unaffected (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 61
+    },
+    {
+      "id": "e38",
+      "obligation_ref": "o26",
+      "test_ref": "tests/core/test_mirror.py::test_a_parked_row_does_not_delay_a_healthy_one",
+      "behavior_text": "a row failing MAX_ATTEMPTS times is parked as failed and leaves the pending set; a healthy row behind it uploads",
+      "contract_text": "with the S3 backend failing pushes return 2xx and the outbox grows; a permanently failing row is parked, not retried forever (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 62
+    },
+    {
+      "id": "e39",
+      "obligation_ref": "o26",
+      "test_ref": "tests/core/test_mirror.py::test_reconcile_requeues_a_parked_key",
+      "behavior_text": "mirror reconcile re-queues a parked key still missing in the bucket with attempts reset",
+      "contract_text": "reconcile re-sends what the bucket lacks, including parked rows (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 63
+    },
+    {
+      "id": "e40",
+      "obligation_ref": "o26",
+      "test_ref": "tests/server/test_routes_mirror.py::test_worker_backs_off_only_without_progress_and_with_retryable_rows",
+      "behavior_text": "the mirror worker backs off only when a pass uploaded nothing and retryable rows remain",
+      "contract_text": "a parked row never holds the worker in backoff (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 64
     }
   ],
   "deltas": [
@@ -972,6 +1105,65 @@
       "evidence_refs": [
         "e10",
         "e28"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "the repodoc push response carries warnings for dropped connected entries and spec_links_applied when spec_links were sent",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e34",
+        "e35"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "GET /api/feed with no subject returns item events only (as before repo docs); subject=all mixes items and repodocs",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e37"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "spec-link code paths at an equal at_committed_at now replace the stored ones (latest push wins)",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e36"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "mirror outbox rows that fail 8 times are parked as failed; status counts parked; reconcile re-queues them; the worker backs off only without progress",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e38",
+        "e39",
+        "e40"
       ],
       "origin": "llm",
       "status": "proposed",

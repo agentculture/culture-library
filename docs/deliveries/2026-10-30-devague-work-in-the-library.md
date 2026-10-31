@@ -77,6 +77,11 @@ Quoted verbatim from the `devague summary` skeleton:
 - `d2`–`d6`, `d9`–`d11`, `d13`–`d22` are recorded and **await operator adjudication at the PR** (agent-proposed; not yet decisions). In short: d2 `at_committed_at` on spec links; d3 mirror reads blobs by sha and gains `force`; d4 bare `host/org/repo` remotes; d5 repodoc feed visibility and per-draft visibility; d6 the `on_write` hook; d9 project and spec-link writes after the push transaction; d10 tombstones emit an `archived` event; d11 flat repodoc errors (risky); d13 a migration-test snapshot pinned to 7 columns; d14 t16 edits the repodocs GET handlers; d15 `/rendered` `shown` only when it matters, SVG sandboxed; d16 corpora recorded in the run config; d17 mirror status hides row errors from public callers; d18 `/api/projects` and `/api/domains`; d19 extra MCP tools and `REPODOC_ALSO_USES`; d20 app.js and test_site edits for the views; d21 `check-bucket` adds `status: unknown`; d22 t23 split, backed by the decider (split 0.940; P(live steps need the operator)=0.986).
 - `d23` (proposed, after the PR opened): CI's visual job showed the new Projects and Domains tabs made every view scroll sideways at 400 px and broke all 18 phone reference screenshots. The tabs are now hidden at `max-width: 720px`, and repo-document pages link to their project. The decider leaned `hide_new_tabs_on_phone` 0.566 over `scrolling_tab_row` 0.338; the state text assumed the operator prefers not waiting on new screenshot approvals.
 - PR #38 review round: SonarCloud found 111 open issues (71 were S9073 split-assertion in tests). Four fix agents and one main-agent commit fixed them without changing behaviour (merges 1d347f1, 1987e60, de2aff2 and c744cd9, plus d7bdcc0).
+- `d24` (approved 2026-10-31): a `/code-review medium` pass over #38 and culture-rules#127, after the PR opened, found 10 issues. Nine were checked against the code and the repos on spark (8 have no `origin/HEAD`) and fixed test-first:
+  - library (28a0019): a bad `connected` entry is dropped with a warning instead of failing the push with a 422; `org/repo` maps to github.com; equal-time spec links apply and the push reports `spec_links_applied`; `/api/feed` with no `subject` is items only again (`subject=all` mixes both); mirror rows are parked after 8 failed attempts (one `mirror_outbox` CHECK rebuild) and reconcile re-queues them;
+  - culture-rules#127 (f70b3fd, 055c1f9): default-branch lookup without `origin/HEAD`, local-path origins, unindented `culture.yaml` lists, tombstones for files deleted on main but left on disk, and the file stat cache.
+
+  The tenth, an indexer rescan on idle ticks, is efficiency only and became #39.
 - Main-agent integration commits not tied to one task: core schema registration for projects, speclinks and mirror (5726407); eval `Passage` accepts null `item_id` (9da5800).
 - An unrelated, uncommitted `deploy/compose.yaml` edit (cloudflared image 2025.9.1 to 2026.10.7) appeared in the main checkout mid-run, outside this run. It was stashed around two merges and restored unchanged, and it is not on this branch.
 
@@ -100,6 +105,7 @@ Quoted verbatim from the `devague summary` skeleton:
 | `t19` (`d21`) | a check the credentials cannot perform must never pass silently | `acceptable` (pending) |
 | `t20` (`d23`) | the new tabs overflowed the phone header and broke the approved phone references; hidden on phone, with a project link on repo-doc pages | `acceptable` (pending) |
 | `t20` (`d20`) | the view registry lives in app.js and existing tests pin its lists | `acceptable` (pending) |
+| `t10`, `t4`, `t7` (`d24`) | post-PR review fixes: connected warnings, `spec_links_applied`, items-only feed default, parked mirror rows | `acceptable` |
 | `t23` (`d22`) | live steps need the operator and culture-rules#124 | `needs-follow-up` (pending) |
 
 ## Evidence
@@ -118,6 +124,8 @@ Quoted verbatim from the `devague summary` skeleton:
 - **Behavioral deltas:**
   - Filed: b1 (d1), b2 (d12), b3 (d8).
   - Five more wait on approval of d9, d10, d11, d16 and d18, because the CLI refuses an unapproved deviation as provenance.
+- **d24 round (`/validate-delivery`, 2026-10-31):** e34–e40 at execution strength, from 7 behavioral tests that ran green on main at e03a6f7. Deltas b4–b7 (caused by d24). Suites after the round: library 1,658 passed; culture-rules 8,612 passed. PR #38 squash-merged as e03a6f7, culture-rules#127 as be34145.
+- **t23 step 1 baseline (c29), 2026-10-31:** read-only (`mode=ro`) on live 0.18.2: 102 items, **0 repodocs, 0 repodoc versions**, 58 feed events; `library.db` 45 MB, files 95 MB.
 - **Commits:** `626774c..09af0fd` on `spec/devague-work` (49 commits, 20 merges, 99 files, +11,914 / −207).
 - **Issues:** culture-library#35, culture-rules#124.
 - **PR #38 CI at `d7bdcc0`:** every check passes: both test jobs, visual (70/70 phone and desktop references; the first push failed 37), the SonarCloud gate (0 open issues, down from 111), lint, harness-smoke, ragas, version-check and GitGuardian.
@@ -156,18 +164,19 @@ Confidence is capped by evidence strength: execution-strength evidence gives `hi
 | For 5 sampled repos, 100% of files are in the library and S3 (c36, live) | unverified | not run: nothing deployed, culture-rules#124 not built (d22) |
 | A draft edit arrives within one culture-rules cycle (c37) | unverified | not run (o21 has no evidence); cycle length unknown (park v4) |
 | Every top-level repo's record is in the library and S3 (c34, c35) | unverified | not run: live migration pending (d22) |
-| Nothing pushed to live before this run (c29) | unverified | the 0-doc baseline was not recorded on live; it is the first live step of t23 |
+| Nothing pushed to live before this run (c29) | high | read-only count on live 0.18.2 on 2026-10-31: 0 repodocs, 0 versions (Evidence, t23 step 1) |
 
 ## Remaining Work / Follow-up
 
 - **`t23` live migration (d22).** Run it with the operator after the PR merges:
-  1. Record the 0-doc baseline (c29).
+  1. ~~Record the 0-doc baseline (c29).~~ Done 2026-10-31.
   2. Create the private AWS bucket and run `deploy check-bucket`.
   3. Back up, because the `design` kind rebuilds the items table (r3).
   4. Deploy 0.19.0 with `deploy restart`.
   5. Mint the culture-rules repodoc key with kinds spec, plan, devague-record and design.
   6. Then, after culture-rules#124 ships, run `scripts/verify-mirror.py` on 5 repos and time the draft cycle (c36, c37).
-- **culture-rules#124.** The push rule is not built. Add the PR link to the issue once the PR exists, since the issue names the spec by path only (e32).
+- **culture-rules#124.** Built and merged in culture-rules#127 (be34145), with the rule shipped disabled. Still to do: `grant set LIBRARY_REPODOCS_PUSH_API_KEY`, import the bundle and enable the rule once the library runs 0.19.0. A committed blob over 16 MiB logs one error per run (known leftover).
+- **#39.** The indexer rescans every repo doc on each idle tick (d24, deferred).
 - **Adjudication at the PR.** Deviations d2–d6, d9–d11 and d13–d22; evidence e1–e33; lapse l1. After that, file the five pending deltas for d9, d10, d11, d16 and d18.
 - **Coverage gaps (the coverage-strength evidence):**
   - a working push of a review or question file (o5);
