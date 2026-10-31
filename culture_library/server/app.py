@@ -15,7 +15,8 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from culture_library import __version__
 from culture_library.server import ServerConfig
@@ -27,7 +28,18 @@ health_router = APIRouter()
 
 
 @health_router.get("/api/health", tags=["meta"])
-def health() -> dict[str, str]:
+def health(request: Request):
+    """``ok`` when the database answers ``SELECT 1``; 503 when it is unreachable (claim c40)."""
+    from culture_library.core.errors import CoreError
+    from culture_library.server.auth import get_store
+
+    try:
+        with get_store(request).reader() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except CoreError as exc:
+        return JSONResponse(
+            status_code=503, content={"status": "error", "detail": f"database: {exc}"}
+        )
     return {"status": "ok", "version": __version__, "api_version": API_VERSION}
 
 

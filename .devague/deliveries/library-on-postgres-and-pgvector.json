@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T21:15:41Z",
+  "updated": "2026-10-31T21:21:34Z",
   "deviations": [
     {
       "id": "d1",
@@ -64,6 +64,32 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t5's library tests were verified only against scratch stand-ins for feed, indexer, search and repodocs, because library.py imports indexer and search (plan waves 3-4); t5 also dropped the item_uploaders backfill (t14 copies the rows) and added library.lock_blob, which every blob writer must take",
+      "task_ref": "t5",
+      "reason": "the plan put t5 in wave 2, but library.py cannot import until t12/t13 port search and indexer; the backfill only served SQLite databases that predate item_uploaders",
+      "affects": [
+        "t11",
+        "t13",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t10 left /api/health (server/app.py, outside its files) unchanged; the main agent added the database check there: SELECT 1 through the store, 503 with status error when the database is unreachable, body unchanged when it answers. t10 also ported core/sources.py, which t5 owns; t5's version was kept at merge",
+      "task_ref": "t10",
+      "reason": "criterion 1 needs /api/health to fail with the database stopped, and app.py belonged to no wave-2 task; the duplicate sources.py port conflicted with t5's",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 7
     }
   ],
   "evidence": [],
