@@ -193,3 +193,19 @@ def test_http_library_parses_api(monkeypatch):
     assert doc.shas == {"aa", "bb"}
     assert doc.commits == {"c1": "aa"}
     assert "remote=" in calls[0]
+
+
+def test_remoteless_identity_uses_the_pushers_host_name(tmp_path):
+    # culture-rules names a remoteless repo by its node's host (spark), not this
+    # machine's hostname (spark-f8a9 on the live box)
+    repo = make_repo(tmp_path, "solo", remote=None)
+    assert vm.repo_identity(repo) == f"spark:{repo.resolve()}"
+    assert vm.repo_identity(repo, host="orin") == f"orin:{repo.resolve()}"
+
+
+def test_discover_all_skips_linked_worktrees_like_the_pusher(tmp_path):
+    make_repo(tmp_path, "alpha")
+    linked = tmp_path / "alpha-feature"
+    linked.mkdir()
+    (linked / ".git").write_text(f"gitdir: {tmp_path}/alpha/.git/worktrees/alpha-feature\n")
+    assert [r.name for r in vm.discover_repos(tmp_path)] == ["alpha"]

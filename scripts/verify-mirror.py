@@ -30,7 +30,6 @@ import json
 import os
 import pathlib
 import re
-import socket
 import sys
 import urllib.parse
 import urllib.request
@@ -100,12 +99,16 @@ def origin_url(repo: pathlib.Path) -> str | None:
     return None
 
 
-def repo_identity(repo: pathlib.Path) -> str:
-    """Normalized remote, or ``<host>:<abs path>`` for a repo with no origin."""
+DEFAULT_HOST = "spark"  # the node culture-rules' repodocs-sync rule is placed on
+
+
+def repo_identity(repo: pathlib.Path, host: str = DEFAULT_HOST) -> str:
+    """Normalized remote, or ``<host>:<abs path>`` for a repo with no origin. ``host`` is the
+    pusher's node name (culture-rules uses its own, not this machine's hostname)."""
     url = origin_url(repo)
     if url:
         return normalize_remote(url)
-    return normalize_remote(f"{socket.gethostname().split('.')[0]}:{repo.resolve()}")
+    return normalize_remote(f"{host}:{repo.resolve()}")
 
 
 def iter_docs(repo: pathlib.Path):
@@ -124,7 +127,8 @@ def discover_repos(root: pathlib.Path) -> list[pathlib.Path]:
     return [
         p
         for p in sorted(root.iterdir())
-        if p.is_dir() and not _skipped(p.name) and (p / ".git").exists()
+        # a real .git directory only: culture-rules skips linked worktrees (.git is a file)
+        if p.is_dir() and not _skipped(p.name) and (p / ".git").is_dir()
     ]
 
 
@@ -209,11 +213,11 @@ def check_s3(s3, repo_id: str, rel: str, sha: str, doc: LibDoc | None) -> str:
     return "mismatched" if seen_any else "missing"
 
 
-def verify(repos, lib, s3) -> dict:
+def verify(repos, lib, s3, host: str = DEFAULT_HOST) -> dict:
     result = {"repos": {}, "totals": {"library": _new(), "s3": _new() if s3 else None}}
     problems: list[str] = []
     for repo in repos:
-        rid = repo_identity(repo)
+        rid = repo_identity(repo, host)
         counts = {"id": rid, "files": 0, "library": _new(), "s3": _new() if s3 else None}
         for rel, full in iter_docs(repo):
             sha = sha256_file(full)
@@ -258,6 +262,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="every git repo directly under --root")
     p.add_argument("--root", default=str(pathlib.Path.home() / "git"))
     p.add_argument("--no-s3", action="store_true", help="skip the S3 check")
+    p.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"pusher's node name for remoteless repos (default {DEFAULT_HOST})",
+    )
     p.add_argument("--json", action="store_true")
     return p
 
@@ -293,7 +302,7 @@ def main(argv=None, library=None, s3=None) -> int:
                 raise VerifyError("boto3 is not installed (or pass --no-s3)") from exc
         if args.no_s3:
             s3 = None
-        result = verify(repos, library, s3)
+        result = verify(repos, library, s3, args.host)
     except (VerifyError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
