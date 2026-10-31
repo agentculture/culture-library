@@ -111,9 +111,10 @@ def _ensure_repodoc_dirty(conn: sqlite3.Connection) -> None:
     for table, column, events in _DIRTY_SOURCES:
         for event in events:
             ref = f"{'OLD' if event == 'DELETE' else 'NEW'}.{column}"
-            conn.execute(  # nosec B608 - names come only from _DIRTY_SOURCES above
-                f"CREATE TRIGGER IF NOT EXISTS {table}_{event.lower()}_dirty AFTER {event}"
-                f" ON {table} BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref}"
+            name = f"{table}_{event.lower()}_dirty"
+            conn.execute(  # table, column and event names come only from _DIRTY_SOURCES
+                f"CREATE TRIGGER IF NOT EXISTS {name} AFTER {event} ON {table}"  # nosec B608
+                f" BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref}"
                 f" WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
             )
 
