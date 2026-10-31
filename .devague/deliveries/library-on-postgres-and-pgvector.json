@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T22:15:30Z",
+  "updated": "2026-10-31T22:19:27Z",
   "deviations": [
     {
       "id": "d1",
@@ -117,6 +117,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "t16 (SQLite-free sweep) starts in parallel with t14 instead of after it, limited to files outside culture_library/migrate/ and tests/migrate/; its full-suite criterion is checked after t14 merges",
+      "task_ref": "t16",
+      "reason": "the 31 remaining failures outside migrate/ (old 2-d fakes, leftover sqlite3 tests, routes using a fixed vector pair, the pg extra) touch no t14 file, so running them together shortens the critical path without file overlap",
+      "affects": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 10
     }
   ],
   "evidence": [],
