@@ -17,7 +17,6 @@ the set's own item. Stdlib only, no network.
 from __future__ import annotations
 
 import re
-import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -76,7 +75,7 @@ def reanchor_samples(samples: Sequence[Mapping[str, Any]], chunks: Sequence[Chun
 
 
 def apply_reanchor(
-    conn: sqlite3.Connection,
+    conn: Any,
     set_id: int,
     chunks: Sequence[Chunk],
     item_sha256: str | None = None,
@@ -101,8 +100,8 @@ def apply_reanchor(
     ]
     for sid in changed:
         conn.execute(
-            "UPDATE eval_samples SET reference_chunk_shas = ? WHERE id = ?",
-            (eval_store._dumps(res.updates[sid]), sid),
+            "UPDATE eval_samples SET reference_chunk_shas = %s WHERE id = %s",
+            (eval_store._json(res.updates[sid]), sid),
         )
     set_sha = row["item_sha256"]
     if item_sha256 and not res.stale and set_sha != item_sha256:
@@ -123,8 +122,8 @@ def apply_reanchor(
     generator = dict(row["generator_json"] or {})
     generator["reanchor"] = note
     conn.execute(
-        "UPDATE eval_sets SET version = ?, generator_json = ?, item_sha256 = ? WHERE id = ?",
-        (version, eval_store._dumps(generator), set_sha, set_id),
+        "UPDATE eval_sets SET version = %s, generator_json = %s, item_sha256 = %s WHERE id = %s",
+        (version, eval_store._json(generator), set_sha, set_id),
     )
     return {
         "previous_version": row["version"],

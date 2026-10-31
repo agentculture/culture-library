@@ -23,7 +23,7 @@ router = APIRouter(tags=["eval"])
 
 
 def _index_pending(conn, item_id: int) -> bool:
-    row = conn.execute("SELECT state FROM index_queue WHERE item_id = ?", (item_id,)).fetchone()
+    row = conn.execute("SELECT state FROM index_queue WHERE item_id = %s", (item_id,)).fetchone()
     return row is not None and row[0] == "pending"
 
 
