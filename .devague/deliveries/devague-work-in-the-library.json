@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-30T19:42:41Z",
+  "updated": "2026-10-31T04:57:24Z",
   "deviations": [
     {
       "id": "d1",
@@ -280,7 +280,7 @@
       "reason": "decider (general/clef, 2026-10-30): split_now_and_after_merge 0.940; P(live steps need the operator)=0.986; P(PR before live signals is ok if marked unverified)=0.883; t23's own instruction says the live steps are operator-gated, and culture-rules#124 is not yet built",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 22
     },
@@ -296,6 +296,17 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 56
+    },
+    {
+      "id": "d24",
+      "what": "Code-review fix round after the PR was opened. Library (28a0019): a bad culture.yaml connected entry is dropped with a warning instead of a 422, and org/repo maps to github.com; equal-time spec_links apply and the push reports spec_links_applied; /api/feed with no subject is items only again, and subject=all mixes both; mirror rows are parked after 8 failed attempts (a one-time mirror_outbox CHECK rebuild migration), and reconcile re-queues them. culture-rules#127 (f70b3fd): default-branch lookup without origin/HEAD, local-path origins, unindented culture.yaml lists, tombstones for files deleted on main but left on disk, file stat cache fixes. Finding 9 (indexer rescan) deferred to #39; oversize committed blobs still log one error per run.",
+      "task_ref": "t14",
+      "reason": "/code-review medium on #38 and culture-rules#127 found 10 issues; 9 verified against the code and real repos (8 repos lack origin/HEAD), fixed test-first; 1 efficiency-only deferred",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": null,
+      "seq": 57
     }
   ],
   "evidence": [
