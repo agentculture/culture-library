@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T21:49:26Z",
+  "updated": "2026-10-31T22:15:30Z",
   "deviations": [
     {
       "id": "d1",
@@ -104,6 +104,19 @@
       "status": "proposed",
       "classification": "risky",
       "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "t13 edited server/routes_search.py (removed the label-based requeue_stale_model call; the indexer requeues stale (model, strategy) itself), padded fake embedders in waiting-list tests to 768 dimensions, moved test_review_fixes test 8 to the (model id, strategy) API, and fixed r5 by adding a vector of only the punctuation-containing tokens split on [[:punct:]] instead of concatenating split text",
+      "task_ref": "t13",
+      "reason": "a label passed as a model id would reopen the whole corpus each start; t12 requires 768-d vectors; the label column is gone; full concatenation changed every tsvector and ts_delete broke underscore phrases",
+      "affects": [
+        "t16"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
   "evidence": [],

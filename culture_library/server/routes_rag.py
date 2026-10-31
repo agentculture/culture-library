@@ -199,10 +199,11 @@ def item_chunks(
     with store.reader() as conn:
         chunks = sr.item_chunks(conn, item.id, vis)
         state = conn.execute(
-            "SELECT state FROM index_queue WHERE item_id = ?", (item.id,)
+            "SELECT state FROM index_queue WHERE item_id = %s", (item.id,)
         ).fetchone()
         model = conn.execute(
-            "SELECT model FROM embeddings WHERE item_id = ? ORDER BY chunk_no LIMIT 1", (item.id,)
+            "SELECT model_id FROM embeddings WHERE item_id = %s ORDER BY chunk_no LIMIT 1",
+            (item.id,),
         ).fetchone()
     return {
         "item_id": item.id,
