@@ -43,6 +43,11 @@ Edit the Owner/Model columns before approving gate 2 — the default Model is a 
 | `t19` | main agent + operator | opus |
 | `t20` | main agent + operator | opus |
 
+## Gate 2 decision (operator, 2026-10-31)
+
+- Split approved as proposed: owners and models as in the table above, branch prefix `pg/tN`, worktrees in `../.worktrees.culture-library/`.
+- Merge gate from t1 to t16: the full suite on the branch is expected to be red while modules are unported. Each merge must pass the task's own tests and every already-ported module's tests, before and after the merge. The full suite must be green at t16, and no PR opens before that. Live is untouched until t18.
+
 ## Wave 1
 
 ### t1 — Postgres store foundation: connection handling and a versioned migration runner
