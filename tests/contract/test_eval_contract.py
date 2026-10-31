@@ -39,6 +39,11 @@ from culture_library.core import indexer as ix  # noqa: E402
 from culture_library.core import search as sr  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
 
+
+def _pad(v):  # vectors have the current strategy's 768 dimensions (decision c42)
+    return [*v, *[0.0] * (768 - len(v))]
+
+
 DOC = Path(__file__).resolve().parents[2] / "docs" / "api" / "eval.md"
 
 WORDS = ("whale", "ship")
@@ -51,7 +56,7 @@ PATH_IDS = {"item_id": 1, "set_id": 1, "run_id": 1}
 
 
 def _embed(texts):
-    return [[1.0 if w in t.lower() else 0.0 for w in WORDS] + [0.1] for t in texts]
+    return [_pad([1.0 if w in t.lower() else 0.0 for w in WORDS] + [0.1]) for t in texts]
 
 
 def seeded(tmp_path):

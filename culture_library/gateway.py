@@ -14,6 +14,15 @@ Configuration comes from the environment; the key is never written to disk or sh
   retrieval) embedders; anything else, or unset, enables them.
 - ``LOBES_RERANK_MODEL``: the reranker model (default ``reranker``).
 
+Which vectors the embedder makes (decision c42): :meth:`GatewayEmbedder.vector_space` reads the
+gateway's ``GET /capabilities`` (no key needed, none is sent), whose entry for the embedder's
+model (a role or lane name such as ``gemma2-embed``) names the real model (``model``, e.g.
+``google/embeddinggemma-2``), its ``dimension`` and its ``normalization``. With the prompts and
+the indexer's chunker that makes the ``(model_id, Strategy)`` pair every stored vector carries.
+The answer is cached for the embedder's lifetime (a restart reads it again); an unreachable or
+incomplete answer raises :class:`EmbeddingError` and is not cached, so the indexer's job backs
+off and asks again instead of guessing.
+
 Both clients refuse every HTTP redirect (the idea is cited from embodiment's
 ``voice._NoRedirectHandler``): stdlib ``urlopen`` would resend ``Authorization`` to whatever
 host a ``Location`` header names, so the key would leave the configured origin. A redirect
@@ -24,9 +33,12 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.request
 from typing import Sequence
 
+from .core import indexer
+from .core.embedding_strategy import Strategy
 from .core.search import EmbeddingError
 
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8001"
@@ -37,6 +49,7 @@ DEFAULT_RERANK_MODEL = "reranker"
 PROMPT_NAMES = {"document": "Retrieval-document", "query": "Retrieval-query"}
 
 _ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError)
+CAPABILITIES_TIMEOUT = 10.0
 
 
 class RerankError(Exception):
@@ -84,6 +97,36 @@ def _post_json(url: str, key: str, payload: dict, timeout: float) -> object:
         return json.loads(resp.read())
 
 
+def fetch_capabilities(url: str, timeout: float = CAPABILITIES_TIMEOUT) -> dict:
+    """``GET {url}/capabilities`` (no key: the endpoint needs none) as a JSON object.
+
+    Raises ``OSError`` (transport, HTTP status, a refused redirect) or ``ValueError`` (a bad
+    URL scheme, a reply that is not a JSON object).
+    """
+    req = urllib.request.Request(  # noqa: S310 - open_no_redirect checks the scheme
+        f"{url.rstrip('/')}/capabilities", headers={"Accept": "application/json"}, method="GET"
+    )
+    with open_no_redirect(req, timeout) as resp:
+        return _object(json.loads(resp.read()))
+
+
+def _space_from_capabilities(caps: dict, role: str) -> tuple[str, int, str]:
+    """``(model_id, dimension, normalisation)`` from the ``role`` entry; ValueError if absent."""
+    entry = caps.get(role)
+    if not isinstance(entry, dict):
+        raise ValueError(f"/capabilities has no entry for {role!r}")
+    model_id = entry.get("model")
+    dimension = entry.get("dimension")
+    norm = entry.get("normalization", entry.get("normalisation"))
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise ValueError(f"/capabilities entry {role!r} names no model")
+    if isinstance(dimension, bool) or not isinstance(dimension, int) or dimension < 1:
+        raise ValueError(f"/capabilities entry {role!r} has no positive dimension: {dimension!r}")
+    if not isinstance(norm, str) or not norm.strip():
+        raise ValueError(f"/capabilities entry {role!r} states no normalization")
+    return model_id.strip(), dimension, norm.strip()
+
+
 def _object(reply: object) -> dict:
     """``reply`` as a JSON object; anything else is a ``ValueError`` (a malformed reply)."""
     if not isinstance(reply, dict):
@@ -107,8 +150,12 @@ class GatewayEmbedder:
     """Callable ``texts -> vectors`` against an OpenAI-compatible ``/v1/embeddings``.
 
     ``prompt_name`` (e.g. ``Retrieval-document``) is sent only when set. ``model`` is the wire
-    model; ``label`` (``model`` or ``model+prompt_name``) is what the indexer records in
-    ``embeddings.model`` so vectors made under different prompt configs are detectable.
+    model (a gateway role or lane name); ``label`` (``model`` or ``model+prompt_name``) is a
+    display name (``/api/status``). What a stored vector records is :meth:`vector_space`.
+
+    ``prompts`` is the (document, query) prompt pair of the configuration this embedder
+    belongs to, part of the strategy. Without it, a ``Retrieval-*`` ``prompt_name`` implies
+    the standard pair, another prompt is taken for both, and no prompt means neither.
     """
 
     def __init__(
@@ -118,12 +165,22 @@ class GatewayEmbedder:
         model: str = DEFAULT_EMBED_MODEL,
         timeout: float = 60,
         prompt_name: str | None = None,
+        prompts: tuple[str | None, str | None] | None = None,
     ):
         self.url = url.rstrip("/")
         self._key = key
         self.model = model
         self.timeout = timeout
         self.prompt_name = prompt_name or None
+        if prompts is None:
+            standard = (PROMPT_NAMES["document"], PROMPT_NAMES["query"])
+            if self.prompt_name in standard:
+                prompts = standard
+            else:
+                prompts = (self.prompt_name, self.prompt_name)
+        self.prompts = (prompts[0] or None, prompts[1] or None)
+        self._space: tuple[str, Strategy] | None = None
+        self._space_lock = threading.Lock()
 
     @property
     def label(self) -> str:
@@ -148,11 +205,42 @@ class GatewayEmbedder:
         if gateway is None:
             return None
         prompt = PROMPT_NAMES[purpose] if purpose and prompts_enabled() else None
+        on = prompts_enabled()
         return cls(
             *gateway,
             os.environ.get("LOBES_EMBED_MODEL", DEFAULT_EMBED_MODEL),
             prompt_name=prompt,
+            prompts=(
+                PROMPT_NAMES["document"] if on else None,
+                PROMPT_NAMES["query"] if on else None,
+            ),
         )
+
+    def vector_space(self) -> tuple[str, Strategy]:
+        """``(model_id, strategy)`` of the vectors this embedder makes, from ``/capabilities``.
+
+        Cached after the first answer. Raises :class:`EmbeddingError` (retryable: nothing is
+        cached) when ``/capabilities`` is unreachable or its entry for :attr:`model` lacks the
+        model id, dimension or normalization; the model is never guessed.
+        """
+        with self._space_lock:
+            if self._space is None:
+                try:
+                    caps = fetch_capabilities(self.url, min(self.timeout, CAPABILITIES_TIMEOUT))
+                    model_id, dimension, norm = _space_from_capabilities(caps, self.model)
+                except _ERRORS as exc:
+                    raise EmbeddingError(
+                        f"cannot tell which model {self.model!r} is from "
+                        f"{self.url}/capabilities: {exc}"
+                    ) from exc
+                strategy = indexer.strategy_for(
+                    document_prompt=self.prompts[0],
+                    query_prompt=self.prompts[1],
+                    dimension=dimension,
+                    normalisation=norm,
+                )
+                self._space = (model_id, strategy)
+            return self._space
 
     def __call__(self, texts: Sequence[str]) -> list[list[float]]:
         payload: dict = {"model": self.model, "input": list(texts)}

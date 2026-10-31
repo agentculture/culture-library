@@ -41,8 +41,8 @@ def _add(store, title, kind="book", visibility="public", body=b"", created_at=No
     return res.item
 
 
-def _vec(text):
-    return [1.0, 0.0] if "whale" in text else [0.0, 1.0]
+def _vec(text):  # padded to the current strategy's 768 dimensions
+    return ([1.0, 0.0] if "whale" in text else [0.0, 1.0]) + [0.0] * 766
 
 
 def _embed(texts):

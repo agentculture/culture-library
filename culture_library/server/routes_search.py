@@ -24,8 +24,10 @@ Indexer ownership: this module always starts the background :class:`Indexer` (de
 ``text_for``, i.e. ingest's text extraction) on app startup and stops it on shutdown. With
 an embedder configured in the environment it also computes embeddings (and re-opens jobs
 finished while none was configured); without ``GATEWAY_API_KEY`` it indexes item bodies for
-full-text only. The indexer embeds with :meth:`GatewayEmbedder.from_env` ``("document")`` and
-records its ``label`` (``gemma2-embed+Retrieval-document``) in ``embeddings.model``.
+full-text only. The indexer embeds with :meth:`GatewayEmbedder.from_env` ``("document")``;
+each vector records the model id and strategy from the gateway's ``/capabilities``, and the
+indexer's first run re-opens jobs that lack that pair's vectors
+(:func:`~culture_library.core.indexer.requeue_stale_model`).
 
 ``app.state`` after startup: ``doc_embedder`` (the indexer's embedder or ``None``),
 ``query_embedder`` and ``reranker`` (:class:`GatewayReranker` or ``None``); an object injected
@@ -47,7 +49,6 @@ from culture_library.core import search as sr
 from culture_library.core.indexer import (
     Indexer,
     enqueue_missing,
-    requeue_stale_model,
     requeue_unembedded,
 )
 from culture_library.gateway import GatewayEmbedder, GatewayReranker
@@ -67,8 +68,7 @@ def start_indexer(store: Store, embedder: sr.Embedder | None | object = _UNSET) 
         for existing in _indexers:
             if existing.store is store:
                 return existing
-        # ``label`` records the prompt too, so vectors from mixed configs are detectable;
-        # plain callables fall back to Indexer's own ``embed.model`` lookup.
+        # ``label`` is a display name only; vectors record (model id, strategy).
         model = getattr(embedder, "label", "") or ""
         indexer = Indexer(store, embedder, model=model)  # type: ignore[arg-type]
         _indexers.append(indexer)
@@ -107,8 +107,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if indexer is not None:
         enqueue_missing(store)
         if getattr(indexer, "embed", None) is not None:
-            requeue_unembedded(store)
-            requeue_stale_model(store, getattr(indexer, "model", ""))
+            requeue_unembedded(store)  # the indexer's first run also re-opens stale pairs
         indexer.notify()
     try:
         yield

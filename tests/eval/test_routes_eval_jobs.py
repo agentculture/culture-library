@@ -22,13 +22,18 @@ from culture_library.server import routes_eval_jobs as jobs  # noqa: E402
 from culture_library.server import routes_search  # noqa: E402
 from culture_library.server.auth import Principal, current_principal  # noqa: E402
 
+
+def _pad(v):  # vectors have the current strategy's 768 dimensions (decision c42)
+    return [*v, *[0.0] * (768 - len(v))]
+
+
 WORDS = ("whale", "ship", "harpoon", "ocean", "captain")
 # One ~700-char paragraph per word, so the 1000-char chunker gives each its own chunk.
 TEXT = "\n\n".join(f"The {w} story. " + "and then " * 80 for w in WORDS).encode()
 
 
 def _embed(texts):
-    return [[1.0 if w in t.lower() else 0.0 for w in WORDS] + [0.1] for t in texts]
+    return [_pad([1.0 if w in t.lower() else 0.0 for w in WORDS] + [0.1]) for t in texts]
 
 
 def _index(library, item):

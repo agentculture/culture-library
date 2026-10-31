@@ -6,8 +6,12 @@ from culture_library.core import indexer as ix
 from culture_library.core import search as sr
 
 
+def _pad(v):  # vectors have the current strategy's 768 dimensions (decision c42)
+    return [*v, *[0.0] * (768 - len(v))]
+
+
 def _embed(texts):
-    return [[1.0, 0.0] if "whale" in t.lower() else [0.0, 1.0] for t in texts]
+    return [_pad([1.0, 0.0] if "whale" in t.lower() else [0.0, 1.0]) for t in texts]
 
 
 def test_client_reads_rag_routes(library):

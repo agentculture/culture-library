@@ -201,8 +201,8 @@ def _embedded_text(store, item_id):
     return " ".join(r[0] for r in rows)
 
 
-def _vec(texts):
-    return [[1.0, float(len(t)), 0.5] for t in texts]
+def _vec(texts):  # the current strategy's 768 dimensions
+    return [[1.0, float(len(t)), 0.5] + [0.0] * 765 for t in texts]
 
 
 def test_replace_during_embedding_does_not_keep_old_vectors(store):

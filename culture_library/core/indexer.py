@@ -14,134 +14,137 @@ success as plain data for the status endpoint.
 Repo documents (devague-work plan task t11, deviation d7). The push route never calls this
 module: each :meth:`Indexer.run_once` *discovers* repo docs (:func:`discover_repodocs`)
 whose shown sha256 differs from the one their job holds, and (re)opens their job. Only
-docs marked in ``repodoc_dirty`` are considered (#39): triggers mark a doc when a write
-changes what it shows (see ``_DIRTY_SOURCES``), and each new :class:`Indexer` and
-:func:`requeue_all` mark every doc once, so drift is repaired on the next start. The shown
-text is the working draft when it is ahead of the newest version, else the current version
-(or the newest one while the doc has no current). A removed doc is never enqueued, and a
-doc removed after indexing is dropped from ``repodoc_fts``, ``repodoc_embeddings`` and its
-job row. Text: ``.json`` goes through :func:`culture_library.core.devague_text.text_for`,
-Markdown and plain text are indexed raw, and anything else (binary design assets: images,
-HTML, PDF) indexes only its path and title (:func:`repodoc_text`).
+docs marked in ``repodoc_dirty`` are considered (#39): plpgsql triggers
+(``core/migrations/0002_*.sql``) mark a doc when a write changes what it shows (see
+:data:`DIRTY_SOURCES`), and each new :class:`Indexer` and :func:`requeue_all` mark every doc
+once, so drift is repaired on the next start. The shown text is the working draft when it is
+ahead of the newest version, else the current version (or the newest one while the doc has
+no current). A removed doc is never enqueued, and a doc removed after indexing is dropped
+from ``repodoc_text``, ``repodoc_embeddings`` and its job row. Text: ``.json`` goes through
+:func:`culture_library.core.devague_text.text_for`, Markdown and plain text are indexed raw,
+and anything else (binary design assets: images, HTML, PDF) indexes only its path and title
+(:func:`repodoc_text`).
 
-Storage is additive, so the item tables and their ``items`` foreign keys are untouched:
-repo doc jobs live in their own ``repodoc_index_queue`` (keyed by ``doc_id``, with the
-shown sha256 and the strictest visibility of the doc and its shown text, and the same
-``pending``/``done``/``failed`` state machine, attempts and backoff as ``index_queue``).
-``index_queue`` gained a ``priority`` column (lower runs first, items default to
-:data:`PRIORITY_ITEM`; added to old databases with ``ALTER TABLE ADD COLUMN``). Repo doc
-jobs are a lower tier than any item: ``run_once`` runs due item jobs first, and stops the
-repo doc backlog as soon as an item job is due, so an upload during the initial backfill is
-indexed next. A gateway failure on a repo doc job backs off and retries exactly like an
-item job; its full text is already written by then.
+Storage (``core/migrations/0001_initial.sql``): item jobs in ``index_queue``, repo doc jobs
+in ``repodoc_index_queue`` (keyed by ``doc_id``, with the shown sha256 and the strictest
+visibility of the doc and its shown text), both with the same ``pending``/``done``/``failed``
+state machine, attempts and exponential backoff. ``index_queue.priority`` orders item jobs
+(lower runs first, items default to :data:`PRIORITY_ITEM`). Repo doc jobs are a lower tier
+than any item: ``run_once`` runs due item jobs first, and stops the repo doc backlog as soon
+as an item job is due, so an upload during the initial backfill is indexed next. A gateway
+failure on a repo doc job backs off and retries exactly like an item job; its full text is
+already written by then.
+
+Vectors (decision c42, plan task t13): every vector carries the real model id and the
+strategy (prompts, chunker and ``max_chars``, dimension, normalisation) it was made with;
+see :class:`Indexer` for where the pair comes from, and :func:`ensure_hnsw_index` for the
+per-pair HNSW index the first vector of a pair creates.
 """
 
 from __future__ import annotations
 
 import json
 import posixpath
-import sqlite3
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from . import devague_text, ingest, search
+from .embedding_strategy import (
+    CURRENT_MODEL_ID,
+    CURRENT_STRATEGY,
+    Strategy,
+    hnsw_index_name,
+    hnsw_index_sql,
+)
 from .errors import ValidationError
 from .models import Item
-from .store import Store, register_migration, register_schema
-
-register_schema("""
-CREATE TABLE IF NOT EXISTS index_queue (
-    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
-    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'failed')),
-    body_done INTEGER NOT NULL DEFAULT 0,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at REAL NOT NULL DEFAULT 0,
-    enqueued_at REAL NOT NULL,
-    last_error TEXT,
-    priority INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS index_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT
-);
-CREATE TABLE IF NOT EXISTS repodoc_index_queue (
-    doc_id INTEGER PRIMARY KEY REFERENCES repodocs(id) ON DELETE CASCADE,
-    shown_sha256 TEXT NOT NULL,
-    shown_visibility TEXT NOT NULL DEFAULT 'private',
-    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'failed')),
-    attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at REAL NOT NULL DEFAULT 0,
-    enqueued_at REAL NOT NULL,
-    last_error TEXT
-)
-""")
+from .store import Store
 
 PRIORITY_ITEM = 0  # index_queue.priority: lower runs first; repo doc jobs run after all items
 
+# The chunker the indexer uses (search.chunk_text: blank-line paragraphs packed up to
+# max_chars), as the strategy names it.
+CHUNKER = "paragraph-pack"
 
-def _ensure_priority(conn: sqlite3.Connection) -> None:
-    """Add ``index_queue.priority`` to a database created before it existed (additive)."""
-    have = {r[1] for r in conn.execute("PRAGMA table_info(index_queue)")}
-    if have and "priority" not in have:
-        conn.execute(
-            f"ALTER TABLE index_queue ADD COLUMN priority INTEGER NOT NULL "
-            f"DEFAULT {PRIORITY_ITEM}"
-        )
-
-
-register_migration(_ensure_priority)
+# pgvector's HNSW index takes at most 2,000 dimensions of a ``vector``; a wider strategy's
+# vectors are stored and searched without one (an exact scan).
+HNSW_MAX_DIMENSION = 2000
+# pg_advisory_xact_lock key serialising HNSW index creation ("culture-library hnsw").
+HNSW_LOCK_KEY = 0x6C6962_686E7377
 
 # A write that changes what a repo doc shows marks the doc in ``repodoc_dirty`` in the same
-# transaction (#39), so discovery plans only those docs and an idle tick never scans
-# ``repodocs``. An UPDATE marks only when a column ``_SHOWN_SQL`` reads changes, so a
-# re-push of unchanged bytes marks nothing. Inserts and deletes always mark (a hard-deleted
-# doc is dropped from the index). The body uses NOT EXISTS, not INSERT OR IGNORE: an outer
-# upsert's conflict clause overrides a trigger's. A new ``_SHOWN_SQL`` column needs its table
-# listed here, or a change to it is never re-planned until the next sweep.
-_DIRTY_SOURCES = (  # (table, its doc id column, the columns the plan reads)
+# transaction (#39), so discovery plans only those docs and an idle tick never reads
+# ``repodocs``. The marks are plpgsql triggers (core/migrations/0002_*.sql): INSERT and
+# DELETE always mark, an UPDATE only when one of these columns, the ones ``_SHOWN_SQL`` reads,
+# changes. tests/core/test_repodoc_dirty.py checks the triggers watch exactly these, so a new
+# ``_SHOWN_SQL`` column needs a migration that widens its trigger.
+DIRTY_SOURCES = (  # (table, its doc id column, the columns the plan reads)
     ("repodocs", "id", ("visibility", "current_version_id", "removed_at")),
     ("repodoc_drafts", "doc_id", ("sha256", "visibility")),
     ("repodoc_versions", "doc_id", ("sha256", "visibility", "committed_at")),
 )
 
 
-def _dirty_trigger(table: str, column: str, event: str, watched: tuple[str, ...]) -> str:
-    ref = f"{'OLD' if event == 'DELETE' else 'NEW'}.{column}"
-    when = ""
-    if event == "UPDATE":
-        when = " WHEN " + " OR ".join(f"OLD.{c} IS NOT NEW.{c}" for c in watched)
-    return (  # every name comes from _DIRTY_SOURCES
-        f"CREATE TRIGGER {table}_{event.lower()}_dirty AFTER {event} ON {table}{when}"  # nosec B608
-        f" BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref}"
-        f" WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
+def strategy_for(
+    *,
+    document_prompt: str | None,
+    query_prompt: str | None,
+    dimension: int,
+    normalisation: str,
+) -> Strategy:
+    """The strategy of vectors this indexer makes: the prompts (``""`` for none), its chunker
+    and ``search.CHUNK_MAX_CHARS``, and the model's dimension and normalisation."""
+    return Strategy(
+        document_prompt=document_prompt or "",
+        query_prompt=query_prompt or "",
+        chunker=CHUNKER,
+        max_chars=search.CHUNK_MAX_CHARS,
+        dimension=int(dimension),
+        normalisation=normalisation,
     )
 
 
-def _ensure_repodoc_dirty(conn: sqlite3.Connection) -> None:
-    """Create ``repodoc_dirty`` (seeding every doc when new) and (re)create its triggers.
-
-    The triggers are dropped and recreated on every open, so a release that changes one
-    reaches existing databases too.
-    """
-    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if not {"repodocs", "repodoc_drafts", "repodoc_versions"} <= tables:
-        return
-    if "repodoc_dirty" not in tables:
-        conn.execute("CREATE TABLE repodoc_dirty (doc_id INTEGER PRIMARY KEY)")
-        mark_all_repodocs(conn)
-    for table, column, watched in _DIRTY_SOURCES:
-        for event in ("INSERT", "UPDATE", "DELETE"):
-            conn.execute(f"DROP TRIGGER IF EXISTS {table}_{event.lower()}_dirty")
-            conn.execute(_dirty_trigger(table, column, event, watched))
-
-
-def mark_all_repodocs(conn: sqlite3.Connection) -> None:
+def mark_all_repodocs(conn: Any) -> None:
     """Mark every repo doc for discovery: the next run re-plans them all (a full sweep)."""
-    conn.execute("INSERT OR IGNORE INTO repodoc_dirty (doc_id) SELECT id FROM repodocs")
+    conn.execute(
+        "INSERT INTO repodoc_dirty (doc_id) SELECT id FROM repodocs ON CONFLICT DO NOTHING"
+    )
 
 
-register_migration(_ensure_repodoc_dirty)
+def _relation_exists(conn: Any, name: str) -> bool:
+    # An MVCC read of pg_class, not to_regclass() (see core/migrations/__init__.py).
+    return conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class WHERE relname = %s"
+        " AND relnamespace = current_schema()::regnamespace)",
+        (name,),
+    ).fetchone()[0]
+
+
+def ensure_hnsw_index(conn: Any, table: str, model_id: str, strategy: Strategy) -> bool:
+    """Create the (``model_id``, ``strategy``) HNSW index on ``table`` if it is missing.
+
+    Runs inside the caller's write transaction, before the pair's vectors are written, so the
+    first vector of a new pair creates its index: a plain ``CREATE INDEX``, not
+    ``CONCURRENTLY`` (which cannot run in a transaction and leaves an invalid index behind
+    when it fails). The pair has no rows yet, so the build is one scan of the table that
+    finds nothing to insert, and later rows are added to the index as they are written; its
+    SHARE lock holds other writers of ``table`` only until this transaction commits. An
+    advisory lock serialises two creators, which would otherwise race on the index name.
+    Returns True when it created the index. A strategy wider than
+    :data:`HNSW_MAX_DIMENSION` gets none.
+    """
+    if strategy.dimension > HNSW_MAX_DIMENSION:
+        return False
+    name = hnsw_index_name(table, model_id, strategy)
+    if _relation_exists(conn, name):
+        return False
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (HNSW_LOCK_KEY,))
+    if _relation_exists(conn, name):  # a racing creator committed it first
+        return False
+    conn.execute(hnsw_index_sql(table, model_id, strategy))
+    return True
+
 
 TextFor = Callable[[Item], str]
 
@@ -168,14 +171,14 @@ def default_text_for(store: Store, limits: ingest.IngestLimits = ingest.DEFAULT_
     return text_for
 
 
-def enqueue(conn: sqlite3.Connection, item_id: int, *, now: float | None = None) -> None:
+def enqueue(conn: Any, item_id: int, *, now: float | None = None) -> None:
     conn.execute(
-        "INSERT OR IGNORE INTO index_queue (item_id, enqueued_at) VALUES (?, ?)",
+        "INSERT INTO index_queue (item_id, enqueued_at) VALUES (%s, %s) ON CONFLICT DO NOTHING",
         (item_id, time.time() if now is None else now),
     )
 
 
-def index_on_add(conn: sqlite3.Connection, item: Item, body: str | None = None) -> None:
+def index_on_add(conn: Any, item: Item, body: str | None = None) -> None:
     """Hook for the API's add transaction: title searchable now, body + vectors queued.
 
     ``body`` is text the caller already extracted (an upload's :func:`ingest.ingest`): it is
@@ -187,20 +190,22 @@ def index_on_add(conn: sqlite3.Connection, item: Item, body: str | None = None) 
         search.set_body(conn, item, body)
     enqueue(conn, item.id)
     if body is not None:
-        conn.execute("UPDATE index_queue SET body_done=1 WHERE item_id=?", (item.id,))
+        conn.execute("UPDATE index_queue SET body_done = true WHERE item_id = %s", (item.id,))
 
 
 def enqueue_missing(store: Store) -> int:
     """Queue items that have no queue row (pre-existing data, migrations)."""
     with store.connect() as conn:
         cur = conn.execute(
-            "INSERT INTO index_queue (item_id, enqueued_at) "
-            "SELECT id, ? FROM items WHERE id NOT IN (SELECT item_id FROM index_queue)",
+            "INSERT INTO index_queue (item_id, enqueued_at) SELECT i.id, %s FROM items i"
+            " WHERE NOT EXISTS (SELECT 1 FROM index_queue q WHERE q.item_id = i.id)"
+            " ON CONFLICT DO NOTHING",
             (time.time(),),
         )
         n = cur.rowcount
         for row in conn.execute(
-            "SELECT * FROM items WHERE id NOT IN (SELECT rowid FROM search_fts)"
+            "SELECT i.* FROM items i"
+            " WHERE NOT EXISTS (SELECT 1 FROM item_text t WHERE t.item_id = i.id)"
         ).fetchall():
             search.index_title(conn, Item(**dict(row)))
     return n
@@ -225,36 +230,41 @@ def requeue_unembedded(store: Store) -> int:
     """
     with store.connect() as conn:
         cur = conn.execute(
-            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0 "
-            "WHERE state='done' AND item_id NOT IN (SELECT DISTINCT item_id FROM embeddings)"
+            "UPDATE index_queue q SET state='pending', attempts=0, next_attempt_at=0 "
+            "WHERE state='done' AND NOT EXISTS "
+            "(SELECT 1 FROM embeddings e WHERE e.item_id = q.item_id)"
         )
         docs = conn.execute(
-            "UPDATE repodoc_index_queue SET state='pending', attempts=0, next_attempt_at=0 "
-            "WHERE state='done' AND doc_id NOT IN (SELECT DISTINCT doc_id FROM repodoc_embeddings)"
+            "UPDATE repodoc_index_queue q SET state='pending', attempts=0, next_attempt_at=0 "
+            "WHERE state='done' AND NOT EXISTS "
+            "(SELECT 1 FROM repodoc_embeddings e WHERE e.doc_id = q.doc_id)"
         )
         return cur.rowcount + docs.rowcount
 
 
-def requeue_stale_model(store: Store, label: str) -> int:
-    """Re-open finished jobs whose embeddings were made under another model/prompt label.
+def requeue_stale_model(store: Store, model_id: str, strategy: Strategy) -> int:
+    """Re-open finished jobs that have no vectors of (``model_id``, ``strategy``).
 
-    Run at startup with the indexer's label so a prompt or model change re-embeds the corpus
-    instead of comparing new query vectors with old document vectors.
+    That is every job embedded only under another model or strategy, and every body-only job
+    (it includes :func:`requeue_unembedded`). The :class:`Indexer` runs it once, on its first
+    run with an embedder, for the pair it writes, so a model or prompt change re-embeds the
+    corpus under the new pair. The old pair's vectors stay until something drops them.
     """
-    if not label:
+    if not model_id:
         return 0
+    key = strategy.key()
     with store.connect() as conn:
         cur = conn.execute(
-            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0 "
-            "WHERE state='done' AND item_id IN "
-            "(SELECT DISTINCT item_id FROM embeddings WHERE model != ?)",
-            (label,),
+            "UPDATE index_queue q SET state='pending', attempts=0, next_attempt_at=0 "
+            "WHERE state='done' AND NOT EXISTS (SELECT 1 FROM embeddings e"
+            " WHERE e.item_id = q.item_id AND e.model_id = %s AND e.strategy = %s)",
+            (model_id, key),
         )
         docs = conn.execute(
-            "UPDATE repodoc_index_queue SET state='pending', attempts=0, next_attempt_at=0 "
-            "WHERE state='done' AND doc_id IN "
-            "(SELECT DISTINCT doc_id FROM repodoc_embeddings WHERE model != ?)",
-            (label,),
+            "UPDATE repodoc_index_queue q SET state='pending', attempts=0, next_attempt_at=0 "
+            "WHERE state='done' AND NOT EXISTS (SELECT 1 FROM repodoc_embeddings e"
+            " WHERE e.doc_id = q.doc_id AND e.model_id = %s AND e.strategy = %s)",
+            (model_id, key),
         )
         return cur.rowcount + docs.rowcount
 
@@ -263,7 +273,8 @@ def requeue_all(store: Store) -> int:
     """Re-run every job (e.g. after the text extractor improves)."""
     with store.connect() as conn:
         cur = conn.execute(
-            "UPDATE index_queue SET state='pending', body_done=0, attempts=0, next_attempt_at=0"
+            "UPDATE index_queue SET state='pending', body_done=false, attempts=0,"
+            " next_attempt_at=0"
         )
         docs = conn.execute(
             "UPDATE repodoc_index_queue SET state='pending', attempts=0, next_attempt_at=0"
@@ -272,8 +283,12 @@ def requeue_all(store: Store) -> int:
         return cur.rowcount + docs.rowcount
 
 
-def _meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute("INSERT OR REPLACE INTO index_meta (key, value) VALUES (?, ?)", (key, value))
+def _meta_set(conn: Any, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO index_meta (key, value) VALUES (%s, %s)"
+        " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
 
 
 def status(store: Store, *, now: float | None = None) -> dict:
@@ -381,11 +396,11 @@ LEFT JOIN repodoc_versions nv ON nv.id = (
     SELECT id FROM repodoc_versions WHERE doc_id = d.id
     ORDER BY committed_at DESC, id DESC LIMIT 1)
 LEFT JOIN repodoc_index_queue q ON q.doc_id = d.id
-WHERE d.id IN (SELECT doc_id FROM repodoc_dirty)
+WHERE d.id = ANY(%s)
 """
 
 
-def _shown(r: sqlite3.Row) -> tuple[str, str] | None:
+def _shown(r: Any) -> tuple[str, str] | None:
     """``(sha, visibility)`` of the bytes a repo doc shows, or None when it shows nothing."""
     if r["draft_sha"] is not None and r["draft_sha"] != r["newest_sha"]:
         sha, vis = r["draft_sha"], r["draft_vis"]
@@ -396,7 +411,7 @@ def _shown(r: sqlite3.Row) -> tuple[str, str] | None:
     return sha, ("public" if r["doc_vis"] == "public" and vis == "public" else "private")
 
 
-def _plan_one(r: sqlite3.Row) -> tuple | None:
+def _plan_one(r: Any) -> tuple | None:
     """The action for one repo doc row, or None when its job is up to date."""
     if r["removed_at"] is not None:
         return ("drop", r["id"], None, None) if r["queued"] is not None else None
@@ -411,19 +426,16 @@ def _plan_one(r: sqlite3.Row) -> tuple | None:
     return None
 
 
-def _plan_discovery(conn: sqlite3.Connection) -> list[tuple]:
-    """``(action, doc_id, sha, visibility)`` for every dirty repo doc whose job is out of date."""
-    planned = (_plan_one(r) for r in conn.execute(_SHOWN_SQL).fetchall())
-    return [action for action in planned if action is not None]
-
-
 def discover_repodocs(store: Store, *, now: float | None = None) -> int:
     """(Re)open the job of every changed repo doc whose shown sha256 moved; drop removed docs.
 
-    Only docs marked in ``repodoc_dirty`` are planned, and the marks are cleared in the
-    same transaction. With no marks it reads one row of one table and returns; it takes the
-    write lock only when a mark exists, which a write changing what a doc shows leaves. A
-    marked doc that no longer exists (hard-deleted) is dropped from the index.
+    Only docs marked in ``repodoc_dirty`` are planned. With no marks it reads one row of one
+    table, read-only, and returns. Otherwise one transaction claims the marks (``DELETE ...
+    RETURNING``) and then, in a later statement and so a later snapshot, reads only the
+    claimed docs: a writer still holding a mark's row lock (the trigger's upsert takes one)
+    makes the claim wait for its commit, and a mark committed after the claim stays for the
+    next run, so no change is lost between plan and clear. A claimed doc that no longer
+    exists (hard-deleted) is dropped from the index.
 
     Returns how many jobs were enqueued or re-opened. A visibility change without new bytes
     updates the job and the indexed row at once (no re-index). A doc whose new text is
@@ -435,22 +447,26 @@ def discover_repodocs(store: Store, *, now: float | None = None) -> int:
             return 0
     stamp = time.time() if now is None else now
     n = 0
-    with store.connect() as conn:  # the write lock: no mark can land between plan and clear
-        planned = _plan_discovery(conn)
-        for (doc_id,) in conn.execute(  # hard-deleted: the planning join cannot see them
-            "SELECT doc_id FROM repodoc_dirty WHERE doc_id NOT IN (SELECT id FROM repodocs)"
-        ).fetchall():
+    with store.connect() as conn:
+        claimed = [
+            r[0] for r in conn.execute("DELETE FROM repodoc_dirty RETURNING doc_id").fetchall()
+        ]
+        if not claimed:  # another discovery claimed them first
+            return 0
+        rows = conn.execute(_SHOWN_SQL, (claimed,)).fetchall()
+        live = {r["id"] for r in rows}
+        for doc_id in sorted(set(claimed) - live):  # hard-deleted: nothing left to plan
             search.drop_repodoc(conn, doc_id)
-        conn.execute("DELETE FROM repodoc_dirty")
+        planned = [action for action in map(_plan_one, rows) if action is not None]
         for action, doc_id, sha, vis in planned:
             if action == "drop":
                 search.drop_repodoc(conn, doc_id)
-                conn.execute("DELETE FROM repodoc_index_queue WHERE doc_id = ?", (doc_id,))
+                conn.execute("DELETE FROM repodoc_index_queue WHERE doc_id = %s", (doc_id,))
                 continue
             if action == "enqueue":
                 conn.execute(
                     "INSERT INTO repodoc_index_queue (doc_id, shown_sha256, shown_visibility,"
-                    " enqueued_at) VALUES (?, ?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET"
+                    " enqueued_at) VALUES (%s, %s, %s, %s) ON CONFLICT (doc_id) DO UPDATE SET"
                     " shown_sha256 = excluded.shown_sha256,"
                     " shown_visibility = excluded.shown_visibility, state = 'pending',"
                     " attempts = 0, next_attempt_at = 0, enqueued_at = excluded.enqueued_at,"
@@ -462,7 +478,7 @@ def discover_repodocs(store: Store, *, now: float | None = None) -> int:
                     search.set_repodoc_visibility(conn, doc_id, vis)
             else:
                 conn.execute(
-                    "UPDATE repodoc_index_queue SET shown_visibility = ? WHERE doc_id = ?",
+                    "UPDATE repodoc_index_queue SET shown_visibility = %s WHERE doc_id = %s",
                     (vis, doc_id),
                 )
                 search.set_repodoc_visibility(conn, doc_id, vis)
@@ -473,13 +489,13 @@ class _Replaced(Exception):
     """The item's bytes changed while it was being indexed (see :func:`_still_current`)."""
 
 
-def _still_current(conn: sqlite3.Connection, item: Item) -> None:
+def _still_current(conn: Any, item: Item) -> None:
     """Raise :class:`_Replaced` unless *item* still has the bytes it was read with.
 
     ``library.replace`` swaps an item's sha256 and re-opens its queue row; a job already in
     flight for the old bytes must not write their body, vectors or ``done`` over that.
     """
-    row = conn.execute("SELECT sha256 FROM items WHERE id = ?", (item.id,)).fetchone()
+    row = conn.execute("SELECT sha256 FROM items WHERE id = %s", (item.id,)).fetchone()
     if row is None or row[0] != item.sha256:
         raise _Replaced(f"item {item.id} changed while indexing")
 
@@ -487,11 +503,11 @@ def _still_current(conn: sqlite3.Connection, item: Item) -> None:
 _QUEUES = (("index_queue", "item_id"), ("repodoc_index_queue", "doc_id"))
 
 
-def _doc_still_current(conn: sqlite3.Connection, doc_id: int, sha: str) -> None:
+def _doc_still_current(conn: Any, doc_id: int, sha: str) -> None:
     """Raise :class:`_Replaced` unless the doc's job still targets ``sha`` and is live."""
     row = conn.execute(
         "SELECT q.shown_sha256, d.removed_at FROM repodoc_index_queue q "
-        "JOIN repodocs d ON d.id = q.doc_id WHERE q.doc_id = ?",
+        "JOIN repodocs d ON d.id = q.doc_id WHERE q.doc_id = %s",
         (doc_id,),
     ).fetchone()
     if row is None or row[0] != sha or row[1] is not None:
@@ -499,7 +515,18 @@ def _doc_still_current(conn: sqlite3.Connection, doc_id: int, sha: str) -> None:
 
 
 class Indexer:
-    """Processes the queue. ``run_once`` is synchronous; ``start`` runs it on a thread."""
+    """Processes the queue. ``run_once`` is synchronous; ``start`` runs it on a thread.
+
+    Every vector it writes carries a (model id, strategy) pair (decision c42), resolved per
+    job: ``model_id`` and ``strategy`` when given (both or neither); else the embedder's
+    ``vector_space()`` (:meth:`culture_library.gateway.GatewayEmbedder.vector_space`, which
+    reads the gateway's ``/capabilities``; when that fails the job fails and backs off, so
+    no vector is written under a guessed model); else, for a plain callable that states no
+    vector space (a test fake, an injected embedder), the current pair
+    (:data:`~culture_library.core.embedding_strategy.CURRENT_MODEL_ID` and ``CURRENT_STRATEGY``).
+    The first vector of a pair creates its HNSW index (:func:`ensure_hnsw_index`). ``model``
+    is only a display label (``/api/status``), never stored.
+    """
 
     def __init__(
         self,
@@ -513,7 +540,13 @@ class Indexer:
         backoff_cap: float = 900.0,
         batch_size: int = 16,
         model: str = "",
+        model_id: str | None = None,
+        strategy: Strategy | None = None,
     ) -> None:
+        if (model_id is None) != (strategy is None):
+            raise ValueError("pass model_id and strategy together, or neither")
+        if model_id is not None and not model_id.strip():
+            raise ValueError("model_id must name the real model, e.g. google/embeddinggemma-2")
         self.store = store
         self.embed = embed
         self.text_for = text_for or default_text_for(store)
@@ -523,13 +556,35 @@ class Indexer:
         self.backoff_cap = backoff_cap
         self.batch_size = batch_size
         self.model = model or getattr(embed, "model", "")
+        self.model_id = model_id
+        self.strategy = strategy
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._swept = False  # the first run_once re-plans every repo doc (self-healing)
+        self._stale_checked = False  # the first resolved pair re-opens jobs lacking it
 
     def status(self) -> dict:
         return status(self.store, now=self.now())
+
+    def vector_space(self) -> tuple[str, Strategy]:
+        """``(model_id, strategy)`` the next vectors are written under (see the class doc).
+
+        Raises :class:`~culture_library.core.search.EmbeddingError` when the embedder cannot
+        say (its ``/capabilities`` lookup failed).
+        """
+        if self.model_id is not None and self.strategy is not None:
+            return self.model_id, self.strategy
+        lookup = getattr(self.embed, "vector_space", None)
+        if callable(lookup):
+            try:
+                model_id, strategy = lookup()
+            except search.EmbeddingError:
+                raise
+            except Exception as exc:  # a custom embedder's lookup failing is the same thing
+                raise search.EmbeddingError(f"cannot resolve the vector space: {exc}") from exc
+            return model_id, strategy
+        return CURRENT_MODEL_ID, CURRENT_STRATEGY
 
     # -- work ---------------------------------------------------------------
 
@@ -538,8 +593,10 @@ class Indexer:
 
         Item jobs run first (by ``priority``, then age). Then repo docs are discovered and
         up to the rest of ``limit`` repo doc jobs run, stopping as soon as an item job is
-        due again.
+        due again. The first run with an embedder whose pair resolves re-opens finished jobs
+        that lack that pair's vectors (:func:`requeue_stale_model`).
         """
+        self._requeue_stale_once()
         ids = self._due_items(limit)
         done = sum(1 for item_id in ids if self._process(item_id))
         budget = limit - len(ids)
@@ -555,7 +612,7 @@ class Indexer:
                 r[0]
                 for r in conn.execute(
                     "SELECT doc_id FROM repodoc_index_queue WHERE state='pending' "
-                    "AND next_attempt_at <= ? ORDER BY enqueued_at, doc_id LIMIT ?",
+                    "AND next_attempt_at <= %s ORDER BY enqueued_at, doc_id LIMIT %s",
                     (self.now(), budget),
                 )
             ]
@@ -565,16 +622,32 @@ class Indexer:
             done += 1 if self._process_doc(doc_id) else 0
         return done
 
+    def _requeue_stale_once(self) -> None:
+        if self._stale_checked or self.embed is None:
+            return
+        try:
+            model_id, strategy = self.vector_space()
+        except search.EmbeddingError:
+            return  # the jobs themselves fail and back off; try again next run
+        requeue_stale_model(self.store, model_id, strategy)
+        self._stale_checked = True
+
     def _due_items(self, limit: int) -> list[int]:
         with self.store.reader() as conn:
             return [
                 r[0]
                 for r in conn.execute(
                     "SELECT item_id FROM index_queue WHERE state='pending' "
-                    "AND next_attempt_at <= ? ORDER BY priority, enqueued_at LIMIT ?",
+                    "AND next_attempt_at <= %s ORDER BY priority, enqueued_at, item_id LIMIT %s",
                     (self.now(), limit),
                 )
             ]
+
+    def _embed_chunks(self, chunks: list[str]) -> list:
+        vecs: list = []
+        for i in range(0, len(chunks), self.batch_size):
+            vecs.extend(search._embed(self.embed, chunks[i : i + self.batch_size]))
+        return vecs
 
     def _process_doc(self, doc_id: int) -> bool:
         """Index one repo doc's shown text (full text, then vectors); never raises."""
@@ -583,7 +656,7 @@ class Indexer:
                 job = conn.execute(
                     "SELECT q.shown_sha256, q.shown_visibility, d.path, d.removed_at "
                     "FROM repodoc_index_queue q JOIN repodocs d ON d.id = q.doc_id "
-                    "WHERE q.doc_id = ?",
+                    "WHERE q.doc_id = %s",
                     (doc_id,),
                 ).fetchone()
             if job is None or job["removed_at"] is not None:
@@ -594,18 +667,20 @@ class Indexer:
                 _doc_still_current(conn, doc_id, sha)
                 search.set_repodoc_text(conn, doc_id, title, path, body, vis)
             if self.embed is not None:
+                model_id, strategy = self.vector_space()
                 chunks = [f"{title}\n{path}".strip()] + search.chunk_text(body)
-                vecs: list = []
-                for i in range(0, len(chunks), self.batch_size):
-                    vecs.extend(search._embed(self.embed, chunks[i : i + self.batch_size]))
+                vecs = self._embed_chunks(chunks)
                 with self.store.connect() as conn:
                     _doc_still_current(conn, doc_id, sha)
-                    search.set_repodoc_embeddings(conn, doc_id, chunks, vecs, self.model)
+                    ensure_hnsw_index(conn, "repodoc_embeddings", model_id, strategy)
+                    search.set_repodoc_embeddings(
+                        conn, doc_id, chunks, vecs, model_id=model_id, strategy=strategy
+                    )
             with self.store.connect() as conn:
                 _doc_still_current(conn, doc_id, sha)
                 conn.execute(
                     "UPDATE repodoc_index_queue SET state='done', last_error=NULL "
-                    "WHERE doc_id=?",
+                    "WHERE doc_id = %s",
                     (doc_id,),
                 )
                 _meta_set(conn, "last_success_at", str(self.now()))
@@ -626,7 +701,7 @@ class Indexer:
             with self.store.connect() as conn:
                 _still_current(conn, item)
                 conn.execute(
-                    "UPDATE index_queue SET state='done', last_error=NULL WHERE item_id=?",
+                    "UPDATE index_queue SET state='done', last_error=NULL WHERE item_id = %s",
                     (item_id,),
                 )
                 _meta_set(conn, "last_success_at", str(self.now()))
@@ -640,7 +715,7 @@ class Indexer:
     def _index_body(self, item: Item) -> None:
         with self.store.reader() as conn:
             done = conn.execute(
-                "SELECT body_done FROM index_queue WHERE item_id=?", (item.id,)
+                "SELECT body_done FROM index_queue WHERE item_id = %s", (item.id,)
             ).fetchone()
         if done and done[0]:
             return
@@ -648,21 +723,23 @@ class Indexer:
         with self.store.connect() as conn:
             _still_current(conn, item)
             search.set_body(conn, item, text)
-            conn.execute("UPDATE index_queue SET body_done=1 WHERE item_id=?", (item.id,))
+            conn.execute("UPDATE index_queue SET body_done = true WHERE item_id = %s", (item.id,))
 
     def _index_embeddings(self, item: Item) -> None:
         if self.embed is None:  # full-text only: no gateway configured, not a failure
             return
+        model_id, strategy = self.vector_space()
         with self.store.reader() as conn:
-            body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (item.id,)).fetchone()
+            body = conn.execute(
+                "SELECT body FROM item_text WHERE item_id = %s", (item.id,)
+            ).fetchone()
         header = f"{item.title}\n{item.author}".strip()
         chunks = [header] + search.chunk_text(body[0] if body else "")
-        vecs: list = []
-        for i in range(0, len(chunks), self.batch_size):
-            vecs.extend(search._embed(self.embed, chunks[i : i + self.batch_size]))
+        vecs = self._embed_chunks(chunks)
         with self.store.connect() as conn:
             _still_current(conn, item)
-            search.set_embeddings(conn, item.id, chunks, vecs, self.model)
+            ensure_hnsw_index(conn, "embeddings", model_id, strategy)
+            search.set_embeddings(conn, item.id, chunks, vecs, model_id=model_id, strategy=strategy)
 
     def _fail(
         self,
@@ -678,14 +755,14 @@ class Indexer:
         msg = f"{type(exc).__name__}: {exc}"[:500]
         with self.store.connect() as conn:
             row = conn.execute(
-                f"SELECT attempts FROM {table} WHERE {key}=?", (item_id,)  # nosec B608
+                f"SELECT attempts FROM {table} WHERE {key} = %s", (item_id,)  # nosec B608
             ).fetchone()
             attempts = (row[0] if row else 0) + 1
             delay = min(self.backoff_base * 2 ** (attempts - 1), self.backoff_cap)
             state = "failed" if attempts >= self.max_attempts else "pending"
             conn.execute(
-                f"UPDATE {table} SET attempts=?, state=?, next_attempt_at=?, "  # nosec B608
-                f"last_error=? WHERE {key}=?",
+                f"UPDATE {table} SET attempts=%s, state=%s, next_attempt_at=%s, "  # nosec B608
+                f"last_error=%s WHERE {key} = %s",
                 (attempts, state, self.now() + delay, msg, item_id),
             )
             _meta_set(conn, "last_failure_at", str(self.now()))

@@ -245,7 +245,7 @@ def test_indexed_body_and_search_of_a_linked_epub_are_unchanged(site: Site) -> N
     with site.store.reader() as conn:
         rows = dict(
             conn.execute(
-                "SELECT rowid, body FROM search_fts WHERE rowid IN (?, ?)",
+                "SELECT item_id, body FROM item_text WHERE item_id IN (%s, %s)",
                 (linked["id"], plain["id"]),
             ).fetchall()
         )

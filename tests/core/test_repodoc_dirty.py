@@ -1,13 +1,22 @@
-"""Repo doc discovery reads only changed docs (#39): an idle tick never scans ``repodocs``."""
+"""Repo doc discovery reads only changed docs (#39): an idle tick never scans ``repodocs``.
+
+On Postgres (plan task t13) the marks are plpgsql triggers from
+``core/migrations/0002_indexer_triggers_and_split_words.sql``.
+"""
 
 from __future__ import annotations
 
-import sqlite3
+import re
+import threading
+import uuid
 
+import psycopg
 import pytest
+from psycopg.conninfo import make_conninfo
 
 from culture_library.core import Store
 from culture_library.core import indexer as ix
+from culture_library.core import migrations
 from culture_library.core.repodocs import RepoDocs
 
 A = "a" * 40
@@ -33,11 +42,8 @@ def _commit(docs, path, content, *, commit=A, vis="public", when="2026-10-01T00:
 
 
 def _rows(store, sql, params=()):
-    conn = sqlite3.connect(store.db_path)
-    try:
+    with store.reader() as conn:
         return conn.execute(sql, params).fetchall()
-    finally:
-        conn.close()
 
 
 def _queued(store):
@@ -47,18 +53,17 @@ def _queued(store):
 
 
 class _Trace:
-    """Collect every SQL statement the store's connections run."""
+    """Collect every SQL statement run through a psycopg connection's ``execute``."""
 
     def __init__(self, store, monkeypatch):
         self.sql: list[str] = []
-        real = store._open
+        real = psycopg.Connection.execute
 
-        def traced():
-            conn = real()
-            conn.set_trace_callback(self.sql.append)
-            return conn
+        def traced(conn, query, *args, **kwargs):
+            self.sql.append(str(query))
+            return real(conn, query, *args, **kwargs)
 
-        monkeypatch.setattr(store, "_open", traced)
+        monkeypatch.setattr(psycopg.Connection, "execute", traced)
 
     def scanned_repodocs(self) -> bool:
         return any("FROM repodocs d" in s for s in self.sql)
@@ -91,7 +96,8 @@ def test_one_push_plans_only_that_doc(store, docs, monkeypatch):
     assert ix.discover_repodocs(store) == 1
     planned = [s for s in trace.sql if "FROM repodocs d" in s]
     assert planned
-    assert all("repodoc_dirty" in s for s in planned)
+    assert all("d.id = ANY(%s)" in s for s in planned)  # only the claimed marks
+    assert any(s.startswith("DELETE FROM repodoc_dirty RETURNING") for s in trace.sql)
 
 
 def test_draft_versions_tombstones_and_visibility_all_mark_dirty(store, docs):
@@ -115,23 +121,37 @@ def test_dirty_marks_are_cleared_after_discovery(store, docs):
     assert _rows(store, "SELECT count(*) FROM repodoc_dirty")[0][0] == 0
 
 
-def test_upgrade_seeds_every_existing_doc_once(tmp_path):
-    data = tmp_path / "data"
-    store = Store(data)
-    docs = RepoDocs(store)
-    for n in range(3):
-        _commit(docs, f"docs/specs/s{n}.md", f"spec {n}\n")
-    conn = sqlite3.connect(data / "library.db")
-    for name in [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'")]:
-        conn.execute(f"DROP TRIGGER {name}")
-    conn.execute("DROP TABLE repodoc_dirty")
-    conn.execute("DELETE FROM repodoc_index_queue")
-    conn.commit()
-    conn.close()
-    store = Store(data)  # the release before #39 had no dirty table: the first open seeds it
-    assert ix.discover_repodocs(store) == 3
-    Store(data)  # a later open never re-seeds
-    assert ix.discover_repodocs(store) == 0
+@pytest.fixture
+def fresh_db(pg_admin_dsn):
+    """An empty C-collation database of its own (not the worker's shared one)."""
+    name = f"t13_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(pg_admin_dsn, autocommit=True) as conn:
+        conn.execute(
+            f"CREATE DATABASE {name} TEMPLATE template0 LOCALE_PROVIDER libc"
+            " LC_COLLATE 'C' LC_CTYPE 'C'"
+        )
+    yield make_conninfo(pg_admin_dsn, dbname=name)
+    with psycopg.connect(pg_admin_dsn, autocommit=True) as conn:
+        conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+
+
+def test_upgrade_seeds_every_existing_doc_once(tmp_path, fresh_db):
+    before = [m for m in migrations.load() if m.version < 2]  # the schema before the triggers
+    with psycopg.connect(fresh_db) as conn:
+        migrations.migrate(conn, before)
+        for n in range(3):  # docs written while no trigger marked anything
+            conn.execute(
+                "INSERT INTO repodocs (repo, path, kind, created_at, updated_at)"
+                " VALUES ('r', %s, 'spec', 't', 't')",
+                (f"docs/specs/s{n}.md",),
+            )
+        conn.commit()
+    store = Store(tmp_path / "data", dsn=fresh_db)  # applies 0002, which seeds the marks
+    assert len(_dirty(store)) == 3
+    with store.connect() as conn:
+        conn.execute("DELETE FROM repodoc_dirty")
+    Store(tmp_path / "data", dsn=fresh_db)  # a later open applies nothing and never re-seeds
+    assert _dirty(store) == set()
 
 
 def _dirty(store):
@@ -150,21 +170,23 @@ def test_identical_repush_marks_nothing(store, docs):
 def test_visibility_only_repush_makes_the_indexed_row_private(store, docs):
     _commit(docs, "docs/specs/s.md", "osprey\n")
     ix.Indexer(store).run_once()
-    assert _rows(store, "SELECT visibility FROM repodoc_fts")[0][0] == "public"
+    assert _rows(store, "SELECT visibility FROM repodoc_text")[0][0] == "public"
     _commit(docs, "docs/specs/s.md", "osprey\n", vis="private")
     ix.discover_repodocs(store)
-    assert _rows(store, "SELECT visibility FROM repodoc_fts")[0][0] == "private"
+    assert _rows(store, "SELECT visibility FROM repodoc_text")[0][0] == "private"
 
 
 def test_hard_deleted_doc_is_dropped_from_the_index(store, docs):
     _commit(docs, "docs/specs/s.md", "grebe\n")
     ix.Indexer(store).run_once()
-    with store.connect() as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
+    with store.connect() as conn:  # no foreign key from the marks: a deleted doc still marks
+        conn.execute("DELETE FROM repodoc_drafts")
         conn.execute("DELETE FROM repodoc_versions")
         conn.execute("DELETE FROM repodocs")
+    assert _rows(store, "SELECT count(*) FROM repodoc_dirty")[0][0] == 1
     ix.discover_repodocs(store)
-    assert _rows(store, "SELECT count(*) FROM repodoc_fts")[0][0] == 0
+    assert _rows(store, "SELECT count(*) FROM repodoc_text")[0][0] == 0
+    assert _rows(store, "SELECT count(*) FROM repodoc_dirty")[0][0] == 0
 
 
 def test_a_new_indexer_sweeps_every_doc_once(store, docs):
@@ -185,19 +207,70 @@ def test_requeue_all_also_re_plans_every_doc(store, docs):
     assert ix.discover_repodocs(store) == 1
 
 
-def test_reopen_replaces_a_stale_trigger(tmp_path):
-    data = tmp_path / "data"
-    Store(data)
-    conn = sqlite3.connect(data / "library.db")
-    conn.execute("DROP TRIGGER repodoc_drafts_insert_dirty")
-    conn.execute(
-        "CREATE TRIGGER repodoc_drafts_insert_dirty AFTER INSERT ON repodoc_drafts"
-        " BEGIN SELECT 1; END"
+_WHEN_COLUMN = re.compile(r"\(?old\.(\w+) IS DISTINCT FROM new\.(\w+)\)?", re.I)
+
+
+def test_triggers_watch_exactly_the_columns_discovery_reads(store):
+    """The UPDATE triggers' WHEN clauses name indexer.DIRTY_SOURCES' columns, and every
+    source table marks on INSERT, UPDATE and DELETE."""
+    rows = _rows(
+        store,
+        "SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid) FROM pg_trigger t"
+        " JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal"
+        " AND pg_get_triggerdef(t.oid) LIKE %s",
+        ("%repodoc_mark_dirty%",),
     )
-    conn.commit()
-    conn.close()
-    store = Store(data)
-    sql = _rows(store, "SELECT sql FROM sqlite_master WHERE name = 'repodoc_drafts_insert_dirty'")[
-        0
-    ][0]
-    assert "repodoc_dirty" in sql
+    by_table: dict[str, list[str]] = {}
+    for table, _name, sql in rows:
+        by_table.setdefault(table, []).append(sql)
+    assert set(by_table) == {table for table, _, _ in ix.DIRTY_SOURCES}
+    for table, _column, watched in ix.DIRTY_SOURCES:
+        defs = by_table[table]
+        events = " ".join(re.search(r"AFTER (.*?) ON", d).group(1) for d in defs)
+        assert {"INSERT", "UPDATE", "DELETE"} <= set(events.replace(" OR ", " ").split())
+        update = [d for d in defs if "AFTER UPDATE" in d]
+        assert len(update) == 1, defs
+        cols = {a for a, b in _WHEN_COLUMN.findall(update[0]) if a == b}
+        assert cols == set(watched), (table, update[0])
+        assert all("FOR EACH ROW" in d for d in defs)
+
+
+def test_shown_sql_reads_only_watched_columns_of_the_marked_tables():
+    """A column _SHOWN_SQL reads from a marked table must be watched (or never change)."""
+    unwatched_ok = {"id", "doc_id", "committed_at", "removed_at"}  # keys and watched elsewhere
+    aliases = {
+        "d": "repodocs",
+        "dr": "repodoc_drafts",
+        "cv": "repodoc_versions",
+        "nv": "repodoc_versions",
+    }
+    watched = {table: set(cols) for table, _, cols in ix.DIRTY_SOURCES}
+    for alias, column in re.findall(r"\b(d|dr|cv|nv)\.(\w+)", ix._SHOWN_SQL):
+        table = aliases[alias]
+        assert column in watched[table] or column in unwatched_ok, (alias, column)
+
+
+def test_a_mark_held_by_an_open_writer_is_not_lost(store, docs):
+    """Discovery claims marks and reads docs in two statements: a push that has marked a doc
+    but not committed makes the claim wait, so its change is planned, never cleared unseen."""
+    _commit(docs, "docs/specs/s.md", "first\n")
+    ix.discover_repodocs(store)
+    _commit(docs, "docs/specs/s.md", "first\n", vis="private")  # a committed mark is waiting
+    writer = psycopg.connect(store._conninfo)
+    try:
+        # an open push of new bytes: its trigger touches the existing mark (and locks it)
+        writer.execute(
+            "UPDATE repodoc_versions SET sha256 = %s WHERE doc_id = (SELECT id FROM repodocs)",
+            ("f" * 64,),
+        )
+        result = []
+        t = threading.Thread(target=lambda: result.append(ix.discover_repodocs(store)))
+        t.start()
+        t.join(0.5)
+        assert t.is_alive()  # the claim waits for the writer
+        writer.commit()
+        t.join(10)
+        assert result == [1]
+    finally:
+        writer.close()
+    assert _queued(store) == {_rows(store, "SELECT id FROM repodocs")[0][0]: "f" * 64}
