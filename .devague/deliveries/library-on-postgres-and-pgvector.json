@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T21:11:35Z",
+  "updated": "2026-10-31T21:15:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -53,6 +53,17 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "keys._live selects the old key row FOR UPDATE, so a rotate or confirm cannot race another one",
+      "task_ref": "t7",
+      "reason": "under Postgres concurrency two rotations of one key could both read it live and both mint replacements; SQLite's single writer prevented that",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],
