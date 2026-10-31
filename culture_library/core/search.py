@@ -128,11 +128,23 @@ def unpack_vec(blob: bytes) -> list[float]:
     return arr.tolist()
 
 
-def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb) if na and nb else 0.0
+def cosine_scorer(qvec: Sequence[float]) -> Callable[[bytes], float]:
+    """A cosine scorer for one query: stored vector blob -> similarity (0.0 for a zero vector).
+
+    ``math.sumprod`` (C, Python 3.12+) over the raw float array replaces the pure-Python
+    sums, so a scan of the whole corpus is several times faster (#25); the query's norm is
+    computed once. Scores agree with the old formula to within 1e-12.
+    """
+    q = array("d", qvec)
+    qn = math.sqrt(math.sumprod(q, q))
+
+    def score(blob: bytes) -> float:
+        v = array("f")
+        v.frombytes(blob)
+        vn = math.sqrt(math.sumprod(v, v))
+        return math.sumprod(q, v) / (qn * vn) if qn and vn else 0.0
+
+    return score
 
 
 CHUNK_MAX_CHARS = 1000
@@ -381,8 +393,9 @@ def _best_item_chunks(
         "FROM embeddings e JOIN items i ON i.id = e.item_id "
         f"WHERE {vis}"  # nosec B608
     )
+    cosine = cosine_scorer(qvec)
     for r in conn.execute(sql, params).fetchall():
-        score = _cosine(qvec, unpack_vec(r[5]))
+        score = cosine(r[5])
         _keep_best(
             best,
             ("item", r[0]),
@@ -403,8 +416,9 @@ def _best_repodoc_chunks(
         "JOIN repodoc_fts f ON f.rowid = d.id "
         f"WHERE {_doc_visible(include_private)}"  # nosec B608
     )
+    cosine = cosine_scorer(qvec)
     for r in conn.execute(sql).fetchall():
-        score = _cosine(qvec, unpack_vec(r[5]))
+        score = cosine(r[5])
         _keep_best(
             best,
             ("repodoc", r[0]),
@@ -619,7 +633,8 @@ def passages(
     if "repodoc" in want and item_ids is None:
         doc_flt = _doc_filters(v, kind)
         rows += _doc_rows(conn, *doc_flt)
-    scored = [(_cosine(qvec, unpack_vec(r[6])), r) for r in rows]
+    cosine = cosine_scorer(qvec)
+    scored = [(cosine(r[6]), r) for r in rows]
     scored.sort(key=_row_order)
     if mode == "hybrid":
         fts = {

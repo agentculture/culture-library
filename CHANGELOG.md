@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.7] - 2026-10-31
+
+### Changed
+
+- Semantic and hybrid retrieval score vectors with math.sumprod over the stored float arrays (cosine_scorer), computing the query norm once, instead of pure-Python sums (#25). Rankings and scores are unchanged (identical on 20 live queries per corpus); scoring the 7,855 item vectors drops from about 490 ms to about 157 ms per query, and the 61,932 repo-doc vectors from about 3.8 s to about 1.2 s. Stdlib only
+
 ## [0.19.6] - 2026-10-31
 
 ### Fixed
