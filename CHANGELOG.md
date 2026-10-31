@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.6] - 2026-10-31
+
+### Fixed
+
+- Runbook: the schema-upgrade and restart sections no longer show a hand-typed recreate that leaves out the S3 mirror credentials; they use `deploy restart`, show the full command with the AWS injects, and add a check that the credentials reached the container
+
 ## [0.19.5] - 2026-10-31
 
 ### Fixed
