@@ -45,7 +45,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable, Mapping, NamedTuple, Sequence, Union
 
 from . import repodocs as _repodocs  # noqa: F401 - registers the repodocs tables
-from . import uploaders
+from . import uploaders, vector_cache
 from .errors import CoreError
 from .models import Item
 from .store import Store, register_schema
@@ -145,6 +145,29 @@ def cosine_scorer(qvec: Sequence[float]) -> Callable[[bytes], float]:
         return math.sumprod(q, v) / (qn * vn) if qn and vn else 0.0
 
     return score
+
+
+def _entry_scorer(qvec: Sequence[float]) -> Callable[[vector_cache.Entry | None], float | None]:
+    """Like :func:`cosine_scorer`, over cached ``(vector, norm)`` entries (``None``: missing)."""
+    q = array("d", qvec)
+    qn = math.sqrt(math.sumprod(q, q))
+
+    def score(entry: vector_cache.Entry | None) -> float | None:
+        if entry is None:
+            return None
+        v, vn = entry
+        return math.sumprod(q, v) / (qn * vn) if qn and vn else 0.0
+
+    return score
+
+
+def _chunk_text(conn: sqlite3.Connection, table: str, owner: int, chunk_no: int) -> str:
+    column = vector_cache.TABLES[table]
+    row = conn.execute(
+        f"SELECT text FROM {table} WHERE {column} = ? AND chunk_no = ?",  # nosec B608
+        (owner, chunk_no),
+    ).fetchone()
+    return row[0] if row else ""
 
 
 CHUNK_MAX_CHARS = 1000
@@ -365,68 +388,57 @@ def semantic(
     if not query.strip() or not want:
         return []
     qvec = _embed(embed, [query])[0]
-    best: dict[tuple, Hit] = {}
+    best: dict[tuple, tuple] = {}  # (corpus, id) -> (score, table, row); first seen keeps place
     with store.reader() as conn:
+        score = _entry_scorer(qvec)
         if "item" in want:
-            _best_item_chunks(conn, qvec, best, include_private, owner)
+            _best_chunks(conn, "embeddings", _item_meta(conn, include_private, owner), score, best)
         if "repodoc" in want:
-            _best_repodoc_chunks(conn, qvec, best, include_private)
-    return sorted(best.values(), key=lambda h: -h.score)[:limit]
+            _best_chunks(conn, "repodoc_embeddings", _doc_meta(conn, include_private), score, best)
+        top = sorted(best.values(), key=lambda b: -b[0])[:limit]
+        return [_semantic_hit(conn, *b) for b in top]
 
 
-def _keep_best(best: dict[tuple, Hit], key: tuple, score: float, make: Callable[[], Hit]) -> None:
-    cur = best.get(key)
-    if cur is None or score > cur.score:
-        best[key] = make()
-
-
-def _best_item_chunks(
-    conn: sqlite3.Connection,
-    qvec: Sequence[float],
-    best: dict[tuple, Hit],
-    include_private: bool,
-    owner: str | None,
-) -> None:
+def _item_meta(conn: sqlite3.Connection, include_private: bool, owner: str | None) -> list:
     vis, params = _visible(include_private, owner)
     sql = (
-        "SELECT i.id, i.title, i.kind, i.visibility, e.text, e.vec "
+        "SELECT 'item', i.id, i.title, i.kind, i.visibility, e.chunk_no, NULL, NULL, e.rowid "
         "FROM embeddings e JOIN items i ON i.id = e.item_id "
         f"WHERE {vis}"  # nosec B608
     )
-    cosine = cosine_scorer(qvec)
-    for r in conn.execute(sql, params).fetchall():
-        score = cosine(r[5])
-        _keep_best(
-            best,
-            ("item", r[0]),
-            score,
-            lambda r=r, score=score: Hit(r[0], r[1], r[2], r[3], score, r[4][:200], "semantic"),
-        )
+    return conn.execute(sql, params).fetchall()
 
 
-def _best_repodoc_chunks(
-    conn: sqlite3.Connection,
-    qvec: Sequence[float],
-    best: dict[tuple, Hit],
-    include_private: bool,
-) -> None:
+def _doc_meta(conn: sqlite3.Connection, include_private: bool) -> list:
     sql = (
-        "SELECT d.id, f.label, d.kind, f.visibility, e.text, e.vec, d.repo, d.path "
+        "SELECT 'repodoc', d.id, f.label, d.kind, f.visibility, e.chunk_no, d.repo, d.path,"
+        " e.rowid "
         "FROM repodoc_embeddings e JOIN repodocs d ON d.id = e.doc_id "
         "JOIN repodoc_fts f ON f.rowid = d.id "
         f"WHERE {_doc_visible(include_private)}"  # nosec B608
     )
-    cosine = cosine_scorer(qvec)
-    for r in conn.execute(sql).fetchall():
-        score = cosine(r[5])
-        _keep_best(
-            best,
-            ("repodoc", r[0]),
-            score,
-            lambda r=r, score=score: Hit(
-                None, r[1], r[2], r[3], score, r[4][:200], "semantic", "repodoc", r[0], r[6], r[7]
-            ),
-        )
+    return conn.execute(sql).fetchall()
+
+
+def _best_chunks(conn, table: str, rows: list, score, best: dict[tuple, tuple]) -> None:
+    """Keep each owner's best-scoring chunk; vectors come from the in-process cache."""
+    cached = vector_cache.vectors(conn, table)
+    rows.sort(key=lambda r: r[8])  # storage order, so equal scores rank as they always did
+    for r in rows:
+        s = score(cached.get((r[1], r[5])))
+        if s is None:
+            continue
+        key = (r[0], r[1])
+        cur = best.get(key)
+        if cur is None or s > cur[0]:
+            best[key] = (s, table, r)
+
+
+def _semantic_hit(conn: sqlite3.Connection, score: float, table: str, r) -> Hit:
+    snippet = _chunk_text(conn, table, r[1], r[5])[:200]
+    if r[0] == "item":
+        return Hit(r[1], r[2], r[3], r[4], score, snippet, "semantic")
+    return Hit(None, r[2], r[3], r[4], score, snippet, "semantic", "repodoc", r[1], r[6], r[7])
 
 
 def hybrid(
@@ -560,13 +572,15 @@ def _fts_doc_rank(conn: sqlite3.Connection, query: str, where: str, params: list
     return {r[0]: pos for pos, r in enumerate(rows)}
 
 
-# A candidate chunk: (corpus order, id, title, kind, chunk_no, text, vec, repo, path).
+# A candidate chunk: (corpus order, id, title, kind, chunk_no, text, vec, repo, path). The
+# text and vec slots are NULL from SQL: vectors come from the cache, and the text is read
+# only for the chunks that make the top k.
 _ITEM, _DOC = 0, 1
 
 
 def _item_rows(conn: sqlite3.Connection, where: str, params: list) -> list[tuple]:
     sql = (
-        "SELECT 0, i.id, i.title, i.kind, e.chunk_no, e.text, e.vec, NULL, NULL "
+        "SELECT 0, i.id, i.title, i.kind, e.chunk_no, NULL, NULL, NULL, NULL "
         "FROM embeddings e JOIN items i ON i.id = e.item_id "
         f"WHERE {where}"  # nosec B608
     )
@@ -584,7 +598,7 @@ def _doc_filters(vis: Vis, kind: str | None) -> tuple[str, list[Any]]:
 
 def _doc_rows(conn: sqlite3.Connection, where: str, params: list) -> list[tuple]:
     sql = (
-        "SELECT 1, d.id, f.label, d.kind, e.chunk_no, e.text, e.vec, d.repo, d.path "
+        "SELECT 1, d.id, f.label, d.kind, e.chunk_no, NULL, NULL, d.repo, d.path "
         "FROM repodoc_embeddings e JOIN repodocs d ON d.id = e.doc_id "
         "JOIN repodoc_fts f ON f.rowid = d.id "
         f"WHERE {where}"  # nosec B608
@@ -633,8 +647,12 @@ def passages(
     if "repodoc" in want and item_ids is None:
         doc_flt = _doc_filters(v, kind)
         rows += _doc_rows(conn, *doc_flt)
-    cosine = cosine_scorer(qvec)
-    scored = [(cosine(r[6]), r) for r in rows]
+    score = _entry_scorer(qvec)
+    cached = {
+        _ITEM: vector_cache.vectors(conn, "embeddings") if item_flt else {},
+        _DOC: vector_cache.vectors(conn, "repodoc_embeddings") if doc_flt else {},
+    }
+    scored = [(s, r) for r in rows if (s := score(cached[r[0]].get((r[1], r[4])))) is not None]
     scored.sort(key=_row_order)
     if mode == "hybrid":
         fts = {
@@ -642,7 +660,12 @@ def passages(
             _DOC: _fts_doc_rank(conn, query, *doc_flt) if doc_flt else {},
         }
         scored = _fuse_with_fts(scored, fts)
-    return [_passage(score, r, mode) for score, r in scored[:k]]
+    return [_passage(s, _with_text(conn, r), mode) for s, r in scored[:k]]
+
+
+def _with_text(conn: sqlite3.Connection, r: tuple) -> tuple:
+    table = "repodoc_embeddings" if r[0] == _DOC else "embeddings"
+    return (*r[:5], _chunk_text(conn, table, r[1], r[4]), *r[6:])
 
 
 def _row_order(s: tuple) -> tuple:

@@ -45,7 +45,7 @@ import threading
 import time
 from typing import Callable
 
-from . import devague_text, ingest, search
+from . import devague_text, ingest, search, vector_cache
 from .errors import ValidationError
 from .models import Item
 from .store import Store, register_migration, register_schema
@@ -527,6 +527,7 @@ class Indexer:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._swept = False  # the first run_once re-plans every repo doc (self-healing)
+        self._pruned_at = float("-inf")  # vector_log pruning runs at most hourly
 
     def status(self) -> dict:
         return status(self.store, now=self.now())
@@ -540,6 +541,7 @@ class Indexer:
         up to the rest of ``limit`` repo doc jobs run, stopping as soon as an item job is
         due again.
         """
+        self._prune_vector_log()
         ids = self._due_items(limit)
         done = sum(1 for item_id in ids if self._process(item_id))
         budget = limit - len(ids)
@@ -564,6 +566,14 @@ class Indexer:
                 break
             done += 1 if self._process_doc(doc_id) else 0
         return done
+
+    def _prune_vector_log(self) -> None:
+        now = self.now()
+        if now - self._pruned_at < 3600:
+            return
+        with self.store.connect() as conn:
+            vector_cache.prune_log(conn, now=now)
+        self._pruned_at = now
 
     def _due_items(self, limit: int) -> list[int]:
         with self.store.reader() as conn:
