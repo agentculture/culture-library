@@ -144,8 +144,8 @@ Quoted verbatim from the `devague summary` skeleton:
   - Every record was agent-filed; the operator approved e1–e42 on 2026-10-31.
   - The test node ids are in each record (`devague evidence --list`).
 - **Behavioral deltas:**
-  - Filed: b1 (d1), b2 (d12), b3 (d8); still proposed.
-  - b8 (d9), b9 (d10), b10 (d11), b11 (d16) and b12 (d18), filed after the operator approved those deviations on 2026-10-31; proposed.
+  - Filed: b1 (d1), b2 (d12), b3 (d8); approved 2026-10-31.
+  - b8 (d9), b9 (d10), b10 (d11), b11 (d16) and b12 (d18), filed after the operator approved those deviations on 2026-10-31; approved the same day.
 - **d24 round (`/validate-delivery`, 2026-10-31):** e34–e40 at execution strength, from 7 behavioral tests that ran green on main at e03a6f7. Deltas b4–b7 (caused by d24). Suites after the round: library 1,658 passed; culture-rules 8,612 passed. PR #38 squash-merged as e03a6f7, culture-rules#127 as be34145.
 - **t23 live migration, 2026-10-31 (UTC):**
   - **Baseline (c29):** read-only (`mode=ro`) on live 0.18.2: 102 items, **0 repodocs, 0 repodoc versions**, 58 feed events; `library.db` 45 MB, files 95 MB.
@@ -215,7 +215,7 @@ Confidence is capped by evidence strength: execution-strength evidence gives `hi
 - **culture-rules#124:** built (culture-rules#127, be34145) and live, with `repodocs-sync` enabled. A committed blob over 16 MiB logs one error per run (a known leftover).
 - **#39.** The indexer rescans every repo doc on each idle tick (d24, deferred).
 - **#35 (remove the docs from GitHub):** its full-corpus gate (o33) passed once on 2026-10-31. The removal itself is still to plan.
-- **Adjudication.** Done on 2026-10-31 for deviations d2–d6, d9–d11, d13–d21, d23, d25 and d26, evidence e1–e42, deltas b4–b7 and lapse l1. Still proposed: deltas b1–b3 and b8–b12.
+- **Adjudication.** Done on 2026-10-31 for deviations d2–d6, d9–d11, d13–d21, d23, d25 and d26, evidence e1–e42, deltas b1–b12 and lapse l1. No record is still proposed.
 - **Coverage gaps (the coverage-strength evidence):**
   - a working push of a review or question file (o5);
   - re-scoping without a re-push (o7);
