@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T19:44:53Z",
+  "updated": "2026-10-31T19:49:45Z",
   "claims": [
     {
       "id": "c1",
@@ -12,7 +12,14 @@
       "text": "The library runs on PostgreSQL with pgvector on spark: documents, repo documents, full text and vectors live in one self-hosted database with a real vector index, API and MCP clients see no contract change, and retrieval quality is re-baselined at cutover",
       "origin": "user",
       "status": "confirmed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "After cutover, the library container's database settings point at Postgres and no library.db is opened by the running service",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -24,7 +31,14 @@
       "text": "API and MCP clients see no contract change: the HTTP routes, MCP tools and /api/status shape stay as they are; only the storage under them moves",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "tests/contract and the MCP parity tests pass unchanged against the Postgres build, and /api/status returns the same top-level keys and nested shape",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -36,7 +50,14 @@
       "text": "Sibling clients (culture-rules, Gwen, xteink) keep using the HTTP API on 127.0.0.1:8796 with their API keys; nothing outside the library reads the database",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "No sibling repo or deploy script opens library.db; a grep of culture-rules, Gwen and xteink deploys for library.db finds nothing",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -48,7 +69,14 @@
       "text": "Item and repo-doc file bytes stay on the filesystem under data/files/<aa>/<sha256>, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "After cutover every item's sha256 still resolves to data/files/<aa>/<sha256>, and the mirror outbox drains new rows to the same bucket keys",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -60,7 +88,14 @@
       "text": "Embedding and reranking stay on the local lobes gateway (gemma2-embed, reranker); no document text goes to a third-party service, so MongoDB-style automated embedding via a cloud API is out",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "No code path sends document text to any host other than the configured lobes gateway; vectors stored in Postgres are the gateway's 768-dimension outputs",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -84,7 +119,14 @@
       "text": "Documents, repo documents, full text, vectors and every other library table live in one self-hosted PostgreSQL database with the pgvector extension, run as a service in the spark compose stack",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "A fresh deploy brings up a healthy postgres service with the pgvector extension, and every library table exists in it",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -96,7 +138,14 @@
       "text": "Vectors are stored as pgvector vector(768) with an HNSW index, and the in-process vector cache, vector_log table and its triggers are removed",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "Semantic retrieval queries use the pgvector operator on an HNSW index (EXPLAIN shows the index), and core/vector_cache.py, vector_log and its triggers no longer exist",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [
         {
           "id": "q1",
@@ -116,7 +165,14 @@
       "text": "Full-text search is reimplemented on Postgres: title weighted above body, English stemming, prefix match on the last term, and highlighted snippets, for items and repo docs separately",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Title matches outrank body-only matches, stemmed forms match (cats finds cat), the last query term matches as a prefix, and snippets mark hits with [ ]",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -128,7 +184,14 @@
       "text": "Search scores and rankings change at cutover; stored eval sets stay valid because they are anchored by chunk text sha, and the baseline (sets 1-8, rerank on and off) is re-run on Postgres as the new comparison point",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in on_write rolls all three back)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [
         {
           "id": "q3",
@@ -160,7 +223,14 @@
       "text": "SQLite-only locking workarounds get Postgres equivalents: the unlink-after-commit of unreferenced blobs, and API-key last_used stamping that never waits on a writer",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Concurrent unlinks never delete a blob a committed row references, and an API request is never delayed by more than 100 ms waiting to stamp last_used",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -172,7 +242,14 @@
       "text": "SQLite-specific SQL is ported in every core module: AUTOINCREMENT + lastrowid become identity + RETURNING, integer booleans become boolean, MAX(a,b) becomes GREATEST, json_extract on TEXT becomes jsonb, INSERT OR REPLACE/IGNORE become ON CONFLICT, the feed column named cursor is quoted or renamed, and ? placeholders change",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "No SQL in culture_library/ uses AUTOINCREMENT, lastrowid, json_extract, INSERT OR REPLACE/IGNORE, sqlite_master, PRAGMA or ? placeholders, checked by a grep test",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -184,7 +261,14 @@
       "text": "Schema changes run through a one-time, versioned migration runner instead of DDL and migrations re-applied on every open",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Each schema change is applied exactly once and recorded with a version; reopening the store runs no DDL",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -196,7 +280,14 @@
       "text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "For every table, count(*) and max(id) in Postgres equal the final SQLite snapshot, and identity sequences continue above the copied max ids",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [
         {
           "id": "q2",
@@ -216,7 +307,14 @@
       "text": "Backup and restore are rebuilt on pg_dump/pg_restore plus the existing verified blob copy and manifest, with a restore drill before cutover",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "A backup taken from live restores into an empty Postgres and files tree with identical table counts and passing blob sha checks",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -228,7 +326,14 @@
       "text": "deploy restart starts and checks the Postgres service too, and the database password comes from grant like every other secret, never from live.env",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "live.env contains no database password, deploy restart refuses one if added, and restart brings postgres up healthy before library and mcp",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [
         {
           "id": "q4",
@@ -248,7 +353,14 @@
       "text": "Tests run against Postgres in CI and locally, with an isolated database or schema per xdist worker, and the SQLite-coupled tests are rewritten",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The CI test and publish jobs start a pgvector service, and the full suite runs with -n auto without workers sharing a database",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -260,6 +372,251 @@
       "text": "Runbooks and agent docs describe the Postgres stack: deploy.md (what runs, backups, restart, schema upgrades, rollback), backup.md, and CLAUDE.md and its sibling harness files",
       "origin": "llm",
       "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "No runbook or agent doc still describes library.db, WAL, FTS5 or sqlite3 commands as the current stack",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "audience",
+      "text": "The operator who runs spark, the machine clients that call the library (culture-rules, Gwen, xteink, mesh agents over MCP), and people browsing library.culture.dev",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "Each named client keeps working through cutover without a code or configuration change on its side",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "before_state",
+      "text": "Today one 419 MB SQLite file holds everything; full text is FTS5 bm25 and the ~70k 768-dimension vectors are scanned by brute force in Python (0.19.8 cache: items ~74 ms, items + repo docs ~730 ms median per query), with no storage interface: 68 functions take a raw sqlite3 connection",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The before-state figures match measurements taken on live 0.19.8 on 2026-10-31",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "why_it_matters",
+      "text": "The repo-doc corpus is meant to grow into one corpus describing the whole org; vector search in a real database is a solved problem, so the library moves before more effort goes into optimising exhaustive scans",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The operator decided on 2026-10-31 to migrate before further SQLite optimisation",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "after_state",
+      "text": "Live runs on PostgreSQL 17 with pgvector: every table, the full text and the vectors are in Postgres, searched through SQL and an HNSW index, while clients, files on disk and the S3 mirror behave as before",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "The running library has no code path that opens SQLite for library data, and all reads and writes go to Postgres",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "success_signal",
+      "text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The found@5 means are computed from complete server-side runs on Postgres for all eight sets, rerank on and off",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Run the server-side judge-free runs for sets 1-8, rerank on and off, on Postgres right after cutover and compare with runs 56-71",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "success_signal",
+      "text": "On live after cutover, rerank-off retrieval p95 is < 300 ms for items only and < 500 ms for items plus repo docs (k=5), measured over 40 queries each",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "Latency is measured on live spark, not a dev machine, with the timing script recorded alongside the numbers",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Re-run scratchpad modes.py-style timing against /api/rag/retrieve for both corpora sets",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "success_signal",
+      "text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "The count comparison covers every table the SQLite store had, and verify-mirror covers every top-level repo",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Compare per-table count(*) and max(id) between the final SQLite snapshot and Postgres, then run scripts/verify-mirror.py --all",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "success_signal",
+      "text": "The full test suite passes against Postgres in CI (the test and publish jobs) with no test skipped for lack of a database",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "The CI jobs run the same test selection as today, with no skip markers added for Postgres",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "success_signal",
+      "text": "A restore drill rebuilds an empty Postgres and files tree from a backup with every table count identical, before the live cutover",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "The drill is run on spark against a real live backup, not a fixture",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "success_signal",
+      "text": "The write freeze at cutover lasts under 30 minutes, from pausing culture-rules' push to resuming it",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "The freeze start and end times come from the culture-rules rule pause and resume, recorded in the delivery summary",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "Postgres-only: the library keeps no SQLite backend; the driver lives in an extra the server image installs and tests run on a Postgres database per test worker",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "decision",
+      "text": "Cutover is one-shot with a write freeze: pause culture-rules' push, back up, copy with ids preserved, verify counts, start on Postgres, resume; rollback is the SQLite snapshot plus the old image",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "decision",
+      "text": "Full text uses Postgres core features (weighted tsvector, English stemming, ts_rank, ts_headline); a BM25 extension is considered only if recall drops below the success signal",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "decision",
+      "text": "The stack is PostgreSQL 17 on the pgvector/pgvector:pg17 image, with psycopg 3's synchronous API",
+      "origin": "user",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
