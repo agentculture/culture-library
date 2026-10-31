@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
 from culture_library.core import ValidationError
 from culture_library.core.feed import EVENT_TYPES, append, read_since
 
 SHA = "a" * 64
+
+
+class _Recorder:
+    """Wraps a connection and records the SQL text of every ``execute``."""
+
+    def __init__(self, conn, log):
+        self._conn, self._log = conn, log
+
+    def execute(self, query, *args, **kwargs):
+        self._log.append(str(query))
+        return self._conn.execute(query, *args, **kwargs)
 
 
 def _ev(type_, item_id=1, **kw):
@@ -69,8 +83,7 @@ def test_reader_from_saved_cursor_sees_exactly_new_events_no_catalog_scan(store)
         ]
     queries: list[str] = []
     with store.reader() as conn:
-        conn.set_trace_callback(queries.append)
-        out = read_since(conn, saved)
+        out = read_since(_Recorder(conn, queries), saved)
     assert [e["cursor"] for e in out["events"]] == mix
     assert [e["type"] for e in out["events"]] == ["created", "updated", "archived", "purged"]
     assert out["cursor"] == mix[-1]
@@ -125,12 +138,12 @@ def test_read_since_filters_one_item_using_the_index(store):
         assert read_since(conn, 0, item_id=99) == {"events": [], "cursor": 0, "more": False}
         # the query read_since actually runs is answered from the feed(item_id) index
         traced: list[str] = []
-        conn.set_trace_callback(traced.append)
-        read_since(conn, 0, item_id=1)
-        conn.set_trace_callback(None)
+        read_since(_Recorder(conn, traced), 0, item_id=1)
         sql = next(t for t in traced if "FROM feed" in t)
-        plan = " ".join(str(r[-1]) for r in conn.execute("EXPLAIN QUERY PLAN " + sql))
-        assert "USING INDEX feed_item_id" in plan or "USING COVERING INDEX feed_item_id" in plan
+        conn.execute("SET LOCAL enable_seqscan = off")  # a tiny table would otherwise scan
+        # one placeholder per bind in read_since's item_id query: item_id, since, limit + 1
+        plan = " ".join(r[0] for r in conn.execute("EXPLAIN " + sql, (1, 0, 501)))
+        assert "feed_item_id" in plan
 
 
 def test_read_since_one_private_item_needs_access(store):
@@ -197,19 +210,6 @@ def test_repodoc_validation(store):
             append_repodoc(conn, 1, "spec", SHA, {"repo": "r"})
 
 
-def test_subject_column_migrates_old_db(tmp_path):
-    import sqlite3
-
-    from culture_library.core.feed import ensure_subject_column
-
-    conn = sqlite3.connect(tmp_path / "x.db")
-    conn.execute("CREATE TABLE feed (cursor INTEGER PRIMARY KEY, item_id INTEGER)")
-    conn.execute("INSERT INTO feed (item_id) VALUES (1)")
-    ensure_subject_column(conn)
-    ensure_subject_column(conn)
-    assert conn.execute("SELECT subject FROM feed").fetchone() == ("item",)
-
-
 def test_default_subject_is_items_only_and_all_is_both(store):
     """Review finding 5: old clients (no subject) never see a repodoc id as an item_id."""
     from culture_library.core.feed import append_repodoc
@@ -230,3 +230,105 @@ def test_default_subject_is_items_only_and_all_is_both(store):
         ]
         with pytest.raises(ValidationError):
             read_since(conn, 0, subject="everything")
+
+
+# ------------------------------------------------------------ cursor order is commit order
+
+
+def _drain(store, saved):
+    """Page the feed from ``saved`` to its end; return ``(events, cursor)``."""
+    got = []
+    while True:
+        with store.reader() as conn:
+            page = read_since(conn, saved, limit=7)
+        got += page["events"]
+        saved = page["cursor"]
+        if not page["more"]:
+            return got, saved
+
+
+def test_late_committer_is_not_skipped_by_a_paging_reader(store):
+    """Writer A appends and holds its transaction open; writer B then appends and commits.
+
+    Without the append lock B draws the later seq and commits first, so a reader that saves
+    B's cursor never sees A's earlier event. With it B waits for A, so cursor order is
+    commit order and the reader sees A before B.
+    """
+    a_appended, a_may_commit = threading.Event(), threading.Event()
+    seqs = {}
+
+    def writer_a():
+        with store.connect() as conn:
+            seqs["a"] = append(conn, _ev("created", 1))
+            a_appended.set()
+            assert a_may_commit.wait(10)
+
+    def writer_b():
+        with store.connect() as conn:
+            seqs["b"] = append(conn, _ev("created", 2))
+
+    ta = threading.Thread(target=writer_a)
+    ta.start()
+    assert a_appended.wait(10)
+    tb = threading.Thread(target=writer_b)
+    tb.start()
+    tb.join(0.5)  # lock-free, B commits within milliseconds; locked, it is still waiting
+    seen, cursor = _drain(store, 0)  # the reader pages while A is still open
+    a_may_commit.set()
+    ta.join(10)
+    tb.join(10)
+    more, cursor = _drain(store, cursor)
+    seen += more
+    assert [e["item_id"] for e in seen] == [1, 2]
+    assert [e["cursor"] for e in seen] == [seqs["a"], seqs["b"]]
+    assert seqs["a"] < seqs["b"]
+
+
+def test_two_concurrent_writers_and_a_paging_reader_see_every_event_once_in_order(store):
+    per_writer = 40
+    done = threading.Event()
+    errors = []
+
+    def writer(base):
+        try:
+            for i in range(per_writer):
+                with store.connect() as conn:
+                    append(conn, _ev("created", base + i))
+                    if i % 5 == 0:
+                        time.sleep(0.005)  # hold the transaction open to widen the race
+        except Exception as exc:  # pragma: no cover - surfaced below
+            errors.append(exc)
+
+    seen, cursor = [], 0
+
+    def reader():
+        nonlocal cursor
+        while not done.is_set():
+            got, cursor = _drain(store, cursor)
+            seen.extend(got)
+
+    threads = [threading.Thread(target=writer, args=(base,)) for base in (0, 1000)]
+    rt = threading.Thread(target=reader)
+    rt.start()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    done.set()
+    rt.join(60)
+    got, cursor = _drain(store, cursor)
+    seen.extend(got)
+    assert not errors
+    ids = [e["item_id"] for e in seen]
+    assert sorted(ids) == sorted([*range(per_writer), *range(1000, 1000 + per_writer)])
+    cursors = [e["cursor"] for e in seen]
+    assert cursors == sorted(cursors)
+    assert len(set(cursors)) == len(cursors)
+
+
+def test_append_lock_is_released_with_the_transaction(store):
+    with store.connect() as conn:
+        append(conn, _ev("created", 1))
+        append(conn, _ev("updated", 1))  # the same transaction re-takes its own lock
+    with store.connect() as conn:  # a later transaction is not blocked
+        append(conn, _ev("created", 2))
