@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from culture_library.core.mirror import WORKING, key_for  # noqa: E402
+from culture_library.core.errors import ValidationError  # noqa: E402
 from culture_library.core.repodocs import normalize_remote  # noqa: E402
 
 PREFIXES = ("docs/specs/", "docs/plans/", "docs/deliveries/", "docs/design/", ".devague/")
@@ -99,14 +100,22 @@ def origin_url(repo: pathlib.Path) -> str | None:
     return None
 
 
-DEFAULT_HOST = "spark"  # the node culture-rules' repodocs-sync rule is placed on
+DEFAULT_HOST = "spark"
+# origins culture-rules treats as no origin (a path on this host)
+_LOCAL_ORIGINS = (
+    "/",
+    "./",
+    "../",
+    "~",
+    "file:",
+)  # the node culture-rules' repodocs-sync rule is placed on
 
 
 def repo_identity(repo: pathlib.Path, host: str = DEFAULT_HOST) -> str:
     """Normalized remote, or ``<host>:<abs path>`` for a repo with no origin. ``host`` is the
     pusher's node name (culture-rules uses its own, not this machine's hostname)."""
     url = origin_url(repo)
-    if url:
+    if url and not url.lower().startswith(_LOCAL_ORIGINS):
         return normalize_remote(url)
     return normalize_remote(f"{host}:{repo.resolve()}")
 
@@ -123,13 +132,40 @@ def iter_docs(repo: pathlib.Path):
                 yield rel, full
 
 
+def _name_key(name: str) -> str:
+    return name.lower().replace("_", "-")
+
+
+def _owners(repos: list[pathlib.Path]) -> list[pathlib.Path]:
+    """One clone per shared origin, as culture-rules picks it: the clone named like the
+    origin's repo (case-insensitive, ``-`` and ``_`` equal), else the first by name. Only that
+    clone's drafts are pushed, so the others are not checked."""
+    groups: dict[str, list[pathlib.Path]] = {}
+    for repo in repos:
+        url = origin_url(repo)
+        try:
+            shared = url and not url.lower().startswith(_LOCAL_ORIGINS)
+            key = normalize_remote(url).lower() if shared else str(repo)
+        except ValidationError:
+            key = str(repo)
+        groups.setdefault(key, []).append(repo)
+    kept = []
+    for key, clones in groups.items():
+        want = _name_key(key.rsplit("/", 1)[-1])
+        named = [c for c in clones if _name_key(c.name) == want]
+        kept.append(min(named or clones, key=lambda c: c.name))
+    return sorted(kept, key=lambda c: c.name)
+
+
 def discover_repos(root: pathlib.Path) -> list[pathlib.Path]:
-    return [
-        p
-        for p in sorted(root.iterdir())
-        # a real .git directory only: culture-rules skips linked worktrees (.git is a file)
-        if p.is_dir() and not _skipped(p.name) and (p / ".git").is_dir()
-    ]
+    return _owners(
+        [
+            p
+            for p in sorted(root.iterdir())
+            # a real .git directory only: culture-rules skips linked worktrees (.git is a file)
+            if p.is_dir() and not _skipped(p.name) and (p / ".git").is_dir()
+        ]
+    )
 
 
 class HttpLibrary:
