@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T06:18:28Z",
+  "updated": "2026-10-31T07:01:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -318,6 +318,17 @@
       "status": "proposed",
       "classification": null,
       "seq": 65
+    },
+    {
+      "id": "d26",
+      "what": "Full-corpus verify (c34/c35) found 5 pairs of full clones sharing one origin (lobes-cli+model-gear, culture-tools+culture-tools-temp, jetson+jetson-jolt, culture-guide+agentculture-cli, jetson-containers+jetson-containers-dusty) flipping the single working draft every cycle, plus two verifier bugs (remoteless repos named by hostname spark-f8a9 instead of the pusher's node spark; --all checked linked worktrees the pusher skips). Operator rule: every clone keeps the origin identity (one org-wide corpus); only the owner clone (named like the origin's repo) pushes working drafts; copies push committed versions only; migration tombstones copy-only drafts and the owner re-sends drafts once. culture-rules 0.38.1 implements it; verify-mirror checks owner clones only (69f966c, 1073832).",
+      "task_ref": "t23",
+      "reason": "decider: canonical_only 0.687 vs path_identity 0.261, P(copies hold unique work)=0.564; operator first chose own identity for copies, then, with the corpus meant to describe the whole org, chose origin identity with owner-only drafts",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": null,
+      "seq": 68
     }
   ],
   "evidence": [
