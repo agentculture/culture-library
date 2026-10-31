@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Bump the `cloudflared` connector image (`deploy/compose.yaml`) from `cloudflare/cloudflared:2025.9.1` to `2026.10.7`. The old image bundled go-jose 4.1.0, which is affected by CVE-2026-116587 (high, a DoS when parsing JWKs with RSA keys), CVE-2026-116585, CVE-2026-116586 and CVE-2026-34986. 2026.10.7 ships go-jose 4.1.6. Recreate the connector only with the `grant run --inject` command in `docs/operations/deploy.md`, under `-p culture-library`.
+- Bump the `cloudflared` connector image (`deploy/compose.yaml`) from `cloudflare/cloudflared:2025.9.1` to `2026.10.7`. The old image bundled go-jose 4.1.0, which is affected by CVE-2026-116587 (high, a DoS when parsing JWKs with RSA keys), CVE-2026-116585, CVE-2026-116586 and CVE-2026-34986. 2026.10.7 ships go-jose 4.1.6. Recreate only the connector, with tokens injected and the live env file (which sets `COMPOSE_PROJECT_NAME`): `grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" --profile remote up -d --no-deps cloudflared`. The "Start the connector" command in `docs/operations/deploy.md` still references a missing `deploy/.env`; fixing it is tracked in #37.
 
 ## [0.18.3] - 2026-10-30
 
