@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-10-31
+
+### Changed
+
+- Delivery summary for devague work in the library: the d24 code-review fix round (evidence e34-e40, deltas b4-b7) and the t23 live-migration baseline (0 repo docs on live 0.18.2) and pre-upgrade backup.
+
 ## [0.19.0] - 2026-10-30
 
 ### Added
