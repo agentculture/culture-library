@@ -120,7 +120,7 @@ services:
   # so do not reuse this tunnel for another hostname). Token comes from the environment.
   cloudflared:
     profiles: [remote]
-    image: cloudflare/cloudflared:2025.9.1
+    image: cloudflare/cloudflared:2026.10.7
     command: tunnel --no-autoupdate run
     restart: unless-stopped
     environment:
