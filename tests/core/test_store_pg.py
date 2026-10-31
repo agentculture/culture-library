@@ -19,9 +19,8 @@ import threading
 import uuid
 from pathlib import Path
 
+import psycopg  # the dev group has it; the suite needs Postgres, so no skip
 import pytest
-
-psycopg = pytest.importorskip("psycopg", reason="needs the [pg] extra: uv sync --extra pg")
 from psycopg.conninfo import conninfo_to_dict, make_conninfo  # noqa: E402
 
 import culture_library.core  # noqa: E402

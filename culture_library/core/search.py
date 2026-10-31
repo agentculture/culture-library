@@ -22,7 +22,8 @@ weights A=1.0 and B=0.2 (the 5:1 title:body ratio bm25 used) and normalisation 1
 1 + log of the document length). ``ts_rank`` has no IDF, so one corpus never moves another's
 scores. Every query word must match (AND), stemmed; the last word also matches as a prefix.
 Snippets come from ``ts_headline`` with ``[`` ``]`` markers and about 12 words, computed only
-for the rows returned.
+for the rows returned, over one column as the FTS5 snippet was: the body when the query
+matches it, else the title.
 
 Semantic ranking orders by the pgvector cosine distance ``vec::vector(N) <=> q::vector(N)``
 with the (model id, strategy) written as SQL literals, so the planner can prove the partial
@@ -174,6 +175,38 @@ def _embed(embed: Embedder, texts: Sequence[str]) -> list[list[float]]:
         raise
     except Exception as exc:  # any transport failure from a custom embedder
         raise EmbeddingError(f"embedding failed: {exc}") from exc
+
+
+def embedder_space(embed: Embedder) -> tuple[str, Strategy]:
+    """``(model_id, strategy)`` of the vectors ``embed`` makes (plan risk r6, decision c42).
+
+    An embedder that states its space (``vector_space()``, as
+    :meth:`culture_library.gateway.GatewayEmbedder.vector_space` does from the gateway's
+    ``/capabilities``) is asked; the indexer writes under that pair, so a query selecting it
+    finds what was indexed. Only an embedder that states no space (a plain callable) gets the
+    current pair (:data:`~culture_library.core.embedding_strategy.CURRENT_MODEL_ID`,
+    ``CURRENT_STRATEGY``). A failing lookup raises :class:`EmbeddingError`; the pair is never
+    guessed.
+    """
+    lookup = getattr(embed, "vector_space", None)
+    if not callable(lookup):
+        return CURRENT_MODEL_ID, CURRENT_STRATEGY
+    try:
+        model_id, strategy = lookup()
+    except EmbeddingError:
+        raise
+    except Exception as exc:  # a custom embedder's lookup failing is the same thing
+        raise EmbeddingError(f"cannot resolve the vector space: {exc}") from exc
+    return model_id, strategy
+
+
+def _resolve(embed: Embedder, model_id: str | None, strategy: Strategy | None):
+    """The explicit pair when given (both or neither), else :func:`embedder_space`."""
+    if (model_id is None) != (strategy is None):
+        raise ValueError("pass model_id and strategy together, or neither")
+    if model_id is not None and strategy is not None:
+        return model_id, strategy
+    return embedder_space(embed)
 
 
 # ---------------------------------------------------------------- index writes
@@ -354,10 +387,17 @@ def _rank_sql(alias: str) -> str:
 
 
 def _headline_sql(alias: str) -> str:
+    """The snippet from one column, as the FTS5 snippet (column -1, the best column) was:
+    the body when the query matches it, else the title. Binds the tsquery three times
+    (:data:`_HEADLINE_PARAMS`)."""
     return (
-        f"ts_headline('english', {alias}.title || E'\\n' || {alias}.body, {_TSQ},"
-        f" '{_HEADLINE}')"
+        f"CASE WHEN to_tsvector('english', {alias}.body) @@ {_TSQ}"
+        f" THEN ts_headline('english', {alias}.body, {_TSQ}, '{_HEADLINE}')"
+        f" ELSE ts_headline('english', {alias}.title, {_TSQ}, '{_HEADLINE}') END"
     )
+
+
+_HEADLINE_PARAMS = 3
 
 
 def fulltext(
@@ -401,7 +441,7 @@ def _fulltext_items(
         f" SELECT h.id, h.title, h.kind, h.visibility, h.rank, {_headline_sql('t')}"
         " FROM hits h JOIN item_text t ON t.item_id = h.id ORDER BY h.rank DESC, h.id"
     )  # fixed fragments; every value is a bound parameter
-    rows = conn.execute(sql, (tsq, tsq, *params, limit, tsq)).fetchall()
+    rows = conn.execute(sql, (tsq, tsq, *params, limit, *[tsq] * _HEADLINE_PARAMS)).fetchall()
     return [Hit(r[0], r[1], r[2], r[3], float(r[4]), r[5], "fulltext") for r in rows]
 
 
@@ -416,7 +456,7 @@ def _fulltext_docs(conn: Any, tsq: str, include_private: bool, limit: int) -> li
         " h.repo, h.path"
         " FROM hits h JOIN repodoc_text f ON f.doc_id = h.id ORDER BY h.rank DESC, h.id"
     )  # fixed fragments; every value is a bound parameter
-    rows = conn.execute(sql, (tsq, tsq, limit, tsq)).fetchall()
+    rows = conn.execute(sql, (tsq, tsq, limit, *[tsq] * _HEADLINE_PARAMS)).fetchall()
     return [
         Hit(None, r[1], r[2], r[3], float(r[4]), r[5], "fulltext", "repodoc", r[0], r[6], r[7])
         for r in rows
@@ -553,18 +593,20 @@ def semantic(
     owner: str | None = None,
     limit: int = 20,
     corpora: Iterable[str] = ITEMS,
-    model_id: str = CURRENT_MODEL_ID,
-    strategy: Strategy = CURRENT_STRATEGY,
+    model_id: str | None = None,
+    strategy: Strategy | None = None,
 ) -> list[Hit]:
     """Cosine similarity of the query embedding against the stored chunk vectors of one
     (``model_id``, ``strategy``), best chunk per item or doc; ties break on (corpus, id).
 
-    Raises :class:`EmbeddingError` when the query cannot be embedded, or its embedding does
-    not have the strategy's dimension.
+    Without an explicit pair, the pair is the embedder's (:func:`embedder_space`).
+    Raises :class:`EmbeddingError` when the query cannot be embedded, its pair cannot be
+    resolved, or its embedding does not have the strategy's dimension.
     """
     want = _corpora(corpora)
     if not query.strip() or not want or limit <= 0:
         return []
+    model_id, strategy = _resolve(embed, model_id, strategy)
     qvec = _embed(embed, [query])[0]
     try:
         q = _query_vector(qvec, strategy)
@@ -615,11 +657,12 @@ def hybrid(
     owner: str | None = None,
     limit: int = 20,
     corpora: Iterable[str] = ITEMS,
-    model_id: str = CURRENT_MODEL_ID,
-    strategy: Strategy = CURRENT_STRATEGY,
+    model_id: str | None = None,
+    strategy: Strategy | None = None,
 ) -> list[Hit]:
     """Reciprocal-rank fusion (k=60) of full-text and semantic; degrades to full-text if the
-    embedder is down. Ties break on (corpus, id)."""
+    embedder is down or its pair cannot be resolved (see :func:`semantic`). Ties break on
+    (corpus, id)."""
     vis = {"include_private": include_private, "owner": owner, "corpora": tuple(corpora)}
     ft = fulltext(store, query, **vis, limit=limit * 2)
     try:

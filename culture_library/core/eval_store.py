@@ -17,6 +17,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from . import uploaders
 from .errors import NotFoundError, ValidationError
 from .store import now
 
@@ -89,13 +90,10 @@ def _decode(row: Sequence[Any], cols: str, json_cols: Sequence[str]) -> dict[str
 
 def _visible(include_private: bool, owner: str | None, item: str) -> tuple[str, list[str]]:
     """The library's visibility rule for the item alias ``item``, as ``(condition, params)``:
-    public, or private access, or uploaded by ``owner`` (table ``item_uploaders``)."""
-    if include_private:
-        return "TRUE", []
-    if owner:
-        owned = "IN (SELECT item_id FROM item_uploaders WHERE key_id = %s)"
-        return f"({item}.visibility = 'public' OR {item}.id {owned})", [owner]
-    return f"{item}.visibility = 'public'", []
+    :func:`culture_library.core.uploaders.visible_sql`, the one copy of the rule."""
+    return uploaders.visible_sql(
+        include_private, owner, visibility=f"{item}.visibility", item_id=f"{item}.id"
+    )
 
 
 def create_set(

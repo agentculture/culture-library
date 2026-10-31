@@ -289,7 +289,7 @@ the item's current chunks and rewrite its `reference_chunk_shas` in place. Sampl
 1). A sample with no stored reference text, or whose text is no longer in the item, is listed
 in `could_not_re_anchor` with a `reason` and keeps its old shas. `note` is also stored under
 the set's `generator.reanchor`. No body. Needs `write` for the item's kind.
-""", statuses="Status codes: 200; 401, 403, 404 `not_found`, 409 `not_indexed` (the item has no indexed chunks yet), 409 `index_pending` (the item is being re-indexed; re-anchor when that is done).")
+""", statuses="Status codes: 200; 401, 403, 404 `not_found`, 409 `not_indexed` (the item has no indexed chunks yet), 409 `index_pending` (the item is being re-indexed; re-anchor when that is done), 503 `rag_unavailable` (the query embedder cannot state which vectors it reads).")
 
 # errors
 sc = t._scenarios(store, c, H)

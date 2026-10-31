@@ -15,9 +15,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+import psycopg  # the dev group has it; the suite needs Postgres, so no skip
 import pytest
-
-psycopg = pytest.importorskip("psycopg", reason="needs the [pg] extra: uv sync --extra pg")
 
 from culture_library.core import embedding_strategy as es  # noqa: E402
 

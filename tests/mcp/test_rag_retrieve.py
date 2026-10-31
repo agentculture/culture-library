@@ -7,6 +7,7 @@ import pytest
 
 from culture_library.core import indexer as ix
 from culture_library.mcp import tools
+from tests.core.search_helpers import vec
 
 
 def call(env, raw, name, **args):
@@ -14,7 +15,7 @@ def call(env, raw, name, **args):
 
 
 def _embed(texts):
-    return [[1.0, 0.0] if "whale" in t.lower() else [0.0, 1.0] for t in texts]
+    return [vec(1.0, 0.0) if "whale" in t.lower() else vec(0.0, 1.0) for t in texts]
 
 
 @pytest.fixture

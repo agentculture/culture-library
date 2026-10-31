@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from culture_library.core import Store  # noqa: E402
-from culture_library.core.store import DatabaseError  # noqa: E402
-from culture_library.server.app import health_router  # noqa: E402
+from culture_library.core import Store
+from culture_library.core.store import DatabaseError
+from culture_library.server.app import health_router
 
 
 def _client(store) -> TestClient:
