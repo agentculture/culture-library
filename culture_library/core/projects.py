@@ -2,28 +2,20 @@
 
 One row per repo (normalized with :func:`repodocs.normalize_remote`). ``upsert`` replaces both
 lists, so the latest push wins. Stdlib only, no network.
+
+On Postgres (plan library-on-postgres-and-pgvector, task t11) ``domains`` and ``connected`` are
+``jsonb`` columns, read back as lists; the upsert is one ``ON CONFLICT`` statement, so
+concurrent pushes for one repo never collide (the last to commit wins).
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
 from typing import Any
 
 from .errors import ValidationError
 from .repodocs import normalize_remote
-from .store import Store, now, register_schema
-
-_DDL = """
-CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY,
-    repo TEXT NOT NULL UNIQUE,
-    domains TEXT NOT NULL DEFAULT '[]',
-    connected TEXT NOT NULL DEFAULT '[]',
-    updated_at TEXT NOT NULL
-)
-"""
-register_schema(_DDL)
+from .store import Store, now
 
 
 def _str_list(value: Any, field: str) -> list[str]:
@@ -74,11 +66,11 @@ def _dedup(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
-def _row(row: sqlite3.Row) -> dict[str, Any]:
+def _row(row: Any) -> dict[str, Any]:
     return {
         "repo": row["repo"],
-        "domains": json.loads(row["domains"]),
-        "connected": json.loads(row["connected"]),
+        "domains": list(row["domains"]),
+        "connected": list(row["connected"]),
         "updated_at": row["updated_at"],
     }
 
@@ -95,10 +87,10 @@ class Projects:
         doms = _dedup([d.strip() for d in _str_list(domains, "domains") if d.strip()])
         conns = _dedup([_norm(c) for c in _str_list(connected, "connected")])
         with self.store.connect() as conn:
-            conn.execute(_DDL)
             conn.execute(
-                "INSERT INTO projects (repo, domains, connected, updated_at) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(repo) DO UPDATE SET domains = excluded.domains, "
+                "INSERT INTO projects (repo, domains, connected, updated_at)"
+                " VALUES (%s, %s::jsonb, %s::jsonb, %s) "
+                "ON CONFLICT (repo) DO UPDATE SET domains = excluded.domains, "
                 "connected = excluded.connected, updated_at = excluded.updated_at",
                 (repo_id, json.dumps(doms), json.dumps(conns), now()),
             )
@@ -106,14 +98,12 @@ class Projects:
 
     def get(self, repo: str) -> dict[str, Any] | None:
         repo_id = _norm(repo)
-        with self.store.connect() as conn:
-            conn.execute(_DDL)
-            row = conn.execute("SELECT * FROM projects WHERE repo = ?", (repo_id,)).fetchone()
+        with self.store.reader() as conn:
+            row = conn.execute("SELECT * FROM projects WHERE repo = %s", (repo_id,)).fetchone()
         return None if row is None else _row(row)
 
     def list(self) -> list[dict[str, Any]]:
-        with self.store.connect() as conn:
-            conn.execute(_DDL)
+        with self.store.reader() as conn:
             rows = conn.execute("SELECT * FROM projects ORDER BY repo").fetchall()
         return [_row(r) for r in rows]
 

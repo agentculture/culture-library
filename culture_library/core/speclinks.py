@@ -11,6 +11,11 @@ than the stored one, so a rename pushed later shows the new path and an older pu
 regresses it. At an equal time (two merges in the same second, a force-push) the latest push
 wins. :meth:`SpecLinks.record` says whether the push's code paths were kept, so the sender
 can tell an older, ignored push from a stored one and resend instead of recording it.
+
+On Postgres (plan library-on-postgres-and-pgvector, task t11) :meth:`SpecLinks.record`
+creates the row with ``ON CONFLICT DO NOTHING`` and then holds it ``FOR UPDATE``, so two
+concurrent pushes for one spec run one after the other and end as a serial run would. The
+lists are ``jsonb`` columns, read back as lists.
 """
 
 from __future__ import annotations
@@ -20,21 +25,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .errors import ValidationError
-from .store import Store, now, register_schema
+from .store import Store, now
 
-register_schema("""
-CREATE TABLE IF NOT EXISTS spec_links (
-    doc_id INTEGER PRIMARY KEY,
-    pr_url TEXT,
-    pr_number INTEGER,
-    merge_commit TEXT,
-    code_paths_json TEXT NOT NULL DEFAULT '[]',
-    at_commit TEXT,
-    at_committed_at TEXT,
-    trailer_commits_json TEXT NOT NULL DEFAULT '[]',
-    updated_at TEXT NOT NULL
+_LINKS_SQL = (
+    "SELECT pr_url, pr_number, merge_commit, code_paths_json, at_commit, "
+    "at_committed_at, trailer_commits_json FROM spec_links WHERE doc_id = %s"
 )
-""")
 
 
 def _empty(doc: int) -> dict[str, Any]:
@@ -116,54 +112,59 @@ class SpecLinks:
             raise ValidationError("code_paths needs at_commit and at_committed_at")
         when = _parse_time(at_committed_at) if paths is not None else None
         with self.store.connect() as conn:
+            # Create the row if absent, then lock it: a concurrent record waits here until
+            # this one commits, so its newer-wins check sees this one's at_committed_at.
+            conn.execute(
+                "INSERT INTO spec_links (doc_id, updated_at) VALUES (%s, %s)"
+                " ON CONFLICT (doc_id) DO NOTHING",
+                (doc, now()),
+            )
             row = conn.execute(
-                "SELECT at_committed_at FROM spec_links WHERE doc_id = ?", (doc,)
+                "SELECT at_committed_at FROM spec_links WHERE doc_id = %s FOR UPDATE", (doc,)
             ).fetchone()
-            if row is None:
-                conn.execute(
-                    "INSERT INTO spec_links (doc_id, updated_at) VALUES (?, ?)", (doc, now())
-                )
             if pr_url is not None or pr_number is not None:
                 conn.execute(
-                    "UPDATE spec_links SET pr_url = ?, pr_number = ? WHERE doc_id = ?",
+                    "UPDATE spec_links SET pr_url = %s, pr_number = %s WHERE doc_id = %s",
                     (pr_url, pr_number, doc),
                 )
             if merge_commit:
                 conn.execute(
-                    "UPDATE spec_links SET merge_commit = ? WHERE doc_id = ?", (merge_commit, doc)
+                    "UPDATE spec_links SET merge_commit = %s WHERE doc_id = %s",
+                    (merge_commit, doc),
                 )
-            stored = row[0] if row else None
+            stored = row[0]
             applied = paths is None or stored is None or when >= _parse_time(stored)
             if paths is not None and applied:
                 conn.execute(
-                    "UPDATE spec_links SET code_paths_json = ?, at_commit = ?, "
-                    "at_committed_at = ?, trailer_commits_json = ? WHERE doc_id = ?",
+                    "UPDATE spec_links SET code_paths_json = %s::jsonb, at_commit = %s, "
+                    "at_committed_at = %s, trailer_commits_json = %s::jsonb WHERE doc_id = %s",
                     (json.dumps(paths), at_commit, at_committed_at, json.dumps(trailers), doc),
                 )
-            conn.execute("UPDATE spec_links SET updated_at = ? WHERE doc_id = ?", (now(), doc))
-        return self.links(doc), applied
+            conn.execute("UPDATE spec_links SET updated_at = %s WHERE doc_id = %s", (now(), doc))
+            links = _links(doc, conn.execute(_LINKS_SQL, (doc,)).fetchone())
+        return links, applied
 
     def links(self, doc: int) -> dict[str, Any]:
         """The spec's merge, PR, current code paths and trailer commits (empty if none)."""
         with self.store.reader() as conn:
-            row = conn.execute(
-                "SELECT pr_url, pr_number, merge_commit, code_paths_json, at_commit, "
-                "at_committed_at, trailer_commits_json FROM spec_links WHERE doc_id = ?",
-                (doc,),
-            ).fetchone()
-        out = _empty(doc)
-        if row is None:
-            return out
-        if row[0] is not None or row[1] is not None:
-            out["pr"] = {"url": row[0], "number": row[1]}
-        out.update(
-            merge_commit=row[2],
-            code_paths=json.loads(row[3]),
-            at_commit=row[4],
-            at_committed_at=row[5],
-            trailer_commits=json.loads(row[6]),
-        )
+            row = conn.execute(_LINKS_SQL, (doc,)).fetchone()
+        return _links(doc, row)
+
+
+def _links(doc: int, row: Any) -> dict[str, Any]:
+    out = _empty(doc)
+    if row is None:
         return out
+    if row[0] is not None or row[1] is not None:
+        out["pr"] = {"url": row[0], "number": row[1]}
+    out.update(
+        merge_commit=row[2],
+        code_paths=list(row[3]),
+        at_commit=row[4],
+        at_committed_at=row[5],
+        trailer_commits=list(row[6]),
+    )
+    return out
 
 
 __all__ = ["SpecLinks"]
