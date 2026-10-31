@@ -37,7 +37,8 @@ intersect. Private docs and versions are visible only to a principal with ``priv
 to anyone else they behave as absent (404 / omitted). Errors are flat ``{detail, code}``.
 
 The store comes from :func:`culture_library.server.auth.get_store`. Written for plan task t8;
-pushes of devague work for the devague-work plan task t10.
+pushes of devague work for the devague-work plan task t10. On Postgres (plan
+library-on-postgres-and-pgvector, task t11) the hooks run on the push's psycopg connection.
 """
 
 from __future__ import annotations
@@ -46,7 +47,6 @@ import base64
 import logging
 import mimetypes
 import os
-import sqlite3
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -196,7 +196,7 @@ def _content(body: RepoDocPush) -> bytes:
     return data
 
 
-def _record(conn: sqlite3.Connection, result: PushResult) -> None:
+def _record(conn: Any, result: PushResult) -> None:
     """Queue the mirror upload and append the feed event, in the push's transaction."""
     if not result.created:  # a replayed version or unchanged draft: nothing new to say
         return
@@ -219,9 +219,9 @@ def _record(conn: sqlite3.Connection, result: PushResult) -> None:
 
 
 def _record_removal(dropped_draft_sha: str | None):
-    def hook(conn: sqlite3.Connection, doc: RepoDoc) -> None:
+    def hook(conn: Any, doc: RepoDoc) -> None:
         newest = conn.execute(
-            "SELECT sha256 FROM repodoc_versions WHERE doc_id = ?"
+            "SELECT sha256 FROM repodoc_versions WHERE doc_id = %s"
             " ORDER BY committed_at DESC, id DESC LIMIT 1",
             (doc.id,),
         ).fetchone()

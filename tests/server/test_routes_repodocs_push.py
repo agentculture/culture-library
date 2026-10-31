@@ -123,9 +123,7 @@ def test_each_version_and_draft_enqueues_and_appends_one_event(client, app) -> N
     assert [e["item_id"] for e in events] == [v["doc"]["id"]] * 2
     assert [e["sha256"] for e in events] == [v["version"]["sha256"], d["draft"]["sha256"]]
     assert all(e["visibility"] == "private" and e["kind"] == "spec" for e in events)
-    import json
-
-    assert [json.loads(e["data"])["commit"] for e in events] == [A, "working"]
+    assert [e["data"]["commit"] for e in events] == [A, "working"]  # jsonb: a dict
 
 
 def test_feed_event_is_readable_via_the_feed_route(client) -> None:

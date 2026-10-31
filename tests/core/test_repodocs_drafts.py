@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-
 import pytest
 
 from culture_library.core import Store, ValidationError
@@ -41,11 +39,16 @@ def _working(docs: RepoDocs, content="w-1\n", **kw):
 
 
 def _count(store: Store, table: str) -> int:
-    conn = sqlite3.connect(store.db_path)
-    try:
+    with store.reader() as conn:
         return conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]  # nosec B608
-    finally:
-        conn.close()
+
+
+def _columns(store: Store, table: str) -> set[str]:
+    with store.reader() as conn:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,)
+        ).fetchall()
+    return {r[0] for r in rows}
 
 
 # --- working drafts -----------------------------------------------------------------
@@ -90,12 +93,8 @@ def test_drafts_keyed_by_doc_not_checkout(docs: RepoDocs, store: Store) -> None:
 
 
 def test_draft_table_has_sha256_column(store: Store) -> None:
-    conn = sqlite3.connect(store.db_path)
-    try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(repodoc_drafts)")}
-    finally:
-        conn.close()
-    assert {"doc_id", "sha256", "size", "pushed_at"} <= cols
+    assert {"doc_id", "sha256", "size", "pushed_at"} <= _columns(store, "repodoc_drafts")
+    assert {"removed_at", "removed_commit"} <= _columns(store, "repodocs")
 
 
 def test_commit_push_after_draft_leaves_draft_untouched(docs: RepoDocs, store: Store) -> None:
@@ -236,20 +235,3 @@ def test_binary_content_round_trips_byte_identical(docs: RepoDocs) -> None:
     assert docs.content(c.doc.id, include_private=True) == png
     w = _working(docs, png[::-1], path="docs/design/reference/x.png")
     assert docs.content(w.doc.id, "working", include_private=True) == png[::-1]
-
-
-def test_existing_db_gains_removed_columns(tmp_path) -> None:
-    data = tmp_path / "data"
-    Store(data)
-    conn = sqlite3.connect(data / "library.db", isolation_level=None)
-    triggers = conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'").fetchall()
-    for (name,) in triggers:  # the older release had no repodoc_dirty triggers (#39)
-        conn.execute(f"DROP TRIGGER {name}")
-    conn.execute("DROP TABLE repodoc_drafts")
-    conn.execute("ALTER TABLE repodocs DROP COLUMN removed_at")
-    conn.execute("ALTER TABLE repodocs DROP COLUMN removed_commit")
-    conn.close()
-    store = Store(data)
-    r = RepoDocs(store)
-    _commit(r)
-    assert r.tombstone(REMOTE, PATH, B).removed_commit == B

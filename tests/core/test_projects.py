@@ -79,7 +79,7 @@ def test_stdlib_only() -> None:
             mods |= {a.name.split(".")[0] for a in node.names}
         elif isinstance(node, ast.ImportFrom) and not node.level:
             mods.add((node.module or "").split(".")[0])
-    assert mods <= {"__future__", "json", "sqlite3", "typing"}
+    assert mods <= {"__future__", "json", "typing"}
 
 
 def test_org_repo_shorthand_means_github(projects: Projects) -> None:
