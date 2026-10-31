@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.5] - 2026-10-31
+
+### Fixed
+
+- The indexer no longer scans every repo doc on each idle tick (#39). Triggers on repodocs, repodoc_drafts and repodoc_versions mark a changed doc in a new repodoc_dirty table in the same transaction; discovery plans only marked docs and clears the marks under the write lock. An UPDATE marks only when a column discovery reads changes, so re-pushing unchanged bytes marks nothing; a hard-deleted doc is dropped from the index. The triggers are recreated on every open, so a later change reaches existing databases. The first open after upgrading, each new indexer and `requeue_all` mark every doc once, so index drift is repaired on the next start. Idle discovery at 5,000 docs: about 0.2–0.5 ms, down from about 9 ms
+
 ## [0.19.4] - 2026-10-31
 
 ### Changed
