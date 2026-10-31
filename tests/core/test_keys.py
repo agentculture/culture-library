@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import sqlite3
+import time
 
+import psycopg
 import pytest
 
 from culture_library.core import keys
@@ -15,17 +16,18 @@ def test_mint_returns_plaintext_once_and_stores_only_a_hash(store):
     assert raw.startswith("clk_")
     assert raw.split("_", 2)[1] == key.key_id
     with store.reader() as c:
-        row = dict(c.execute("SELECT * FROM api_keys WHERE id = ?", (key.id,)).fetchone())
+        row = dict(c.execute("SELECT * FROM api_keys WHERE id = %s", (key.id,)).fetchone())
     assert raw not in "".join(str(v) for v in row.values())
     assert row["key_hash"] == keys.hash_key(raw)
     assert not hasattr(key, "key_hash")
 
 
-def test_db_file_never_contains_plaintext(store):
+def test_database_never_contains_plaintext(store):
     _, raw = keys.mint(store, "laptop", ["write"])
-    secret = raw.split("_", 2)[2].encode()
-    for path in store.data_dir.glob("library.db*"):
-        assert secret not in path.read_bytes()
+    secret = raw.split("_", 2)[2]
+    with store.reader() as c:
+        rows = c.execute("SELECT * FROM api_keys").fetchall()
+    assert secret not in "".join(str(v) for r in rows for v in r)
 
 
 def test_authenticate_round_trip_and_last_used(store):
@@ -102,10 +104,10 @@ def test_key_ids_are_unique_column(store):
     key, _ = keys.mint(store, "k", ["read"])
     sql = (
         "INSERT INTO api_keys (name, key_id, key_hash, scopes, private, created_at)"
-        " VALUES ('x', ?, 'h', 'read', 0, 'now')"
+        " VALUES ('x', %s, 'h', 'read', false, 'now')"
     )
     with store.connect() as c:
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             c.execute(sql, (key.key_id,))
 
 
@@ -114,54 +116,65 @@ def test_key_ids_are_unique_column(store):
 
 def _last_used(store, key_id):
     with store.reader() as c:
-        return c.execute("SELECT last_used FROM api_keys WHERE id = ?", (key_id,)).fetchone()[0]
+        return c.execute("SELECT last_used FROM api_keys WHERE id = %s", (key_id,)).fetchone()[0]
 
 
-def test_authenticate_never_takes_the_write_transaction(store, monkeypatch):
+def test_authenticate_reads_on_a_read_only_connection(store, monkeypatch):
     _key, raw = keys.mint(store, "k", ["read"])
+    seen = []
+    real = store.reader
 
-    def no_write_lock():
-        raise AssertionError("authenticate opened a BEGIN IMMEDIATE transaction")
+    def spy():
+        seen.append(1)
+        return real()
 
-    monkeypatch.setattr(store, "connect", no_write_lock)
+    monkeypatch.setattr(store, "reader", spy)
     assert keys.authenticate(store, raw).last_used is not None
+    assert seen
 
 
 def test_last_used_is_stamped_at_most_once_a_minute(store):
     key, raw = keys.mint(store, "k", ["read"])
     with store.connect() as c:
-        c.execute("UPDATE api_keys SET last_used = '2026-01-01T00:00:00+00:00' WHERE id = ?",
+        c.execute("UPDATE api_keys SET last_used = '2026-01-01T00:00:00+00:00' WHERE id = %s",
                   (key.id,))  # fmt: skip
     first = keys.authenticate(store, raw).last_used
     assert first != "2026-01-01T00:00:00+00:00"
     assert _last_used(store, key.id) == first
     recent = "9999-01-01T00:00:00+00:00"  # "just now" as far as the throttle can tell
     with store.connect() as c:
-        c.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (recent, key.id))
+        c.execute("UPDATE api_keys SET last_used = %s WHERE id = %s", (recent, key.id))
     assert keys.authenticate(store, raw).last_used == recent
     assert _last_used(store, key.id) == recent
 
 
-def test_authenticate_succeeds_while_another_writer_holds_the_lock(store):
-    import time
-
+@pytest.mark.parametrize("lock", ["FOR UPDATE", "FOR NO KEY UPDATE"])
+def test_authenticate_never_waits_on_a_writer_holding_the_key_row(store, lock):
     key, raw = keys.mint(store, "k", ["read"])
-    blocker = sqlite3.connect(store.db_path, isolation_level=None)
-    try:
-        blocker.execute("BEGIN IMMEDIATE")
+    with store.connect() as blocker:  # the writer: holds the row lock, uncommitted
+        blocker.execute(f"SELECT id FROM api_keys WHERE id = %s {lock}", (key.id,))
         start = time.monotonic()
         got = keys.authenticate(store, raw)
-        assert time.monotonic() - start < 2.0
+        waited = time.monotonic() - start
         assert got.id == key.id
-    finally:
-        blocker.execute("ROLLBACK")
-        blocker.close()
-    assert _last_used(store, key.id) is None  # the stamp was skipped, not queued
+        assert got.last_used is None  # the stamp was skipped, not queued
+        assert waited < 0.1 + 0.4, waited  # the 100 ms budget, plus connect time
+        print(f"authenticate under a held row lock took {waited * 1000:.0f} ms")
+    assert _last_used(store, key.id) is None
 
 
-def test_authenticate_without_a_keys_table_is_an_auth_error(store):
-    with store.reader() as c:
-        assert c.execute("SELECT name FROM sqlite_master WHERE name='api_keys'").fetchone() is None
+def test_authenticate_survives_a_stamp_that_times_out(store, monkeypatch):
+    """A plain UPDATE (no SKIP LOCKED) would wait; lock_timeout still bounds the stamp."""
+    key, raw = keys.mint(store, "k", ["read"])
+    monkeypatch.setattr(keys, "LAST_USED_BUSY_MS", 50)
+    with store.connect() as blocker:
+        blocker.execute("UPDATE api_keys SET name = 'busy' WHERE id = %s", (key.id,))
+        start = time.monotonic()
+        assert keys.authenticate(store, raw).id == key.id
+        assert time.monotonic() - start < 0.5
+
+
+def test_authenticate_without_any_keys_is_an_auth_error(store):
     with pytest.raises(keys.AuthError):
         keys.authenticate(store, "clk_deadbeef_secret")
 
@@ -242,21 +255,3 @@ def test_confirm_refuses_and_changes_nothing(store, case):
     assert [k.id for k in keys.list_keys(store) if k.revoked_at is None and k.id == old.id] == [
         old.id
     ]
-
-
-def test_old_keys_table_gains_replaces_column(store):
-    with store.connect() as c:  # the table as it was before rotate added `replaces`
-        c.execute(
-            "CREATE TABLE api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,"
-            " key_id TEXT NOT NULL UNIQUE, key_hash TEXT NOT NULL, scopes TEXT NOT NULL,"
-            " kinds TEXT, private INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,"
-            " revoked_at TEXT, last_used TEXT)"
-        )
-        c.execute(
-            "INSERT INTO api_keys (name, key_id, key_hash, scopes, created_at)"
-            " VALUES ('old', 'abcd1234', 'h', 'read', '2026-01-01T00:00:00+00:00')"
-        )
-    assert keys.list_keys(store)[0].replaces is None
-    new, _ = keys.rotate(store, 1)
-    assert new.replaces == 1
-    assert keys.list_keys(store)[1].to_dict()["replaces"] == 1
