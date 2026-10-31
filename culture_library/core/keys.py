@@ -3,14 +3,12 @@
 Provenance: cited (cite-don't-import) from agentculture/xteink @ ea2f643 (branch feat/issue-1),
 path xteink/core/keys.py. This copy is owned here. Modified: ``clk`` prefix; scopes
 (``read``/``write``/``admin``), an optional kind allow-list and a ``private`` flag stored per
-key; its own ``api_keys`` table, created idempotently by each function here on first use
-(xteink kept the table in store.py; :func:`register_schema` is deliberately not used, because
-tests/core/test_store.py pins a bare Store to having no ``api_keys`` table); the
+key; the ``api_keys`` table lives in the numbered migrations (``core/migrations``); the
 :class:`ApiKey` record and :class:`AuthError` live here (models.py and errors.py stay
 key-free); module functions instead of a ``KeyService`` class;
 :func:`revoke` returns the revoked key; :func:`authenticate` is a read (it never takes the
-write lock: a missing table means no key matches) and stamps ``last_used`` best-effort, at
-most once a minute per key.
+row lock) and stamps ``last_used`` best-effort, at most once a minute per key, skipping the
+stamp when the row is locked by a writer (``FOR UPDATE SKIP LOCKED`` plus a 100 ms lock_timeout).
 
 Raw key format: ``clk_<key_id>_<secret>`` where ``key_id`` is 8 hex characters (the public,
 loggable handle) and ``secret`` is 32 random bytes, url-safe base64. The raw key is returned
@@ -32,45 +30,21 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .errors import CoreError, NotFoundError, ValidationError
 from .models import KINDS
-from .store import Store, now
+from .store import DatabaseError, Store, now
 
 PREFIX = "clk"
 SCOPES = ("read", "write", "admin")
 LAST_USED_INTERVAL_S = 60
 LAST_USED_BUSY_MS = 100
 _INVALID_KEY = "invalid key"
-_BY_ID = "SELECT * FROM api_keys WHERE id = ?"
-
-_DDL = """
-CREATE TABLE IF NOT EXISTS api_keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    key_id TEXT NOT NULL UNIQUE,
-    key_hash TEXT NOT NULL,
-    scopes TEXT NOT NULL,
-    kinds TEXT,
-    private INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    revoked_at TEXT,
-    last_used TEXT,
-    replaces INTEGER REFERENCES api_keys(id)
-);
-"""
-
-
-def _ensure(c: sqlite3.Connection) -> None:
-    """Create ``api_keys`` if needed and add ``replaces`` to a table that predates it."""
-    c.execute(_DDL)
-    cols = {row[1] for row in c.execute("PRAGMA table_info(api_keys)")}
-    if "replaces" not in cols:
-        c.execute("ALTER TABLE api_keys ADD COLUMN replaces INTEGER REFERENCES api_keys(id)")
+_BY_ID = "SELECT * FROM api_keys WHERE id = %s"
 
 
 class AuthError(CoreError):
@@ -162,11 +136,11 @@ def _row(r) -> ApiKey:
         key_id=r["key_id"],
         scopes=tuple(s for s in r["scopes"].split(",") if s),
         kinds=tuple(k for k in r["kinds"].split(",") if k) if r["kinds"] is not None else None,
-        private=bool(r["private"]) or "admin" in r["scopes"].split(","),
+        private=r["private"] or "admin" in r["scopes"].split(","),
         created_at=r["created_at"],
         revoked_at=r["revoked_at"],
         last_used=r["last_used"],
-        replaces=r["replaces"] if "replaces" in r.keys() else None,
+        replaces=r["replaces"],
     )
 
 
@@ -184,7 +158,7 @@ def mint(
 
 
 def _mint(
-    c: sqlite3.Connection,
+    c: Any,
     name: str,
     scopes: Iterable[str],
     *,
@@ -204,67 +178,57 @@ def _mint(
         if not kinds_t:
             raise ValidationError("kinds must name at least one kind (omit it for any kind)")
     raw, key_id, key_hash = generate_key()
-    _ensure(c)
-    cur = c.execute(
+    row = c.execute(
         "INSERT INTO api_keys"
         " (name, key_id, key_hash, scopes, kinds, private, created_at, replaces)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
         (
             name.strip(),
             key_id,
             key_hash,
             ",".join(scope_t),
             ",".join(kinds_t) if kinds_t is not None else None,
-            int(bool(private)),
+            bool(private),
             now(),
             replaces,
         ),
-    )
-    row = c.execute(_BY_ID, (cur.lastrowid,)).fetchone()
+    ).fetchone()
     return _row(row), raw
 
 
 def _stamp_last_used(store: Store, row_id: int, stamp: str, cutoff: str) -> bool:
     """Best-effort ``last_used = stamp`` unless it was stamped since ``cutoff``.
 
-    A separate, short autocommit write that waits at most :data:`LAST_USED_BUSY_MS` for the
-    write lock and gives up (returns False) if the database is busy: authentication never
-    waits on, or fails because of, a writer. The ``WHERE`` keeps it at most once per
-    :data:`LAST_USED_INTERVAL_S` per key even across processes.
+    A short write that never waits on a writer: ``FOR UPDATE SKIP LOCKED`` passes over a row
+    another transaction holds, and ``lock_timeout`` (:data:`LAST_USED_BUSY_MS`) bounds any
+    other lock wait. It gives up (returns False) on a locked row or a database error:
+    authentication never waits on, or fails because of, a writer. The ``WHERE`` keeps it at
+    most once per :data:`LAST_USED_INTERVAL_S` per key even across processes.
     """
     try:
-        conn = sqlite3.connect(
-            store.db_path, timeout=LAST_USED_BUSY_MS / 1000, isolation_level=None
-        )
-        try:
-            conn.execute(f"PRAGMA busy_timeout = {LAST_USED_BUSY_MS}")
-            cur = conn.execute(
-                "UPDATE api_keys SET last_used = ?"
-                " WHERE id = ? AND (last_used IS NULL OR last_used < ?)",
+        with store.connect() as c:
+            c.execute(f"SET LOCAL lock_timeout = {int(LAST_USED_BUSY_MS)}")
+            cur = c.execute(
+                "UPDATE api_keys SET last_used = %s WHERE id = ("
+                "SELECT id FROM api_keys WHERE id = %s"
+                " AND (last_used IS NULL OR last_used < %s) FOR UPDATE SKIP LOCKED)",
                 (stamp, row_id, cutoff),
             )
             return cur.rowcount == 1
-        finally:
-            conn.close()
-    except sqlite3.Error:
+    except (store._psycopg.Error, DatabaseError):
         return False
 
 
 def authenticate(store: Store, raw: str) -> ApiKey:
     """Return the live key for ``raw`` or raise :class:`AuthError`.
 
-    The key is looked up on a reader connection (no write lock). ``last_used`` is then
+    The key is looked up on a read-only connection (no row lock). ``last_used`` is then
     stamped best-effort, at most once per :data:`LAST_USED_INTERVAL_S` per key, by
     :func:`_stamp_last_used`; a busy database skips the stamp, never the authentication.
     """
     key_id = parse_key(raw)
-    try:
-        with store.reader() as c:
-            row = c.execute("SELECT * FROM api_keys WHERE key_id = ?", (key_id,)).fetchone()
-    except sqlite3.OperationalError as exc:  # no api_keys table yet: no key can match
-        if "no such table" in str(exc):
-            raise AuthError(_INVALID_KEY) from None
-        raise
+    with store.reader() as c:
+        row = c.execute("SELECT * FROM api_keys WHERE key_id = %s", (key_id,)).fetchone()
     if row is None or row["revoked_at"] or not verify(raw, row["key_hash"]):
         raise AuthError(_INVALID_KEY)
     key = _row(row)
@@ -280,9 +244,8 @@ def authenticate(store: Store, raw: str) -> ApiKey:
 def revoke(store: Store, api_key_id: int) -> ApiKey:
     """Revoke a key by row id (idempotent for an already-revoked key)."""
     with store.connect() as c:
-        _ensure(c)
         c.execute(
-            "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
+            "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, %s) WHERE id = %s",
             (now(), api_key_id),
         )
         row = c.execute(_BY_ID, (api_key_id,)).fetchone()
@@ -291,8 +254,8 @@ def revoke(store: Store, api_key_id: int) -> ApiKey:
     return _row(row)
 
 
-def _live(c: sqlite3.Connection, api_key_id: int, what: str) -> ApiKey:
-    row = c.execute(_BY_ID, (api_key_id,)).fetchone()
+def _live(c: Any, api_key_id: int, what: str) -> ApiKey:
+    row = c.execute(_BY_ID + " FOR UPDATE", (api_key_id,)).fetchone()
     if row is None:
         raise NotFoundError(f"{what} key {api_key_id} not found")
     key = _row(row)
@@ -320,7 +283,6 @@ def rotate(
     anything is minted.
     """
     with store.connect() as c:
-        _ensure(c)
         old = _live(c, api_key_id, "old")
         kinds = old.kinds
         if kinds is not None:
@@ -346,21 +308,19 @@ def confirm_rotation(store: Store, old_id: int, new_id: int) -> tuple[ApiKey, Ap
     ``key_revoked`` and ``not_a_replacement``; a missing key is :class:`NotFoundError`).
     """
     with store.connect() as c:
-        _ensure(c)
         old = _live(c, old_id, "old")
         new = _live(c, new_id, "new")
         if new.replaces != old.id:
             raise RotationError(
                 f"key {new_id} was not minted as key {old_id}'s replacement", "not_a_replacement"
             )
-        c.execute("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (now(), old.id))
+        c.execute("UPDATE api_keys SET revoked_at = %s WHERE id = %s", (now(), old.id))
         row = c.execute(_BY_ID, (old.id,)).fetchone()
     return _row(row), new
 
 
 def list_keys(store: Store) -> list[ApiKey]:
     with store.connect() as c:
-        _ensure(c)
         return [_row(r) for r in c.execute("SELECT * FROM api_keys ORDER BY id")]
 
 
