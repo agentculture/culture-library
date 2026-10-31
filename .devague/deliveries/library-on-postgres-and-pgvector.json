@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T20:53:04Z",
+  "updated": "2026-10-31T20:54:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -14,6 +14,17 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "deploy restart starts postgres in its own step (up -d --no-deps --wait postgres) before the library and mcp step, instead of dropping --no-deps or adding postgres to SERVICES; mcp gets no database credentials",
+      "task_ref": "t3",
+      "reason": "--wait blocks until postgres is healthy so the order is explicit in dry-run, and mcp reaches the library only over HTTP, so least privilege leaves it without database credentials",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],
