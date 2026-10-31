@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T22:19:27Z",
+  "updated": "2026-10-31T22:19:39Z",
   "deviations": [
     {
       "id": "d1",
@@ -130,6 +130,17 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "t16 is built by an opus subagent instead of the main agent named in the split plan; the main agent keeps the final full-suite verification and merge",
+      "task_ref": "t16",
+      "reason": "the main agent's context is long after waves 0-4; the sweep is a bounded, file-listed task with a grep test and a known failure list, so delegating it keeps the integration check with the main agent",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 11
     }
   ],
   "evidence": [],
