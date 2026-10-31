@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-10-31T20:46:39Z",
+  "updated": "2026-10-31T21:11:35Z",
   "targets": [
     {
       "id": "c1",
@@ -993,6 +993,22 @@
       "text": "HNSW recall under low-selectivity visibility filters (frame park v1) is measured only in t20; pgvector iterative scans are the first lever",
       "kind": "unknown_nonblocking",
       "task_id": "t12",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "jsonb does not keep JSON object key order, so key order inside JSON values in API responses may differ from SQLite's sort_keys text; the contract tests in t16 must confirm no client depends on it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t16",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "jsonb and text reject NaN, Infinity and NUL bytes that SQLite TEXT accepted; the t14 copy must detect and report such values rather than fail midway",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14",
       "resolved": false,
       "resolution": ""
     }

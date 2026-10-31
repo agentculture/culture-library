@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T21:01:00Z",
+  "updated": "2026-10-31T21:11:35Z",
   "deviations": [
     {
       "id": "d1",
@@ -38,6 +38,21 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t4 added culture_library/core/embedding_strategy.py (the canonical strategy key, model id and HNSW index name and SQL), a CHECK that each vector's dimension equals its strategy's, and named the chunker paragraph-pack",
+      "task_ref": "t4",
+      "reason": "one producer of the strategy key keeps index predicates and queries matching exactly; the CHECK stops a vector of the wrong size reaching a typed HNSW index",
+      "affects": [
+        "t12",
+        "t13",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
