@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-10-31
+
+### Changed
+
+- CLAUDE.md: spark runs 0.19.1; the d25 filter fix is live; the d26 owner-clone rule and the full-corpus check recorded.
+
 ## [0.19.1] - 2026-10-31
 
 ### Changed

@@ -11,7 +11,7 @@ it all, published at **library.culture.dev**.
 
 **Status: built and live.** library.culture.dev has served the library
 behind Cloudflare Access since 2026-10-24, from the compose stack on spark
-(`deploy/compose.yaml`). Spark runs 0.19.0 (devague work in the library,
+(`deploy/compose.yaml`). Spark runs 0.19.1 (devague work in the library,
 with the private S3 mirror on) as of 2026-10-31, with embeddings and the
 reranker on. Machine clients reach it on spark's loopback
 (`127.0.0.1:8796` for the API and site, `:8797` for MCP).
@@ -200,7 +200,8 @@ reranker on. Machine clients reach it on spark's loopback
   - the after-#27 signal is deferred until #27 ships;
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - #4 (repo-document search) is live and can be closed;
-  - the `remote` filter fix (d25) is on 0.19.1, not yet deployed;
+  - culture-rules 0.38.1 pushes drafts from one owner clone per origin (d26); the
+    full-corpus mirror check passed once on 2026-10-31, which #35 needs before removal;
   - the indexer rescans every repo doc on each idle tick (#39);
   - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
     (#25);
@@ -426,7 +427,6 @@ Pass `--visibility private` to keep a record in `$HOME/.eidetic/memory`.
 Built in the `library-culture-dev` run (see the delivery summary). Still
 open:
 
-- deploy 0.19.1 (the d25 `remote` filter fix);
 - remove specs, plans and `.devague` from GitHub once the mirror is proven
   complete (#35);
 - map recording EPUBs to `transcript` on migration (#5);
