@@ -242,6 +242,9 @@ def test_existing_db_gains_removed_columns(tmp_path) -> None:
     data = tmp_path / "data"
     Store(data)
     conn = sqlite3.connect(data / "library.db", isolation_level=None)
+    triggers = conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'").fetchall()
+    for (name,) in triggers:  # the older release had no repodoc_dirty triggers (#39)
+        conn.execute(f"DROP TRIGGER {name}")
     conn.execute("DROP TABLE repodoc_drafts")
     conn.execute("ALTER TABLE repodocs DROP COLUMN removed_at")
     conn.execute("ALTER TABLE repodocs DROP COLUMN removed_commit")

@@ -132,3 +132,72 @@ def test_upgrade_seeds_every_existing_doc_once(tmp_path):
     assert ix.discover_repodocs(store) == 3
     Store(data)  # a later open never re-seeds
     assert ix.discover_repodocs(store) == 0
+
+
+def _dirty(store):
+    return {r[0] for r in _rows(store, "SELECT doc_id FROM repodoc_dirty")}
+
+
+def test_identical_repush_marks_nothing(store, docs):
+    _commit(docs, "docs/specs/s.md", "same\n")
+    docs.push(remote=REMOTE, path="docs/specs/s.md", commit="working", content="draft\n")
+    ix.discover_repodocs(store)
+    _commit(docs, "docs/specs/s.md", "same\n")
+    docs.push(remote=REMOTE, path="docs/specs/s.md", commit="working", content="draft\n")
+    assert _dirty(store) == set()
+
+
+def test_visibility_only_repush_makes_the_indexed_row_private(store, docs):
+    _commit(docs, "docs/specs/s.md", "osprey\n")
+    ix.Indexer(store).run_once()
+    assert _rows(store, "SELECT visibility FROM repodoc_fts")[0][0] == "public"
+    _commit(docs, "docs/specs/s.md", "osprey\n", vis="private")
+    ix.discover_repodocs(store)
+    assert _rows(store, "SELECT visibility FROM repodoc_fts")[0][0] == "private"
+
+
+def test_hard_deleted_doc_is_dropped_from_the_index(store, docs):
+    _commit(docs, "docs/specs/s.md", "grebe\n")
+    ix.Indexer(store).run_once()
+    with store.connect() as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("DELETE FROM repodoc_versions")
+        conn.execute("DELETE FROM repodocs")
+    ix.discover_repodocs(store)
+    assert _rows(store, "SELECT count(*) FROM repodoc_fts")[0][0] == 0
+
+
+def test_a_new_indexer_sweeps_every_doc_once(store, docs):
+    _commit(docs, "docs/specs/s.md", "kestrel\n")
+    ix.discover_repodocs(store)
+    with store.connect() as conn:  # drift no write path explains
+        conn.execute("DELETE FROM repodoc_index_queue")
+    ix.Indexer(store).run_once()
+    assert len(_queued(store)) == 1
+
+
+def test_requeue_all_also_re_plans_every_doc(store, docs):
+    _commit(docs, "docs/specs/s.md", "plover\n")
+    ix.discover_repodocs(store)
+    with store.connect() as conn:
+        conn.execute("DELETE FROM repodoc_index_queue")
+    ix.requeue_all(store)
+    assert ix.discover_repodocs(store) == 1
+
+
+def test_reopen_replaces_a_stale_trigger(tmp_path):
+    data = tmp_path / "data"
+    Store(data)
+    conn = sqlite3.connect(data / "library.db")
+    conn.execute("DROP TRIGGER repodoc_drafts_insert_dirty")
+    conn.execute(
+        "CREATE TRIGGER repodoc_drafts_insert_dirty AFTER INSERT ON repodoc_drafts"
+        " BEGIN SELECT 1; END"
+    )
+    conn.commit()
+    conn.close()
+    store = Store(data)
+    sql = _rows(store, "SELECT sql FROM sqlite_master WHERE name = 'repodoc_drafts_insert_dirty'")[
+        0
+    ][0]
+    assert "repodoc_dirty" in sql

@@ -13,7 +13,10 @@ success as plain data for the status endpoint.
 
 Repo documents (devague-work plan task t11, deviation d7). The push route never calls this
 module: each :meth:`Indexer.run_once` *discovers* repo docs (:func:`discover_repodocs`)
-whose shown sha256 differs from the one their job holds, and (re)opens their job. The shown
+whose shown sha256 differs from the one their job holds, and (re)opens their job. Only
+docs marked in ``repodoc_dirty`` are considered (#39): triggers mark a doc when a write
+changes what it shows (see ``_DIRTY_SOURCES``), and each new :class:`Indexer` and
+:func:`requeue_all` mark every doc once, so drift is repaired on the next start. The shown
 text is the working draft when it is ahead of the newest version, else the current version
 (or the newest one while the doc has no current). A removed doc is never enqueued, and a
 doc removed after indexing is dropped from ``repodoc_fts``, ``repodoc_embeddings`` and its
@@ -89,34 +92,53 @@ def _ensure_priority(conn: sqlite3.Connection) -> None:
 
 register_migration(_ensure_priority)
 
-# Every write to a repo doc, its draft or its versions marks the doc dirty in the same
-# transaction (#39), so discovery plans only the changed docs and an idle tick never scans
-# ``repodocs``. Triggers catch every write path, including ones added later. The body uses
-# NOT EXISTS, not INSERT OR IGNORE: an outer upsert's conflict clause overrides a trigger's.
-_DIRTY_SOURCES = (  # (table, its doc id column, the writes that mark the doc)
-    ("repodocs", "id", ("INSERT", "UPDATE")),
-    ("repodoc_drafts", "doc_id", ("INSERT", "UPDATE", "DELETE")),
-    ("repodoc_versions", "doc_id", ("INSERT", "UPDATE", "DELETE")),
+# A write that changes what a repo doc shows marks the doc in ``repodoc_dirty`` in the same
+# transaction (#39), so discovery plans only those docs and an idle tick never scans
+# ``repodocs``. An UPDATE marks only when a column ``_SHOWN_SQL`` reads changes, so a
+# re-push of unchanged bytes marks nothing. Inserts and deletes always mark (a hard-deleted
+# doc is dropped from the index). The body uses NOT EXISTS, not INSERT OR IGNORE: an outer
+# upsert's conflict clause overrides a trigger's. A new ``_SHOWN_SQL`` column needs its table
+# listed here, or a change to it is never re-planned until the next sweep.
+_DIRTY_SOURCES = (  # (table, its doc id column, the columns the plan reads)
+    ("repodocs", "id", ("visibility", "current_version_id", "removed_at")),
+    ("repodoc_drafts", "doc_id", ("sha256", "visibility")),
+    ("repodoc_versions", "doc_id", ("sha256", "visibility", "committed_at")),
 )
 
 
+def _dirty_trigger(table: str, column: str, event: str, watched: tuple[str, ...]) -> str:
+    ref = f"{'OLD' if event == 'DELETE' else 'NEW'}.{column}"
+    when = ""
+    if event == "UPDATE":
+        when = " WHEN " + " OR ".join(f"OLD.{c} IS NOT NEW.{c}" for c in watched)
+    return (  # every name comes from _DIRTY_SOURCES
+        f"CREATE TRIGGER {table}_{event.lower()}_dirty AFTER {event} ON {table}{when}"  # nosec B608
+        f" BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref}"
+        f" WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
+    )
+
+
 def _ensure_repodoc_dirty(conn: sqlite3.Connection) -> None:
-    """Create ``repodoc_dirty`` and its triggers; seed every doc when the table is new."""
+    """Create ``repodoc_dirty`` (seeding every doc when new) and (re)create its triggers.
+
+    The triggers are dropped and recreated on every open, so a release that changes one
+    reaches existing databases too.
+    """
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if not {"repodocs", "repodoc_drafts", "repodoc_versions"} <= tables:
         return
     if "repodoc_dirty" not in tables:
         conn.execute("CREATE TABLE repodoc_dirty (doc_id INTEGER PRIMARY KEY)")
-        conn.execute("INSERT INTO repodoc_dirty (doc_id) SELECT id FROM repodocs")
-    for table, column, events in _DIRTY_SOURCES:
-        for event in events:
-            ref = f"{'OLD' if event == 'DELETE' else 'NEW'}.{column}"
-            name = f"{table}_{event.lower()}_dirty"
-            conn.execute(  # table, column and event names come only from _DIRTY_SOURCES
-                f"CREATE TRIGGER IF NOT EXISTS {name} AFTER {event} ON {table}"  # nosec B608
-                f" BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT {ref}"
-                f" WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = {ref}); END"
-            )
+        mark_all_repodocs(conn)
+    for table, column, watched in _DIRTY_SOURCES:
+        for event in ("INSERT", "UPDATE", "DELETE"):
+            conn.execute(f"DROP TRIGGER IF EXISTS {table}_{event.lower()}_dirty")
+            conn.execute(_dirty_trigger(table, column, event, watched))
+
+
+def mark_all_repodocs(conn: sqlite3.Connection) -> None:
+    """Mark every repo doc for discovery: the next run re-plans them all (a full sweep)."""
+    conn.execute("INSERT OR IGNORE INTO repodoc_dirty (doc_id) SELECT id FROM repodocs")
 
 
 register_migration(_ensure_repodoc_dirty)
@@ -246,6 +268,7 @@ def requeue_all(store: Store) -> int:
         docs = conn.execute(
             "UPDATE repodoc_index_queue SET state='pending', attempts=0, next_attempt_at=0"
         )
+        mark_all_repodocs(conn)  # and re-plan every doc, including any with no job row
         return cur.rowcount + docs.rowcount
 
 
@@ -398,12 +421,14 @@ def discover_repodocs(store: Store, *, now: float | None = None) -> int:
     """(Re)open the job of every changed repo doc whose shown sha256 moved; drop removed docs.
 
     Only docs marked in ``repodoc_dirty`` are planned, and the marks are cleared in the
-    same transaction; with no marks it reads one row of one table and returns.
+    same transaction. With no marks it reads one row of one table and returns; it takes the
+    write lock only when a mark exists, which a write changing what a doc shows leaves. A
+    marked doc that no longer exists (hard-deleted) is dropped from the index.
 
     Returns how many jobs were enqueued or re-opened. A visibility change without new bytes
     updates the job and the indexed row at once (no re-index). A doc whose new text is
     private has its indexed row made private immediately, before it is re-indexed (fail
-    closed). Takes the write lock only when something changed.
+    closed).
     """
     with store.reader() as conn:
         if conn.execute("SELECT 1 FROM repodoc_dirty LIMIT 1").fetchone() is None:
@@ -412,6 +437,10 @@ def discover_repodocs(store: Store, *, now: float | None = None) -> int:
     n = 0
     with store.connect() as conn:  # the write lock: no mark can land between plan and clear
         planned = _plan_discovery(conn)
+        for (doc_id,) in conn.execute(  # hard-deleted: the planning join cannot see them
+            "SELECT doc_id FROM repodoc_dirty WHERE doc_id NOT IN (SELECT id FROM repodocs)"
+        ).fetchall():
+            search.drop_repodoc(conn, doc_id)
         conn.execute("DELETE FROM repodoc_dirty")
         for action, doc_id, sha, vis in planned:
             if action == "drop":
@@ -497,6 +526,7 @@ class Indexer:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
+        self._swept = False  # the first run_once re-plans every repo doc (self-healing)
 
     def status(self) -> dict:
         return status(self.store, now=self.now())
@@ -515,6 +545,10 @@ class Indexer:
         budget = limit - len(ids)
         if budget <= 0:
             return done
+        if not self._swept:
+            with self.store.connect() as conn:
+                mark_all_repodocs(conn)
+            self._swept = True
         discover_repodocs(self.store, now=self.now())
         with self.store.reader() as conn:
             doc_ids = [

@@ -200,7 +200,7 @@ reranker on. Machine clients reach it on spark's loopback
   - the after-#27 signal is deferred until #27 ships;
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - culture-rules 0.38.1 pushes drafts from one owner clone per origin (d26); the
-    full-corpus mirror check passed twice on 2026-10-31; #35 needs one more right before removal;
+    full-corpus mirror check passed once on 2026-10-31, which #35 needs before removal;
   - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
     (#25);
   - in-progress items (#22);
