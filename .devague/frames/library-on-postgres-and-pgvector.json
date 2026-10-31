@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T19:49:45Z",
+  "updated": "2026-10-31T19:54:22Z",
   "claims": [
     {
       "id": "c1",
@@ -622,6 +622,158 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "The feed's cursor paging never skips an event under concurrent writers: feed appends are serialised (for example a transaction-level advisory lock) so cursor order equals commit order",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "A test with two concurrent writers and a reader paging by cursor sees every event exactly once, in cursor order",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "Read-then-write code paths that relied on SQLite's single writer are made safe under Postgres concurrency: speclinks.record, mirror.enqueue, library._reuse_existing, eval_store.close_running_runs and purge_expired use ON CONFLICT, row locks or advisory locks",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "Each named path has a test that runs two concurrent callers and ends with exactly the rows a serial run would produce",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "The Postgres database uses the C collation, so every ORDER BY on text (titles, repo, path) returns the same order as SQLite's binary ordering",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "For each text-ordered API listing, the order on Postgres matches the SQLite order for the same live data",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Cutover copies stored text and vectors as they are: full-text bodies from search_fts and repodoc_fts, and every embedding blob, with no re-extraction and no re-embedding",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "After the copy, every item and repo doc has the same full-text body and the same vectors (byte for byte) as in SQLite, and the gateway receives no embedding calls during cutover",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "boundary",
+      "text": "Rollback to SQLite is only offered before writes resume on Postgres; once clients write to Postgres, problems are fixed forward, because nothing copies Postgres writes back to SQLite",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "The cutover runbook names the point of no return (resuming writes) and the go/no-go checks that must pass before it",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "Postgres runs with least privilege: no published port outside the compose network, an application role that owns only the library schema (not a superuser), and the role password from grant",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "From the host, nothing listens on 5432 except inside the compose network, and the library's role cannot create roles or databases",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "/api/status reports the database: reachable or not, the applied schema version, and the vector index state, and the library refuses to serve writes if the schema version is ahead of the code",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "With Postgres stopped, /api/status still answers and says the database is unreachable, and the health check fails",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "Backups run on a schedule on spark before cutover and after it, and the cutover is blocked until a scheduled backup has succeeded on Postgres",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "A systemd timer (or equivalent) runs the backup daily and its last success is visible; a probe on 2026-10-31 found no scheduled culture-library backup on spark",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -637,6 +789,24 @@
     {
       "id": "v2",
       "text": "Whether the spark stack has the RAM and disk headroom for Postgres plus an HNSW index over about 70k (and growing) 768-dimension vectors next to the current services",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "The embedding column is fixed at vector(768); the embedding-model comparison (#7) may need a model with another dimension, which would need a second column or table and its own index",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Whether tests and the culture.yaml gate run where no Postgres is available (mesh tooling, a fresh checkout), or need a documented way to start one",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -820,6 +990,88 @@
       "seeds": [
         "q4"
       ]
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / concurrency lens: core/feed.py (cursor INTEGER PRIMARY KEY AUTOINCREMENT), server/routes_feed.py",
+      "finding": "SQLite's single writer makes cursor order equal commit order. A Postgres sequence hands out ids at insert time, so a transaction that commits later with a smaller cursor is invisible to a reader that already paged past it; feed subscribers would silently miss events",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / concurrency lens: core/speclinks.py:118-146, core/mirror.py enqueue, core/library.py _reuse_existing, core/eval_store.py",
+      "finding": "Under BEGIN IMMEDIATE these SELECT-then-INSERT sequences were serialised; under Postgres READ COMMITTED two writers can both see no row and both insert, or one violates a UNIQUE key (mirror_outbox.key)",
+      "seeds": [
+        "c35"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "challenge pass / unstated-assumption lens: probe on the 0.19.8 live backup; core/projects.py:117 ORDER BY repo",
+      "finding": "SQLite compares TEXT bytewise. A probe on the live backup found 35 item titles that sort differently under a case-insensitive order, so a default en_US collation would reorder API listings. No titles or repo paths are non-ASCII today",
+      "seeds": [
+        "c36"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "challenge pass / failure-mode lens: core/search.py set_body/set_embeddings; gateway timings",
+      "finding": "The FTS tables hold the extracted text and the embeddings hold 69,787 vectors. Re-extracting or re-embedding at cutover would take hours through the gateway and could change chunk text, breaking eval anchors; copying keeps both identical",
+      "seeds": [
+        "c37"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "challenge pass / reversibility lens: decision q2 (one-shot), core/backup.py",
+      "finding": "The SQLite snapshot plus the old image restores the pre-cutover state only; any item, repo doc, feed event or key created on Postgres after resuming would be lost by that rollback",
+      "seeds": [
+        "c38"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "challenge pass / security lens: deploy/compose.yaml networks; cli/_commands/deploy.py SECRET_SETTINGS",
+      "finding": "Compose uses the default bridge with no published DB port today (there is no DB service). The private repo docs make the database as sensitive as the bucket",
+      "seeds": [
+        "c39"
+      ]
+    },
+    {
+      "id": "s29",
+      "surface": "challenge pass / observability lens: server/routes_status.py:124-155; core/store.py",
+      "finding": "Status today counts rows and reports index and mirror blocks; with a network database, an unreachable DB or a half-applied migration becomes a new failure mode that nothing currently surfaces",
+      "seeds": [
+        "c40"
+      ]
+    },
+    {
+      "id": "s30",
+      "surface": "challenge pass / recovery lens: systemctl --user list-timers and crontab on spark; docs/operations/backup.md Schedule section",
+      "finding": "No culture-library backup timer or cron entry is installed on spark today; backups so far were taken by hand before upgrades. A network database with more writers makes an unscheduled backup a real recovery gap",
+      "seeds": [
+        "c41"
+      ]
+    },
+    {
+      "id": "s31",
+      "surface": "challenge pass / adjacent-systems lens: culture-rules culture_rules/node/actions/repodocs.py:131-146",
+      "finding": "repodocs.sync is state-file based and idempotent: a failed run resumes next time, so pausing it loses nothing. The other culture-rules rules that write items to the library were not read in this pass",
+      "seeds": []
+    },
+    {
+      "id": "s32",
+      "surface": "challenge pass / probes: live backup copy",
+      "finding": "All 20 non-FTS tables store values matching their declared types (no affinity surprises for the copy); feed has 4,041 events with contiguous cursors; the mcp container reaches the library only over HTTP (compose CULTURE_LIBRARY_URL)",
+      "seeds": []
+    },
+    {
+      "id": "s33",
+      "surface": "challenge pass / not examined",
+      "finding": "Not examined in this pass: the server routes' raw SQL beyond routes_status.py, eval_radar.py, the site's JavaScript (storage-neutral by design), and Postgres tuning (shared_buffers, maintenance_work_mem for the HNSW build; parked as v2)",
+      "seeds": []
     }
   ],
   "lapses": [],
