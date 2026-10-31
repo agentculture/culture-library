@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T20:00:14Z",
+  "updated": "2026-10-31T20:01:11Z",
   "claims": [
     {
       "id": "c1",
@@ -68,12 +68,18 @@
       "kind": "boundary",
       "text": "Item and repo-doc file bytes stay on the filesystem under `data/files/<aa>/<sha256>`, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h4",
           "text": "After cutover every item's sha256 still resolves to data/files/<aa>/<sha256>, and the mirror outbox drains new rows to the same bucket keys",
           "status": "confirmed",
+          "instruction": ""
+        },
+        {
+          "id": "h38",
+          "text": "After cutover every item's sha256 still resolves to `data/files/<aa>/<sha256>`, and the mirror outbox drains new rows to the same bucket keys",
+          "status": "proposed",
           "instruction": ""
         }
       ],
@@ -799,12 +805,12 @@
       "kind": "requirement",
       "text": "Every stored vector records its model id (the real model, e.g. `google/embeddinggemma-2`, not the gateway role name) and its embedding strategy: the document and query prompt names, the chunker and its max_chars, the dimension and the normalisation. Each per-model HNSW index, every search and every eval run selects vectors by (model id, strategy), so vectors from two strategies never mix",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h37",
           "text": "A query never scores vectors from a different model id or strategy than the one it embedded with, shown by a test that stores two strategies side by side, and the cutover fills model id and strategy for all existing vectors from the gateway's /capabilities (embeddinggemma-2, 768, l2, Retrieval-document/Retrieval-query, max_chars 1000)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
