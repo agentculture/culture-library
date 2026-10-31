@@ -10,9 +10,18 @@ COPY culture_library /src/culture_library
 RUN pip install --prefix=/install ".[server,s3]" "events-cli==0.10.0"
 
 FROM python:3.12-slim-bookworm AS runtime
-# poppler-utils provides pdftotext, used for PDF text extraction.
+# poppler-utils provides pdftotext, used for PDF text extraction. postgresql-client-17 (PGDG,
+# since bookworm ships 15) provides pg_dump and pg_restore for `culture-library backup`.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends poppler-utils \
+ && apt-get install -y --no-install-recommends poppler-utils ca-certificates curl gnupg \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+      https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-client-17 \
+ && apt-get purge -y --auto-remove curl gnupg \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --create-home --home-dir /home/library library \
  && mkdir -p /data && chown library:library /data
