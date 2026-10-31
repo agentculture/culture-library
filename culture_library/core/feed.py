@@ -1,4 +1,4 @@
-"""Change feed: an append-only event log in the same SQLite DB (table ``feed``).
+"""Change feed: an append-only event log in the library's Postgres database (table ``feed``).
 
 Later tasks call :func:`append` with the connection of the transaction that changes an
 item, so the change and its event commit (or roll back) together. Readers poll
@@ -12,39 +12,42 @@ holds the repo document's id for a ``repodoc`` event, so only ``subject`` tells 
 spaces apart. :func:`read_since` therefore reads ``item`` events unless asked otherwise: a
 client written before repodoc events (culture-rules, Gwen, xteink) never sees a repodoc id in
 ``item_id``. ``subject="repodoc"`` reads only repo-document events, ``subject="all"`` both.
-``subject`` is added by ``ALTER TABLE ADD COLUMN`` (no table rebuild), so existing rows read
-as ``item``. Uploader ownership applies to items only; a private
+Uploader ownership applies to items only; a private
 repodoc event is shown only to callers with private access.
+
+Cursor order is commit order. The cursor is the identity column ``feed.seq`` (selected
+``AS cursor``, so the API is unchanged). An identity value is assigned at INSERT time, not at
+commit, so two concurrent writers could commit out of order and a reader paging by
+``seq > saved`` would skip the earlier one for good. Every append therefore first takes the
+transaction-level advisory lock :data:`APPEND_LOCK_KEY` and only then inserts, so the next
+``seq`` is drawn while no other appender is between its own insert and its commit. The lock
+is released at commit or rollback.
+
+Throughput cost: appends are serialised across the whole database, and the lock is held until
+the *caller's* transaction ends, so a slow transaction that appends early blocks every other
+appender for its remaining duration. Append late in the transaction (as the item and repodoc
+writers do, after their own rows). The feed is a change log written at human pace, so one
+writer at a time is acceptable. Readers never take the lock.
 """
 
 from __future__ import annotations
 
-import json
-import sqlite3
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import uploaders
 from .errors import ValidationError
 from .models import KINDS, VISIBILITIES
-from .store import now, register_migration, register_schema
+from .store import now
+
+if TYPE_CHECKING:  # pragma: no cover
+    import psycopg
 
 EVENT_TYPES = ("created", "updated", "archived", "purged", "send_requested")
 DEFAULT_LIMIT = 500
 MAX_LIMIT = 1000
 
-register_schema("""
-CREATE TABLE IF NOT EXISTS feed (
-    cursor INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT NOT NULL,
-    item_id INTEGER NOT NULL,
-    sha256 TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private',
-    at TEXT NOT NULL,
-    data TEXT
-)
-""")
-register_schema("CREATE INDEX IF NOT EXISTS feed_item_id ON feed(item_id)")
+# pg_advisory_xact_lock key serialising feed appends (see the module docstring).
+APPEND_LOCK_KEY = 0x6375_6C74_6665_6564  # "cultfeed"
 
 SUBJECTS = ("item", "repodoc")
 ALL = "all"
@@ -52,17 +55,19 @@ DEFAULT_SUBJECT = "item"
 _REPODOC_KINDS = ("document", "spec", "plan", "devague-record", "design")
 
 
-def ensure_subject_column(conn: sqlite3.Connection) -> None:
-    """Add ``feed.subject`` to databases created before repodoc events (idempotent)."""
-    have = {row[1] for row in conn.execute("PRAGMA table_info(feed)")}
-    if "subject" not in have:
-        conn.execute("ALTER TABLE feed ADD COLUMN subject TEXT NOT NULL DEFAULT 'item'")
+def _jsonb(value: Any) -> Any:
+    """``value`` wrapped for a jsonb parameter (psycopg is imported lazily, as in the store)."""
+    from psycopg.types.json import Jsonb
+
+    return Jsonb(value)
 
 
-register_migration(ensure_subject_column)
+def _lock_appends(conn: psycopg.Connection) -> None:
+    """Take the append lock until this transaction ends; call before drawing a ``seq``."""
+    conn.execute("SELECT pg_advisory_xact_lock(%s)", (APPEND_LOCK_KEY,))
 
 
-def append(conn: sqlite3.Connection, event: dict[str, Any]) -> int:
+def append(conn: psycopg.Connection, event: dict[str, Any]) -> int:
     """Append ``event`` on the caller's connection/transaction; return its cursor.
 
     Required keys: ``type`` (one of :data:`EVENT_TYPES`), ``item_id``, ``sha256``,
@@ -80,9 +85,10 @@ def append(conn: sqlite3.Connection, event: dict[str, Any]) -> int:
     if visibility not in VISIBILITIES:
         raise ValidationError(f"visibility must be one of {', '.join(VISIBILITIES)}")
     data = event.get("data")
-    cur = conn.execute(
+    _lock_appends(conn)
+    row = conn.execute(
         "INSERT INTO feed (type, item_id, sha256, kind, visibility, at, data)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING seq",
         (
             etype,
             event["item_id"],
@@ -90,14 +96,14 @@ def append(conn: sqlite3.Connection, event: dict[str, Any]) -> int:
             event["kind"],
             visibility,
             now(),
-            None if data is None else json.dumps(data, sort_keys=True),
+            None if data is None else _jsonb(data),
         ),
-    )
-    return int(cur.lastrowid)
+    ).fetchone()
+    return int(row[0])
 
 
 def append_repodoc(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     doc_id: int,
     kind: str,
     sha256: str,
@@ -125,16 +131,17 @@ def append_repodoc(
         "path": data["path"],
         "commit": data.get("commit") or "working",
     }
-    cur = conn.execute(
+    _lock_appends(conn)
+    row = conn.execute(
         "INSERT INTO feed (type, item_id, sha256, kind, visibility, at, data, subject)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, 'repodoc')",
-        (type, int(doc_id), sha256, kind, visibility, now(), json.dumps(payload, sort_keys=True)),
-    )
-    return int(cur.lastrowid)
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, 'repodoc') RETURNING seq",
+        (type, int(doc_id), sha256, kind, visibility, now(), _jsonb(payload)),
+    ).fetchone()
+    return int(row[0])
 
 
 def read_since(
-    conn: sqlite3.Connection,
+    conn: psycopg.Connection,
     since: int = 0,
     *,
     limit: int = DEFAULT_LIMIT,
@@ -160,15 +167,15 @@ def read_since(
         shown = "1=1"
     else:
         shown = f"(subject = 'item' AND {vis}) OR (subject = 'repodoc' AND visibility = 'public')"
-    where, params = "cursor > ?", [since]
+    where, params = "seq > %s", [since]
     if item_id is not None:
-        where, params = "subject = 'item' AND item_id = ? AND cursor > ?", [int(item_id), since]
+        where, params = "subject = 'item' AND item_id = %s AND seq > %s", [int(item_id), since]
     elif subject != ALL:
-        where, params = "subject = ? AND cursor > ?", [subject, since]
+        where, params = "subject = %s AND seq > %s", [subject, since]
     rows = conn.execute(
-        "SELECT cursor, type, item_id, sha256, kind, visibility, at, data, subject,"
+        "SELECT seq AS cursor, type, item_id, sha256, kind, visibility, at, data, subject,"
         f" ({shown}) AS shown"
-        f" FROM feed WHERE {where} ORDER BY cursor LIMIT ?",  # nosec B608 - fixed fragments
+        f" FROM feed WHERE {where} ORDER BY seq LIMIT %s",  # nosec B608 - fixed fragments
         (*vis_params, *params, limit + 1),
     ).fetchall()
     more = len(rows) > limit
@@ -186,7 +193,7 @@ def read_since(
                 "kind": r[4],
                 "visibility": r[5],
                 "at": r[6],
-                "data": None if r[7] is None else json.loads(r[7]),
+                "data": r[7],
                 "subject": r[8],
             }
         )
