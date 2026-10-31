@@ -1,7 +1,7 @@
 # Deploying on spark
 
-The stack in `deploy/` runs the library server and the MCP server from one image,
-and optionally a Cloudflare Tunnel connector that fronts `library.culture.dev`. It
+The stack in `deploy/` runs PostgreSQL 17 with pgvector, the library server and the MCP
+server (the last two from one image), and optionally a Cloudflare Tunnel connector that fronts `library.culture.dev`. It
 mirrors the xteink stack (`compose.yaml` and `docs/remote-access.md` at xteink commit
 `ea2f643`). Provisioning on Cloudflare and on spark is an operator step; nothing in
 this repo calls Cloudflare.
@@ -10,8 +10,9 @@ this repo calls Cloudflare.
 
 | Service | Port | Reachable from | Purpose |
 |---------|------|----------------|---------|
+| `postgres` | none (5432 inside the compose network) | `library` only; no published port | the database: `pgvector/pgvector:pg17`, volume `culture-library-pgdata` |
 | `library` | 8796 | spark loopback (default) or LAN | site and API; machine clients use it with API keys |
-| `mcp` | 8797 | spark loopback (default) or LAN, never the tunnel | MCP streamable-http for agents; calls `http://library:8796` |
+| `mcp` | 8797 | spark loopback (default) or LAN, never the tunnel | MCP streamable-http for agents; calls `http://library:8796` and holds no database credentials |
 | `cloudflared` | none | outbound only, `remote` profile | serves `library.culture.dev` to humans, behind Cloudflare Access |
 
 Machine clients (culture-rules, Gwen, xteink) use the local address and an API key.
@@ -22,21 +23,59 @@ Both ports are published on `${LIBRARY_PUBLISH_BIND:-127.0.0.1}`. To let LAN cli
 in, set `LIBRARY_PUBLISH_BIND` to spark's LAN address in `deploy/.env`. Do not use
 `0.0.0.0` without a firewall, and keep the MCP port off the internet.
 
-Data lives in the named volume `culture-library-data`, mounted at `/data`
-(`CULTURE_LIBRARY_DATA_DIR`). Set `LIBRARY_DATA` to a host directory (writable by
-uid 10001) to use a bind mount instead. Every service has `restart: unless-stopped`
+The database lives in the named volume `culture-library-pgdata`, owned by the `postgres`
+service. The content-addressed files (`files/<aa>/<sha256>`) live in the named volume
+`culture-library-data`, mounted in `library` at `/data` (`CULTURE_LIBRARY_DATA_DIR`). Set
+`LIBRARY_DATA` to a host directory (writable by uid 10001) to use a bind mount for the
+files instead. `postgres` has `shm_size: 1gb` (a parallel HNSW build needs more than
+Docker's 64 MB `/dev/shm`) and a `pg_isready` healthcheck; `library` waits for it to be
+healthy. Every service has `restart: unless-stopped`
 and a healthcheck whose start period plus retries finish within 60 s, so the stack
 is healthy well inside 120 s of a reboot once the Docker daemon is up.
+
+## The database
+
+On the first start with an empty `culture-library-pgdata` volume, the init script
+`deploy/postgres-init/01-library.sql` runs once, as the superuser. It creates the database
+`culture_library` (UTF8 with the `C` collation, so sorting is byte order) and the role
+`culture_library` (login only: not a superuser, no create-database or create-role rights).
+It also creates the `vector` extension, which needs the superuser. The init script does not
+run again, so changing a password later is an `ALTER ROLE`, not an edit to a secret alone.
+
+`library` reads `CULTURE_LIBRARY_PG_HOST`, `_PORT`, `_DATABASE` and `_USER` (set in
+`compose.yaml` to `postgres`, `5432`, `culture_library`, `culture_library`) and
+`CULTURE_LIBRARY_PG_PASSWORD`. `mcp` has no database settings.
+
+Two grant secrets hold the passwords. Create them before the first restart that starts
+Postgres:
+
+```bash
+grant set CULTURE_LIBRARY_PG_PASSWORD - --hidden             # the application role
+grant set CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD - --hidden   # injected as POSTGRES_PASSWORD
+```
+
+`deploy restart` injects the first into `postgres` (for the init script) and `library`, and
+the second into `postgres` only. Neither may appear in `live.env`; `deploy restart` refuses
+an env file that sets them.
+
+The store applies versioned migrations (`culture_library/core/migrations/NNNN_*.sql`) when
+it opens, once each, under an advisory lock, and records them in `schema_version`. It refuses
+to open a database whose collation is not `C`, or whose schema is ahead of the code.
 
 ## Build and start
 
 ```bash
 cd culture-library
 cp deploy/.env.example deploy/.env      # edit; it holds no secrets
-docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
-docker compose -f deploy/compose.yaml ps       # library and mcp: healthy
+grant run --inject POSTGRES_PASSWORD=CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD \
+  --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD -- \
+  docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
+docker compose -f deploy/compose.yaml ps       # postgres, library and mcp: healthy
 curl -s http://127.0.0.1:8796/api/health
 ```
+
+On spark use `culture-library deploy restart` (see "Restart the live stack") instead of
+typing the injection by hand.
 
 Without `--profile remote` no cloudflared container runs and nothing is reachable
 from outside spark's network. The image installs `.[server]` and `poppler-utils`
@@ -142,9 +181,13 @@ curl -sI https://library.culture.dev/ | head -3
 curl -s -o /dev/null -w '%{http_code}\n' https://library.culture.dev/api/library
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8796/api/library
 
-# 3. Health, on spark
+# 3. Health, on spark (503 when the database is unreachable)
 curl -s http://127.0.0.1:8796/api/health
 docker compose -f deploy/compose.yaml ps
+
+# 3b. The database block of /api/status (read key): reachable, schema_version,
+#     expected_schema_version, schema_current, vector_indexes
+curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8796/api/status | python3 -m json.tool | grep -A12 '"database"'
 
 # 4. A machine client with a key (local address)
 curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8796/api/library | head -c 200
@@ -160,25 +203,27 @@ browser.
 ```bash
 sudo reboot
 # after login, within 120 s:
-docker compose -f deploy/compose.yaml ps        # library, mcp (and cloudflared): healthy
+docker compose -f deploy/compose.yaml ps        # postgres, library, mcp (and cloudflared): healthy
 curl -s http://127.0.0.1:8796/api/health
 ```
 
-The data volume survives; items and keys are still there. If a container is not
+Both volumes survive; items and keys are still there. If a container is not
 healthy, read `docker compose -f deploy/compose.yaml logs <service>`.
 
 ## Backups
 
 Schedule backups before relying on the stack: see
 [backup.md](backup.md) for `culture-library backup run --to <dir>` and
-`culture-library backup schedule --print`. Run them inside the container (or against a
-bind-mounted data directory), writing to a location outside `/data`.
+`culture-library backup schedule --print`. A backup is a `pg_dump` plus the files tree. On
+live, `pg_dump` runs inside the `library` image (the host has no PostgreSQL 17 client
+tools and `postgres` publishes no port), writing to a location outside `/data`; backup.md
+has the form to use for the timer.
 
 ## Restart the live stack
 
 On spark the live stack has no `deploy/.env`. Its settings live in a host env file
-outside git, `$HOME/.config/culture-library/live.env`, and the tunnel token comes from
-`grant`. Keep every value the stack needs in that file, never typed on the command
+outside git, `$HOME/.config/culture-library/live.env`, and the secrets (tunnel token,
+gateway key, AWS credentials, the two Postgres passwords) come from `grant`. Keep every value the stack needs in that file, never typed on the command
 line: a hand-typed placeholder such as `'[...]'` for the send targets starts the
 library with a broken send menu (`SendConfigError: CULTURE_LIBRARY_SEND_TARGETS is not
 valid JSON`).
@@ -201,10 +246,11 @@ docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{printl
   | grep -E '^CULTURE_LIBRARY_(ACCESS_TEAM_DOMAIN|ACCESS_AUD|SEND_TARGETS)='
 ```
 
-Recreate `library` and `mcp` with the current image (cloudflared keeps its tunnel). The
-CLI does it in one step: it refuses an env file with a missing, empty or placeholder
-setting, or send targets that do not parse, before anything runs. Then it recreates the
-containers, waits for `/api/health` and lists the send targets the new container loads:
+Recreate `postgres`, `library` and `mcp` with the current image (cloudflared keeps its
+tunnel). Starting `postgres` when it already runs is a no-op. The CLI does it in one step: it refuses an env file with a missing, empty or placeholder
+setting, or send targets that do not parse, before anything runs. Then it starts
+`postgres` and waits for its healthcheck, recreates `library` and `mcp`, waits for
+`/api/health` and lists the send targets the new container loads:
 
 ```bash
 uv run culture-library deploy restart            # --build rebuilds the image first
@@ -213,11 +259,20 @@ uv run culture-library deploy restart --dry-run  # print the commands, run nothi
 
 It reads `$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`, and
 first checks that each grant secret exists (`grant show`, which never prints a value),
-then runs this. With an S3 bucket in the env file (live has one since 0.19.0) it also
+then runs these steps in order (`--build` adds a `docker compose build library` before
+them). With an S3 bucket in the env file (live has one since 0.19.0) the second step also
 injects the AWS credentials (see "S3 mirror"):
 
 ```bash
+# 1. the database first; --wait blocks until its healthcheck passes
+grant run --inject POSTGRES_PASSWORD=CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD \
+  --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD -- \
+  docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
+  up -d --no-deps --wait postgres
+
+# 2. then library and mcp
 grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
+  --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD \
   --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY \
   --inject AWS_ACCESS_KEY_ID=CULTURE_LIBRARY_AWS_ACCESS_KEY_ID \
   --inject AWS_SECRET_ACCESS_KEY=CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY -- \
@@ -239,7 +294,8 @@ docker compose -p culture-library -f deploy/compose.yaml exec -T library python3
 ```
 
 The second command must list the send targets. A `SendConfigError` means the env file
-is wrong: fix it and recreate again. A restart never touches the data volume. Drop
+is wrong: fix it and recreate again. A restart never touches either volume. The secret
+names are `--pg-password-secret` and `--pg-superuser-secret` if yours differ. Drop
 `--profile remote` only to stop managing cloudflared from this command.
 
 ## Enable embeddings
@@ -297,9 +353,8 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
    chunk count to it), so for now count them in the database:
 
    ```bash
-   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
-     "from culture_library.core import Store
-   with Store().reader() as c: print(c.execute('SELECT COUNT(*) FROM embeddings').fetchone()[0])"
+   docker compose -p culture-library -f deploy/compose.yaml exec -T postgres \
+     psql -U culture_library -d culture_library -tAc 'SELECT COUNT(*) FROM embeddings'
    ```
 
    The count must be greater than 0 before you rely on semantic search.
@@ -446,115 +501,64 @@ other key those four kinds. Rotate any of them as described under
 
 ## Upgrading across a schema change
 
-The release that adds repo-document mirroring widens the items kind CHECK again (the new
-'design' kind), so the first open rebuilds the `items` table. Take a backup first (step 1
-below) and keep the old image.
+Schema changes are versioned SQL files in `culture_library/core/migrations/`
+(`NNNN_<name>.sql`). The store applies each one once, when it opens, under a Postgres
+advisory lock (so `library` and a CLI process starting together do not race), and records it
+in `schema_version`. A migration alters tables in place; the store does not rebuild tables,
+and there are no `sqlite_sequence` or row-count rebuild checks to run.
 
-Some releases change the database schema. Release 0.12.0 widens the `items.kind`
-CHECK constraint so the `todo` kind is accepted. On first open after the upgrade the
-store rebuilds the `items` table once, preserving ids and the id sequence. It verifies
-the row counts and refuses to open (rolling back) if they differ. Follow these steps
-for any such release.
+The store refuses to open a database whose schema is ahead of its code (an older image on
+a migrated database) and one whose collation is not `C`. Both show up as a container that
+does not become healthy; read `docker compose -p culture-library -f deploy/compose.yaml logs
+library`.
 
-1. Keep the running image for rollback, then take a backup with it and verify it.
-   The rebuild in step 3 overwrites the `culture-library:local` tag, and the container
-   mounts only the data volume, so back up to a host directory using the *old* image
-   (no migration can run during the backup). The image runs as uid 10001, so the
-   empty host directory must be writable for it during the run:
+For a release that adds a migration:
+
+1. Keep the running image for rollback, and take a backup with the current stack
+   (see [backup.md](backup.md)); verify it:
 
    ```bash
    docker tag culture-library:local culture-library:<old-version>
-   B=~/backups/culture-library-pre-<new-version>; mkdir -p "$B"; chmod o+w "$B"
-   docker run --rm -v culture-library_culture-library-data:/data -v "$B":/backup \
-     --entrypoint culture-library culture-library:<old-version> \
-     backup run --data-dir /data --to /backup
-   chmod o-w "$B"
-   docker run --rm -v "$B":/backup:ro --entrypoint culture-library \
-     culture-library:<old-version> backup verify /backup/snapshots/<UTC stamp>
+   culture-library backup verify <backup>/snapshots/<UTC stamp>
    ```
 
-2. Record the row count, highest id and id sequence before the upgrade:
+2. Note the current schema version and an item count. With a read key:
 
    ```bash
-   docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
-     "import sqlite3; c = sqlite3.connect('file:/data/library.db?mode=ro', uri=True); \
-   print(c.execute('SELECT count(*), max(id) FROM items').fetchone(), \
-   c.execute(\"SELECT seq FROM sqlite_sequence WHERE name = 'items'\").fetchone())"
+   curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8796/api/status
    ```
 
-3. Build the new image and recreate only `library` and `mcp` (cloudflared keeps its
-   tunnel). Use the env file from [Restart the live stack](#restart-the-live-stack), so
-   every setting carries over; the tunnel token comes from `grant` and is never
-   printed:
+   `database.schema_version` is the highest applied migration.
+
+3. Build the new image and restart with the env file from
+   [Restart the live stack](#restart-the-live-stack). `deploy restart` injects every grant
+   secret (including the Postgres passwords and the S3 mirror's AWS credentials), waits for
+   health and lists the send targets. Don't recreate by hand.
 
    ```bash
    git checkout <new-tag-or-commit>
-   docker compose -p culture-library -f deploy/compose.yaml build library
-   uv run culture-library deploy restart
+   uv run culture-library deploy restart --build
    ```
 
-   `deploy restart` injects every grant secret the env file needs, including the S3
-   mirror's AWS credentials, waits for health and lists the send targets. Don't recreate
-   by hand with only the tunnel and gateway secrets: the mirror then starts without
-   credentials and every upload fails (see [Restart the live stack](#restart-the-live-stack)).
-   Confirm the credentials reached the container without printing them:
+4. Check `/api/status`: `database.schema_version` equals `database.expected_schema_version`
+   and `database.schema_current` is `true`, and the item count is at least the one from
+   step 2.
 
-   ```bash
-   docker compose -p culture-library -f deploy/compose.yaml exec -T library \
-     sh -c 'test -n "$AWS_ACCESS_KEY_ID" && echo present || echo MISSING'
-   ```
+**Rollback is restoring the pre-upgrade snapshot**, not running an older image over the
+migrated database (the store refuses that). Stop `library` and `mcp`, restore the snapshot
+into an empty database and an empty files directory as in [backup.md](backup.md), then
+start the image tagged in step 1. The restore discards every write made since the
+snapshot. Migrations that only add columns or indexes can also be left in place and
+fixed forward; decide before the release, not during it.
 
-4. Check the container logs for the one-line migration diagnostic, which the store
-   writes to stderr once, on success:
+### Eval snapshot backfill
 
-   ```bash
-   docker compose -p culture-library -f deploy/compose.yaml logs library | grep -i migrat
-   ```
-
-   If the container fails to start with a row-count mismatch, the store rolled back
-   and left the database as it was. Do not retry; restore the snapshot (below) and
-   report the failure.
-
-5. Run the count query from step 2 again. The count and `max(id)` must equal the
-   before values (plus any items uploaded since).
-
-**Rollback is restoring the pre-upgrade snapshot**, not redeploying an older image
-over the migrated database: stop the stack, restore the snapshot from step 1 with the
-restore steps in [backup.md](backup.md), then start the image tagged in step 1.
-
-The release that adds the `discord-message` kind (#19) does the same: the same one-time
-rebuild and the same steps. Counts are checked for `items` and for every child table
-(`embeddings`, `index_queue`, `item_sources`, `eval_sets`).
-
-Running an older image on a database that holds `todo` or `discord-message` items is
-unsupported. The old `feed.append` rejects unknown kinds, so events for those items fail.
-A snapshot restore discards every item created since the upgrade, including `todo` and
-`discord-message` items culture-rules pushed in the meantime; export what you need first.
-
-### Eval columns (additive, no rebuild)
-
-The eval-suites release adds nullable columns in place. On first open the store runs
-`ALTER TABLE ADD COLUMN` for each one that is missing; it does not rebuild a table and
-the steps above still apply (take the pre-deploy snapshot in step 1 first, because a
-restore is the only rollback). After the upgrade, check that the columns exist:
-
-- `eval_runs`: `partial_aggregates_json`, `error_rate`, `suites_json`, and `running`
-  (`INTEGER NOT NULL DEFAULT 0`).
-- `eval_run_samples`: `question`, `reference_chunk_shas`, `set_version`,
-  `retrieved_item_ids`, `latency_ms`, `freshness`.
-
-```bash
-docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 -c \
-  "import sqlite3; c = sqlite3.connect('file:/data/library.db?mode=ro', uri=True); \
-print([r[1] for r in c.execute('PRAGMA table_info(eval_runs)')], \
-[r[1] for r in c.execute('PRAGMA table_info(eval_run_samples)')])"
-```
-
-**Snapshot backfill.** Runs stored before this release have no question or reference
-shas in their results. `culture_library.core.eval_store.backfill_snapshots(conn)` copies
-them from `eval_samples` into those results. It is idempotent, and a result whose sample
-was deleted by `replace_samples` (a regenerated set) cannot be filled. No CLI verb runs it,
-so run it once after the upgrade:
+Eval runs stored before the eval-suites release have no question or reference shas in
+their results. `culture_library.core.eval_store.backfill_snapshots(conn)` copies them from
+`eval_samples`. It is idempotent, and a result whose sample was deleted by
+`replace_samples` (a regenerated set) cannot be filled. It is only needed on a database
+that predates 0.18.2; one copied from 0.19.x SQLite by the cutover already had it run.
+No CLI verb runs it:
 
 ```bash
 docker compose -p culture-library -f deploy/compose.yaml exec -T library python3 - <<'PY'
@@ -565,24 +569,20 @@ with Store("/data").connect() as conn:
 PY
 ```
 
-The command prints how many results it filled; running it again prints `0`.
-
-Upgrading to 0.18.2 or later, run it once more. It also repairs results that the 0.18.0
-and 0.18.1 backfill filled without a version check: references copied from a newer set
-version are withdrawn (the radar then keeps the run's stored scores), and the rest get their
-`set_version`. Repairs are not counted, so this run can print `0`.
+It prints how many results it filled; running it again prints `0`.
 
 ## Rollback
 
 ```bash
 git checkout <previous-tag-or-commit>
-docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build
+uv run culture-library deploy restart --build
 ```
 
-The data volume is untouched by a rebuild. If a new version migrated the database and
-must be undone, stop the stack, restore the last snapshot with the restore steps in
-[backup.md](backup.md), then start the previous version. To take the public site down
-without touching data, stop only the connector:
+Both volumes are untouched by a rebuild. This is enough when the previous version runs on
+the current schema (the store refuses a database whose schema is ahead of its code). If a
+new version migrated the database and must be undone, stop `library` and `mcp`, restore the
+last snapshot with the restore steps in [backup.md](backup.md), then start the previous
+version. To take the public site down without touching data, stop only the connector:
 
 ```bash
 docker compose -f deploy/compose.yaml --profile remote stop cloudflared
@@ -590,3 +590,6 @@ docker compose -f deploy/compose.yaml --profile remote stop cloudflared
 
 To remove the public hostname entirely, run `cultureflare remote-login teardown
 --hostname library.culture.dev` (dry run first, then `--apply`).
+
+The move from SQLite to Postgres (the cutover from the 0.19.x SQLite release) has its own runbook with its
+own rollback rule: [cutover-postgres.md](cutover-postgres.md).

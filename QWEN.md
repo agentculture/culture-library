@@ -17,10 +17,16 @@ It is also the private home of every repo's devague work (specs, plans,
 deliveries, designs and raw `.devague/` state), pushed by culture-rules and
 mirrored to a private S3 bucket; that work is live since 2026-10-31.
 
+**Storage.** The code in this tree stores everything in PostgreSQL 17 with
+pgvector (compose service `postgres`); the driver is the optional `[pg]` extra.
+Live on spark still runs the SQLite 0.19.x release until the cutover
+(`docs/operations/cutover-postgres.md`). The operator decided on 2026-10-31 to migrate
+before any further SQLite optimisation (issue #47).
+
 **Status: built and live** at library.culture.dev (behind Cloudflare Access)
 since 2026-10-24. The library lives in `culture_library/`:
 
-- `core/`: storage, ingest, keys, feed, search, repo documents, send, backup;
+- `core/`: the Postgres store and its migrations, ingest, keys, feed, search, repo documents, send, backup;
 - `server/`: the HTTP API, OPDS, WebDAV and the site;
 - `mcp/`: the agents' MCP server;
 - `web/static/`: the site's files;
