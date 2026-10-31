@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T23:11:37Z",
+  "updated": "2026-10-31T23:17:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -168,6 +168,20 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "t17 documents the live backup timer and the cutover copy as 'grant run ... docker compose run --rm --no-deps -v <dir>:/backup library culture-library ...' instead of 'docker exec', and trimmed QWEN.md to stay under its 145-line cap",
+      "task_ref": "t17",
+      "reason": "compose mounts no backup directory into the library container, so a docker exec backup would have nowhere to write; test_harness_files_stay_in_step enforces the QWEN.md cap",
+      "affects": [
+        "t18",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 14
     }
   ],
   "evidence": [],
