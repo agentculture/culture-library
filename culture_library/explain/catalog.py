@@ -224,16 +224,22 @@ _BACKUP = """\
 
 Back up the library to a second location and prove it restores.
 
-- `backup run [--data-dir D] [--to B] [--keep N]` — copy a consistent SQLite snapshot
-  (online backup API, safe while the server writes) to `B/snapshots/<UTC stamp>/` with a
-  `manifest.json` (item and repo-document ids, sha256, visibility, counts), and copy only
-  missing blobs (items' and repo documents') into `B/files/`. Keeps the last N snapshots
-  (default 7). `B` defaults to `CULTURE_LIBRARY_BACKUP_DIR`.
-- `backup verify <snapshot>` — check the database against the manifest and re-hash every blob.
-- `backup restore --from <snapshot> --to <dir>` — restore into an empty directory (a
-  non-empty one is refused) and verify ids, sha256 and visibility.
-- `backup schedule --print [--kind systemd|cron]` — print a daily schedule; installs nothing.
-- `backup overview` — describe this noun.
+- `backup run [--data-dir D] [--to B] [--keep N] [--dsn DSN]` — `pg_dump` the database
+  (custom format, one exported snapshot, safe while the server writes) to
+  `B/snapshots/<UTC stamp>/library.dump` with a `manifest.json` (item and repo-document ids,
+  sha256, visibility, per-table row counts, blob list, dump sha256), and copy only missing
+  blobs into `B/files/`. Keeps the last N snapshots (default 7). `B` defaults to
+  `CULTURE_LIBRARY_BACKUP_DIR`. Needs `pg_dump`/`pg_restore` 17 on PATH or in
+  `CULTURE_LIBRARY_PG_BIN_DIR`.
+- `backup verify <snapshot>` — check the dump file and its tables against the manifest and
+  re-hash every blob.
+- `backup restore --from <snapshot> --to <dir> [--dsn DSN]` — `pg_restore` into an empty
+  database and an empty files tree (non-empty ones are refused), then verify row counts,
+  ids, sha256 and visibility.
+- `backup schedule [--to B] [--unit-dir U]` — write a daily systemd user timer and service;
+  prints the `systemctl --user` commands and enables nothing. `--print [--kind systemd|cron]`
+  only prints.
+- `backup overview [--to B]` — describe this noun and show the last successful backup.
 """
 
 _MIRROR = """\

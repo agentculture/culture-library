@@ -33,3 +33,14 @@ A crashed run can leave `culture_library_test_*` databases behind; drop them by 
 
 In CI, the `test` jobs of `tests.yml` and `publish.yml` (and the opt-in `visual` and `ragas`
 jobs, which also load the root `conftest.py`) run a `pgvector/pgvector:pg17` service.
+
+## Backup tests and pg_dump
+
+`tests/core/test_backup.py` and `tests/test_cli_backup.py` run the real `pg_dump` and
+`pg_restore` (17). CI installs `postgresql-client-17` from PGDG in the `test` jobs. A host
+without the client tools (spark has none) can use the test container instead: if neither tool is
+on `PATH`, the `pg_bin` fixture in `tests/backup_fixtures.py` writes two wrappers that run
+`docker exec -i culture-library-pgtest <tool> ...`, rewriting the host port `55432` to the
+container's own `5432`, and points `CULTURE_LIBRARY_PG_BIN_DIR` at them for the session. So the
+container must be named `culture-library-pgtest`; with neither route the tests fail, they are
+never skipped. Outside the tests, set `CULTURE_LIBRARY_PG_BIN_DIR` yourself.
