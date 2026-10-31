@@ -82,8 +82,9 @@ def build_template(admin_dsn: str, name: str, migrate: Callable | None = None) -
     with psycopg.connect(admin_dsn, autocommit=True) as admin:
         admin.execute(f"CREATE DATABASE {_ident(name)}")
     dsn = _with_dbname(admin_dsn, name)
-    with psycopg.connect(dsn, autocommit=True) as conn:
+    with psycopg.connect(dsn) as conn:  # one transaction: migrate() refuses autocommit
         (migrate or default_migrate)(conn)
+        conn.commit()
     return dsn
 
 

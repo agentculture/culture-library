@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T20:54:45Z",
+  "updated": "2026-10-31T21:01:00Z",
   "deviations": [
     {
       "id": "d1",
@@ -25,6 +25,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t1 also edited core/__init__.py (dropped side-effect imports of unported modules and the SCHEMA/register_schema exports), put the items table in 0001_initial.sql for t4 to extend, fixed a temp-name collision in Store.write_blob, and deleted tests/core/test_store.py and test_store_migration.py (moving two kind tests to test_todo_kind.py)",
+      "task_ref": "t1",
+      "reason": "without the __init__ edit no core module imports at all; t4's criterion names 0001_initial.sql as the single initial schema; the concurrent-add test exposed the write_blob race; the deleted tests covered the SQLite store and the kind-CHECK rebuild that no longer exist",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],
