@@ -11,7 +11,6 @@ from culture_library.cli._commands import learn
 from culture_library.cli._commands import mirror as mirror_cmd
 from culture_library.core import Store
 from culture_library.core.mirror import FakeBackend, drain, enqueue, key_for
-from culture_library.core.repodocs import RepoDocs
 from culture_library.explain.catalog import ENTRIES
 
 A = "a" * 40
@@ -24,6 +23,8 @@ def _env(monkeypatch):
 
 
 def _lib(tmp_path, n=2):
+    from culture_library.core.repodocs import RepoDocs  # ported separately
+
     s = Store(tmp_path / "data")
     for i in range(n):
         RepoDocs(s).push(
