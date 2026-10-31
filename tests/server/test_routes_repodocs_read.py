@@ -193,3 +193,18 @@ def test_rendered_delivery_json_html(client) -> None:
     r = client.get(f"/api/repodocs/{_id(client, '.devague/deliveries/d.json')}/rendered").json()
     assert r["format"] == "html"
     assert "shown" not in r
+
+
+def test_remote_filter_accepts_the_repo_id_the_api_returns(client) -> None:
+    _push(client, "docs/specs/a.md", content="# a\n")
+    repo = client.get("/api/repodocs").json()["docs"][0]["repo"]
+    assert repo == "github.com/agentculture/devague"
+    for remote in (repo, REMOTE, "git@github.com:agentculture/devague.git"):
+        r = client.get("/api/repodocs", params={"remote": remote, "path": "docs/specs/a.md"})
+        assert r.status_code == 200, (remote, r.text)
+        assert [d["repo"] for d in r.json()["docs"]] == [repo]
+
+
+def test_remote_filter_still_refuses_garbage(client) -> None:
+    r = client.get("/api/repodocs", params={"remote": "not a remote"})
+    assert r.status_code == 400

@@ -30,7 +30,6 @@ import json
 import os
 import pathlib
 import re
-import socket
 import sys
 import urllib.parse
 import urllib.request
@@ -39,6 +38,7 @@ from dataclasses import dataclass, field
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from culture_library.core.mirror import WORKING, key_for  # noqa: E402
+from culture_library.core.errors import ValidationError  # noqa: E402
 from culture_library.core.repodocs import normalize_remote  # noqa: E402
 
 PREFIXES = ("docs/specs/", "docs/plans/", "docs/deliveries/", "docs/design/", ".devague/")
@@ -100,12 +100,24 @@ def origin_url(repo: pathlib.Path) -> str | None:
     return None
 
 
-def repo_identity(repo: pathlib.Path) -> str:
-    """Normalized remote, or ``<host>:<abs path>`` for a repo with no origin."""
+DEFAULT_HOST = "spark"
+# origins culture-rules treats as no origin (a path on this host)
+_LOCAL_ORIGINS = (
+    "/",
+    "./",
+    "../",
+    "~",
+    "file:",
+)  # the node culture-rules' repodocs-sync rule is placed on
+
+
+def repo_identity(repo: pathlib.Path, host: str = DEFAULT_HOST) -> str:
+    """Normalized remote, or ``<host>:<abs path>`` for a repo with no origin. ``host`` is the
+    pusher's node name (culture-rules uses its own, not this machine's hostname)."""
     url = origin_url(repo)
-    if url:
+    if url and not url.lower().startswith(_LOCAL_ORIGINS):
         return normalize_remote(url)
-    return normalize_remote(f"{socket.gethostname().split('.')[0]}:{repo.resolve()}")
+    return normalize_remote(f"{host}:{repo.resolve()}")
 
 
 def iter_docs(repo: pathlib.Path):
@@ -120,12 +132,40 @@ def iter_docs(repo: pathlib.Path):
                 yield rel, full
 
 
+def _name_key(name: str) -> str:
+    return name.lower().replace("_", "-")
+
+
+def _owners(repos: list[pathlib.Path]) -> list[pathlib.Path]:
+    """One clone per shared origin, as culture-rules picks it: the clone named like the
+    origin's repo (case-insensitive, ``-`` and ``_`` equal), else the first by name. Only that
+    clone's drafts are pushed, so the others are not checked."""
+    groups: dict[str, list[pathlib.Path]] = {}
+    for repo in repos:
+        url = origin_url(repo)
+        try:
+            shared = url and not url.lower().startswith(_LOCAL_ORIGINS)
+            key = normalize_remote(url).lower() if shared else str(repo)
+        except ValidationError:
+            key = str(repo)
+        groups.setdefault(key, []).append(repo)
+    kept = []
+    for key, clones in groups.items():
+        want = _name_key(key.rsplit("/", 1)[-1])
+        named = [c for c in clones if _name_key(c.name) == want]
+        kept.append(min(named or clones, key=lambda c: c.name))
+    return sorted(kept, key=lambda c: c.name)
+
+
 def discover_repos(root: pathlib.Path) -> list[pathlib.Path]:
-    return [
-        p
-        for p in sorted(root.iterdir())
-        if p.is_dir() and not _skipped(p.name) and (p / ".git").exists()
-    ]
+    return _owners(
+        [
+            p
+            for p in sorted(root.iterdir())
+            # a real .git directory only: culture-rules skips linked worktrees (.git is a file)
+            if p.is_dir() and not _skipped(p.name) and (p / ".git").is_dir()
+        ]
+    )
 
 
 class HttpLibrary:
@@ -142,7 +182,9 @@ class HttpLibrary:
             return json.loads(resp.read())
 
     def lookup(self, repo: str, path: str) -> LibDoc | None:
-        q = urllib.parse.urlencode({"remote": repo, "path": path})
+        # send a URL form: a library before 0.19.1 refuses the bare repo id as a filter
+        remote = repo if ":" in repo else f"https://{repo}"
+        q = urllib.parse.urlencode({"remote": remote, "path": path})
         found = self._get(f"{self.base}/api/repodocs?{q}", self.key).get("docs", [])
         found = [d for d in found if d.get("repo") == repo and d.get("path") == path]
         if not found:
@@ -207,11 +249,11 @@ def check_s3(s3, repo_id: str, rel: str, sha: str, doc: LibDoc | None) -> str:
     return "mismatched" if seen_any else "missing"
 
 
-def verify(repos, lib, s3) -> dict:
+def verify(repos, lib, s3, host: str = DEFAULT_HOST) -> dict:
     result = {"repos": {}, "totals": {"library": _new(), "s3": _new() if s3 else None}}
     problems: list[str] = []
     for repo in repos:
-        rid = repo_identity(repo)
+        rid = repo_identity(repo, host)
         counts = {"id": rid, "files": 0, "library": _new(), "s3": _new() if s3 else None}
         for rel, full in iter_docs(repo):
             sha = sha256_file(full)
@@ -256,6 +298,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="every git repo directly under --root")
     p.add_argument("--root", default=str(pathlib.Path.home() / "git"))
     p.add_argument("--no-s3", action="store_true", help="skip the S3 check")
+    p.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"pusher's node name for remoteless repos (default {DEFAULT_HOST})",
+    )
     p.add_argument("--json", action="store_true")
     return p
 
@@ -291,7 +338,7 @@ def main(argv=None, library=None, s3=None) -> int:
                 raise VerifyError("boto3 is not installed (or pass --no-s3)") from exc
         if args.no_s3:
             s3 = None
-        result = verify(repos, library, s3)
+        result = verify(repos, library, s3, args.host)
     except (VerifyError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-10-31
+
+### Changed
+
+- Delivery summary for devague work in the library: the d24 code-review fix round (evidence e34-e40, deltas b4-b7) and the t23 live migration (baseline, private bucket, backup, 0.19.0 deploy, culture-rules push, 5-repo verify e41, draft cycle e42, and the full-corpus verify: 3,770 of 3,773 files, the rest drafts in flight).
+
+### Fixed
+
+- `GET /api/repodocs?remote=` accepts the repo id the API returns (`github.com/org/repo`), not only URL forms; `scripts/verify-mirror.py` sends a URL form so it works against 0.19.0 (d25).
+- `scripts/verify-mirror.py`: remoteless and local-path repos are named by the pusher's host (`--host`, default `spark`); `--all` skips linked worktrees and checks only the owner clone of a shared origin, as culture-rules 0.38.1 does (d26).
+
 ## [0.19.0] - 2026-10-30
 
 ### Added

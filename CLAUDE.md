@@ -11,8 +11,8 @@ it all, published at **library.culture.dev**.
 
 **Status: built and live.** library.culture.dev has served the library
 behind Cloudflare Access since 2026-10-24, from the compose stack on spark
-(`deploy/compose.yaml`). Spark runs 0.18.2 (eval suites, shape radar and
-compare, plus the review fixes) as of 2026-10-30, with embeddings and the
+(`deploy/compose.yaml`). Spark runs 0.19.0 (devague work in the library,
+with the private S3 mirror on) as of 2026-10-31, with embeddings and the
 reranker on. Machine clients reach it on spark's loopback
 (`127.0.0.1:8796` for the API and site, `:8797` for MCP).
 
@@ -140,10 +140,11 @@ reranker on. Machine clients reach it on spark's loopback
   - `render/`: the devague renderer (frames, plans and delivery JSON).
   - **Devague work in the library** (spec
     `docs/specs/2026-10-30-devague-work-in-the-library.md`; push contract
-    `docs/api/repodocs.md`). Built on branch `spec/devague-work`; **not yet
-    deployed**. Every repo's specs, plans, deliveries, designs and raw
-    `.devague/` state arrive as repo documents pushed by culture-rules
-    (culture-rules#124, not built yet). The pieces:
+    `docs/api/repodocs.md`). **Live since 2026-10-31.** Every repo's specs, plans, deliveries,
+    designs and raw `.devague/` state arrive as repo documents pushed by
+    culture-rules every 15 minutes (its `repodocs-sync` rule, culture-rules#124),
+    and are mirrored to the private bucket `culture-library-repodocs`. The first
+    push stored 3,795 docs from 78 projects. The pieces:
     - `core/repodocs.py`: a `commit: "working"` push keeps one mutable draft per
       `(repo, path)`; `tombstone()` marks a doc removed and keeps its history;
       every repo doc is stored private (decision c31).
@@ -198,10 +199,9 @@ reranker on. Machine clients reach it on spark's loopback
     count only newer runs;
   - the after-#27 signal is deferred until #27 ships;
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
-  - repo-document search is built (closes #4 on deploy) but not deployed;
-  - the devague-work live migration is still to run with the operator: the
-    S3 bucket, deploy, the culture-rules key, and culture-rules#124's push
-    rule (deviation d22);
+  - #4 (repo-document search) is live and can be closed;
+  - the `remote` filter fix (d25) is on 0.19.1, not yet deployed;
+  - the indexer rescans every repo doc on each idle tick (#39);
   - retrieval is too slow for Gwen's turn path, at about 0.7 s without rerank
     (#25);
   - in-progress items (#22);
@@ -426,7 +426,7 @@ Pass `--visibility private` to keep a record in `$HOME/.eidetic/memory`.
 Built in the `library-culture-dev` run (see the delivery summary). Still
 open:
 
-- deploy the devague-work branch and run its live migration (d22);
+- deploy 0.19.1 (the d25 `remote` filter fix);
 - remove specs, plans and `.devague` from GitHub once the mirror is proven
   complete (#35);
 - map recording EPUBs to `transcript` on migration (#5);

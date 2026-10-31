@@ -2,7 +2,7 @@
   "plan_slug": "devague-work-in-the-library",
   "schema_version": 2,
   "created": "2026-10-30T18:50:08Z",
-  "updated": "2026-10-31T05:12:00Z",
+  "updated": "2026-10-31T07:01:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -307,6 +307,28 @@
       "status": "approved",
       "classification": null,
       "seq": 57
+    },
+    {
+      "id": "d25",
+      "what": "t23 live verification found GET /api/repodocs?remote= refusing the bare repo id the API itself returns (github.com/org/repo); RepoDocs.list now accepts it via repo_filter_id (pushes keep normalize_remote), and verify-mirror.py sends a URL form so it works against live 0.19.0 before the fix is deployed",
+      "task_ref": "t23",
+      "reason": "verify-mirror (c36) answered HTTP 400 on every lookup against live; fixed test-first (2 tests red then green), 1663 passed",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": null,
+      "seq": 65
+    },
+    {
+      "id": "d26",
+      "what": "Full-corpus verify (c34/c35) found 5 pairs of full clones sharing one origin (lobes-cli+model-gear, culture-tools+culture-tools-temp, jetson+jetson-jolt, culture-guide+agentculture-cli, jetson-containers+jetson-containers-dusty) flipping the single working draft every cycle, plus two verifier bugs (remoteless repos named by hostname spark-f8a9 instead of the pusher's node spark; --all checked linked worktrees the pusher skips). Operator rule: every clone keeps the origin identity (one org-wide corpus); only the owner clone (named like the origin's repo) pushes working drafts; copies push committed versions only; migration tombstones copy-only drafts and the owner re-sends drafts once. culture-rules 0.38.1 implements it; verify-mirror checks owner clones only (69f966c, 1073832).",
+      "task_ref": "t23",
+      "reason": "decider: canonical_only 0.687 vs path_identity 0.261, P(copies hold unique work)=0.564; operator first chose own identity for copies, then, with the corpus meant to describe the whole org, chose origin identity with owner-only drafts",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": null,
+      "seq": 68
     }
   ],
   "evidence": [
@@ -930,6 +952,177 @@
       "status": "proposed",
       "superseded": false,
       "seq": 55
+    },
+    {
+      "id": "e34",
+      "obligation_ref": "o7",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_bad_connected_entry_is_dropped_with_a_warning",
+      "behavior_text": "a push whose project.connected holds an entry that does not normalize is stored (2xx) with that entry dropped and named in warnings",
+      "contract_text": "a push carrying new domains for a repo replaces that project's domains; a bad connected entry must not block the repo's documents (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 58
+    },
+    {
+      "id": "e35",
+      "obligation_ref": "o24",
+      "test_ref": "tests/server/test_routes_repodocs_push.py::test_push_says_whether_spec_links_were_applied",
+      "behavior_text": "the push response carries spec_links_applied: true for newer-or-equal code paths, false for older ones",
+      "contract_text": "a delivered spec shows its PR, merge commit and current code paths; the pusher learns whether links were stored (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 59
+    },
+    {
+      "id": "e36",
+      "obligation_ref": "o24",
+      "test_ref": "tests/core/test_speclinks.py::test_newer_replaces_older_never_regresses",
+      "behavior_text": "equal at_committed_at replaces the stored code paths (latest push wins); older never does",
+      "contract_text": "spec links never regress to older code paths (d24: equal time now applies)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 60
+    },
+    {
+      "id": "e37",
+      "obligation_ref": "o14",
+      "test_ref": "tests/server/test_feed_route.py::test_feed_defaults_to_items_and_subject_all_mixes",
+      "behavior_text": "GET /api/feed with no subject returns item events only; subject=repodoc returns repodoc events; subject=all interleaves both in cursor order",
+      "contract_text": "each repodoc version or draft overwrite appends one feed event; pre-existing item-feed clients are unaffected (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 61
+    },
+    {
+      "id": "e38",
+      "obligation_ref": "o26",
+      "test_ref": "tests/core/test_mirror.py::test_a_parked_row_does_not_delay_a_healthy_one",
+      "behavior_text": "a row failing MAX_ATTEMPTS times is parked as failed and leaves the pending set; a healthy row behind it uploads",
+      "contract_text": "with the S3 backend failing pushes return 2xx and the outbox grows; a permanently failing row is parked, not retried forever (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 62
+    },
+    {
+      "id": "e39",
+      "obligation_ref": "o26",
+      "test_ref": "tests/core/test_mirror.py::test_reconcile_requeues_a_parked_key",
+      "behavior_text": "mirror reconcile re-queues a parked key still missing in the bucket with attempts reset",
+      "contract_text": "reconcile re-sends what the bucket lacks, including parked rows (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 63
+    },
+    {
+      "id": "e40",
+      "obligation_ref": "o26",
+      "test_ref": "tests/server/test_routes_mirror.py::test_worker_backs_off_only_without_progress_and_with_retryable_rows",
+      "behavior_text": "the mirror worker backs off only when a pass uploaded nothing and retryable rows remain",
+      "contract_text": "a parked row never holds the worker in backoff (d24)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "behavioral test ran green on main at e03a6f7 after the d24 review-fix round",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T05:25:41",
+        "commit": "e03a6f7"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 64
+    },
+    {
+      "id": "e41",
+      "obligation_ref": "o20",
+      "test_ref": "scripts/verify-mirror.py --repos culture-library,culture-rules,devague,notion-agent,reachy_nova (live, with S3)",
+      "behavior_text": "for 394 files across 5 repos (incl. notion-agent, which gitignores .devague, and reachy_nova, which has no origin/HEAD) the file sha256 equals the library current/draft sha256 and the S3 object; 0 missing, 0 mismatched in both",
+      "contract_text": "for each sampled repo file the sha256 equals the library current/draft sha256 and the S3 object's sha256; the report lists 0 missing and 0 mismatched",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "ran against live library 0.19.0 and the private bucket after the outbox drained (3853 done, 0 pending)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T06:15:39",
+        "commit": "f3c6c93"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 66
+    },
+    {
+      "id": "e42",
+      "obligation_ref": "o21",
+      "test_ref": "live: checkout switch at ~06:02Z changed 2 culture-library docs on disk; culture-rules run 06:15:04Z",
+      "behavior_text": "both edited docs show the new bytes as their working draft (pushed_at 06:15:06Z, ~13 min later, within one */15 cycle); each doc keeps 1 version row and total repodoc_versions stays 2871",
+      "contract_text": "a frame edit shows up as the draft within one cycle; repodoc_versions row count for that doc is unchanged",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on live: verify-mirror reported 2 mismatches before the 06:15 run and 0 after; DB read-only check of repodoc_drafts and repodoc_versions",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-31T06:18:17",
+        "commit": "f3c6c93"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 67
     }
   ],
   "deltas": [
@@ -972,6 +1165,65 @@
       "evidence_refs": [
         "e10",
         "e28"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "the repodoc push response carries warnings for dropped connected entries and spec_links_applied when spec_links were sent",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e34",
+        "e35"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "GET /api/feed with no subject returns item events only (as before repo docs); subject=all mixes items and repodocs",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e37"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "spec-link code paths at an equal at_committed_at now replace the stored ones (latest push wins)",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e36"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "mirror outbox rows that fail 8 times are parked as failed; status counts parked; reconcile re-queues them; the worker backs off only without progress",
+      "caused_by": [
+        "d24"
+      ],
+      "evidence_refs": [
+        "e38",
+        "e39",
+        "e40"
       ],
       "origin": "llm",
       "status": "proposed",
