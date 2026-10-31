@@ -34,6 +34,11 @@ eval = [
 s3 = [
     "boto3>=1.34",
 ]
+# The Postgres store driver (culture_library.core.store). Imported lazily, so the CLI still
+# imports without it; never in base deps.
+pg = [
+    "psycopg[binary]>=3.2,<4",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/culture-library"

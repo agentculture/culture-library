@@ -699,6 +699,9 @@ eval = [
     { name = "openai" },
     { name = "ragas" },
 ]
+pg = [
+    { name = "psycopg", extra = ["binary"] },
+]
 s3 = [
     { name = "boto3" },
 ]
@@ -739,11 +742,12 @@ requires-dist = [
     { name = "langchain-community", marker = "extra == 'eval'", specifier = "<0.4.2" },
     { name = "mcp", marker = "extra == 'server'", specifier = ">=1.2,<2" },
     { name = "openai", marker = "extra == 'eval'", specifier = ">=1" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'pg'", specifier = ">=3.2,<4" },
     { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.9" },
     { name = "ragas", marker = "extra == 'eval'", specifier = "==0.4.3" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.29" },
 ]
-provides-extras = ["server", "eval", "s3"]
+provides-extras = ["server", "eval", "s3", "pg"]
 
 [package.metadata.requires-dev]
 dev = [
