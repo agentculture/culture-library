@@ -690,7 +690,7 @@ wheels = [
 
 [[package]]
 name = "culture-library"
-version = "0.19.5"
+version = "0.19.6"
 source = { editable = "." }
 
 [package.optional-dependencies]

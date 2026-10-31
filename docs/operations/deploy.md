@@ -213,17 +213,22 @@ uv run culture-library deploy restart --dry-run  # print the commands, run nothi
 
 It reads `$CULTURE_LIBRARY_LIVE_ENV`, else `$HOME/.config/culture-library/live.env`, and
 first checks that each grant secret exists (`grant show`, which never prints a value),
-then runs exactly this, which also works by hand:
+then runs this. With an S3 bucket in the env file (live has one since 0.19.0) it also
+injects the AWS credentials (see "S3 mirror"):
 
 ```bash
 grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
-  --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- \
+  --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY \
+  --inject AWS_ACCESS_KEY_ID=CULTURE_LIBRARY_AWS_ACCESS_KEY_ID \
+  --inject AWS_SECRET_ACCESS_KEY=CULTURE_LIBRARY_AWS_SECRET_ACCESS_KEY -- \
   docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
   --profile remote up -d --no-deps library mcp
 ```
 
-With an S3 bucket in the env file, the command also injects the AWS credentials
-(see "S3 mirror").
+Use `deploy restart` rather than typing this. A hand-typed command that leaves out the
+two AWS lines still starts a healthy container, and `/api/status` still shows the mirror
+`enabled`, but no upload can succeed. `deploy restart --dry-run` prints the exact command
+for the current env file.
 
 Then check it came back with its settings:
 
@@ -262,7 +267,7 @@ default `LOBES_GATEWAY_URL` is `http://host.docker.internal:8001`.
    Retrieval-query prompt names (on by default).
 2. Recreate the containers: `uv run culture-library deploy restart`. It runs
    `grant run --inject TUNNEL_TOKEN=... --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY`
-   around `docker compose up` (`--gateway-secret NAME` picks another grant secret). The
+   (plus the AWS credentials when an S3 bucket is set) around `docker compose up` (`--gateway-secret NAME` picks another grant secret). The
    new environment and `extra_hosts` entry only apply on recreate.
 3. Check the container reaches the gateway. `/capabilities` needs no key and lists the
    `gemma2-embed` and `reranker` roles:
@@ -485,13 +490,19 @@ for any such release.
    ```bash
    git checkout <new-tag-or-commit>
    docker compose -p culture-library -f deploy/compose.yaml build library
-   grant run --inject TUNNEL_TOKEN=CULTUREFLARE_LIBRARY_CULTURE_DEV_TUNNEL_TOKEN \
-     --inject GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY -- \
-     docker compose -f deploy/compose.yaml --env-file "$HOME/.config/culture-library/live.env" \
-     --profile remote up -d --no-deps library mcp
+   uv run culture-library deploy restart
    ```
 
-   Then run the send-targets check from that section.
+   `deploy restart` injects every grant secret the env file needs, including the S3
+   mirror's AWS credentials, waits for health and lists the send targets. Don't recreate
+   by hand with only the tunnel and gateway secrets: the mirror then starts without
+   credentials and every upload fails (see [Restart the live stack](#restart-the-live-stack)).
+   Confirm the credentials reached the container without printing them:
+
+   ```bash
+   docker compose -p culture-library -f deploy/compose.yaml exec -T library \
+     sh -c 'test -n "$AWS_ACCESS_KEY_ID" && echo present || echo MISSING'
+   ```
 
 4. Check the container logs for the one-line migration diagnostic, which the store
    writes to stderr once, on success:
