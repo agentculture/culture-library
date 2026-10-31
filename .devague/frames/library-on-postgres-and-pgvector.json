@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T19:27:11Z",
+  "updated": "2026-10-31T19:44:53Z",
   "claims": [
     {
       "id": "c1",
@@ -101,9 +101,9 @@
         {
           "id": "q1",
           "text": "Does core/ keep SQLite as a second backend behind a storage interface (for tests, offline use and the zero-dependency rule), or does the library become Postgres-only?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-31: Postgres-only. The driver lives in an extra the server image installs; tests use a Postgres database per test worker; no SQLite backend is kept"
         }
       ],
       "links": [],
@@ -133,9 +133,9 @@
         {
           "id": "q3",
           "text": "Full-text ranking: accept Postgres ts_rank (simpler, rankings move), or add a BM25 extension so ranking stays close to today's bm25?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-31: core Postgres full text (weighted tsvector, English stemming, ts_rank, ts_headline) first; re-baseline evals; add a BM25 extension later only if recall drops"
         }
       ],
       "links": [],
@@ -201,9 +201,9 @@
         {
           "id": "q2",
           "text": "Cutover style: a one-shot migration during a short write freeze with the SQLite backup and image as rollback, or a period where both stores run side by side?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-31: one-shot cutover with a write freeze (pause culture-rules' push), backup, copy with ids preserved, verify counts, start on Postgres, resume; rollback is the SQLite snapshot plus the old image"
         }
       ],
       "links": [],
@@ -233,9 +233,9 @@
         {
           "id": "q4",
           "text": "Postgres version and image: which major version and pgvector build, and does the library connect with psycopg 3 (the code is synchronous)?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Operator 2026-10-31: PostgreSQL 17 on the pgvector/pgvector:pg17 image; psycopg 3, synchronous API"
         }
       ],
       "links": [],
