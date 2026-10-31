@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.8] - 2026-10-31
+
+### Added
+
+- core/vector_cache.py: each process keeps the unpacked chunk vectors and their norms in memory (about 215 MB for the ~70k live vectors). Triggers on embeddings and repodoc_embeddings feed a vector_log change log, so a query reloads only the items or docs that changed, or everything after the log was pruned; the indexer prunes log rows older than a day, hourly
+
+### Changed
+
+- Semantic search and passages read vectors from the cache and fetch chunk text only for the returned results. On a copy of live data, results are identical (100 of 100 result sets); items-only retrieval drops from about 150 ms to 74 ms and items-plus-repo-docs from about 1.5 s to 0.73 s (median)
+
 ## [0.19.7] - 2026-10-31
 
 ### Changed
