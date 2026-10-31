@@ -361,7 +361,8 @@ def start_run(
     }
     if body.warmup:
         config["warmup"] = True
-    with store.connect() as conn:  # IMMEDIATE: the check and the insert are one write
+    with store.connect() as conn:
+        eval_store.lock_set_runs(conn, body.set_id)  # the check and the insert are one unit
         running = eval_store.running_runs(conn, body.set_id)
         if running:
             return JSONResponse(
