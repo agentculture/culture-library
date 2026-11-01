@@ -222,16 +222,48 @@ def test_stopword_last_word_still_matches_as_a_prefix(store):
 
 def test_trailing_stopword_matches_the_word_itself_in_the_body(store):
     """FTS5 matched a last word as a prefix of any word, the word itself included. The english
-    tsv never stores a stopword, so a body that has "with" (and no "with..." lexeme) must
-    still match a question ending in "with?" (t20: live's set 6 question 103, deviation d20)."""
+    tsv never stores a stopword, so the body's ``simple_tsv`` (migration 0004) is what finds
+    "with" in a body for a question ending in "with?" (t20: live's set 6 question 103,
+    deviations d20 and d21)."""
     jetpack = add(store, "Daily newspaper", "issue 1")  # distinct bytes: one item each
     index(store, jetpack, body="JetPack 7.0 ships CUDA 13 with TensorRT 10.13", embed=None)
     other = add(store, "Other newspaper", "issue 2")
     index(store, other, body="JetPack 7.0 ships CUDA and TensorRT", embed=None)  # no "with"
-    got = [
-        h.item_id for h in sr.fulltext(store, "Which CUDA and TensorRT did JetPack 7.0 ship with?")
-    ]
-    assert got == [jetpack.id]
+    q = "Which CUDA and TensorRT did JetPack 7.0 ship with?"
+    assert [h.item_id for h in sr.fulltext(store, q)] == [jetpack.id]
+    assert [h.item_id for h in sr.fulltext(store, q.replace("?", " ?"))] == [jetpack.id]
+
+
+@pytest.mark.parametrize("query", ["road the", "road the ?", "road the!"])
+def test_trailing_stopword_still_excludes_a_body_without_it(store, query):
+    """The parity d21 keeps: no word starting with "the" anywhere, no match, whatever
+    punctuation follows (a lone "?" must not turn the check off)."""
+    road = add(store, "The Road")
+    theory = add(store, "Road notes", "x")
+    index(store, theory, body="road theory for engineers", embed=None)
+    plain = add(store, "Road map", "y")
+    index(store, plain, body="a road map for planners", embed=None)
+    assert sorted(h.item_id for h in sr.fulltext(store, query)) == [road.id, theory.id]
+
+
+def test_trailing_stopword_matches_repo_doc_bodies(store):
+    from culture_library.core.repodocs import RepoDocs
+
+    docs = RepoDocs(store)
+    for n, body in enumerate(["plans ship with the release", "plans ship soon"]):
+        pushed = docs.push(
+            remote="https://github.com/agentculture/x",
+            path=f"docs/plans/p{n}.md",
+            commit="a" * 40,
+            committed_at="2026-10-01T00:00:00Z",
+            default_branch_head="a" * 40,
+            visibility="public",
+            content=f"doc {n}",
+        )
+        with store.connect() as conn:
+            sr.set_repodoc_text(conn, pushed.doc.id, f"P{n}", pushed.doc.path, body, "public")
+    hits = sr.fulltext(store, "plans ship with", corpora=("repodoc",))
+    assert [h.path for h in hits] == ["docs/plans/p0.md"]
 
 
 def test_stopword_only_query_feeds_hybrid_fulltext_rank(store):

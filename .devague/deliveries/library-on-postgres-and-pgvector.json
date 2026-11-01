@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-11-01T18:56:36Z",
+  "updated": "2026-11-01T19:01:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -276,6 +276,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 21
+    },
+    {
+      "id": "d22",
+      "what": "Supersedes d21's mechanism: migration 0004 (schema version 4) adds simple_tsv, a GIN-indexed 'simple' tsvector of each body (stopwords kept), and the trailing stopword is checked as a prefix there (the same tsquery as the title and lexeme checks), not by a regex. Measured on live's text: about 49 MB, 3 s to build.",
+      "task_ref": "t20",
+      "reason": "/code-review medium of PR #51: the d21 regex was unindexed (it scans whole multi-MB book bodies on a miss), and it was built from a different piece than the tsquery's last word, so a query ending in a lone '?' ('road the ?') made it a bare \\m that matched every body; the new parametrized test reproduced both.",
+      "affects": [
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 22
     }
   ],
   "evidence": [],

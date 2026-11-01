@@ -87,8 +87,9 @@ DROPPED = {("embeddings", "model"), ("repodoc_embeddings", "model")}
 ADDED = {
     "embeddings": {"model_id", "strategy", "vec_hash"},
     "repodoc_embeddings": {"model_id", "strategy", "vec_hash"},
-    "item_text": {"tsv"},
-    "repodoc_text": {"tsv"},
+    # simple_tsv: the unstemmed body, for a trailing stopword (migration 0004, d22).
+    "item_text": {"tsv", "simple_tsv"},
+    "repodoc_text": {"tsv", "simple_tsv"},
 }
 
 BOOLEANS = {
