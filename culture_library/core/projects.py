@@ -14,6 +14,7 @@ import json
 from typing import Any
 
 from .errors import ValidationError
+from .jsonvalues import sorted_keys
 from .repodocs import normalize_remote
 from .store import Store, now
 
@@ -69,8 +70,8 @@ def _dedup(values: list[str]) -> list[str]:
 def _row(row: Any) -> dict[str, Any]:
     return {
         "repo": row["repo"],
-        "domains": list(row["domains"]),
-        "connected": list(row["connected"]),
+        "domains": sorted_keys(list(row["domains"])),
+        "connected": sorted_keys(list(row["connected"])),
         "updated_at": row["updated_at"],
     }
 

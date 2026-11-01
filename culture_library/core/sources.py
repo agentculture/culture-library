@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .jsonvalues import sorted_keys
 from .store import now
 
 
@@ -34,7 +35,7 @@ def get_with_meta(conn: Any, item_id: int) -> tuple[Any, str] | None:
     row = conn.execute(
         "SELECT manifest_json, updated_at FROM item_sources WHERE item_id = %s", (item_id,)
     ).fetchone()
-    return None if row is None else (row[0], row[1])  # jsonb comes back parsed
+    return None if row is None else (sorted_keys(row[0]), row[1])  # jsonb comes back parsed
 
 
 __all__ = ["get", "get_with_meta", "put"]
