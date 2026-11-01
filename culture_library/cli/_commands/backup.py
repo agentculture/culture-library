@@ -31,20 +31,23 @@ def _dest(args: argparse.Namespace) -> str:
     return dest
 
 
+_LAST_SUCCESS = "Last success"
+
+
 def _last_success_section(args: argparse.Namespace) -> dict:
     from culture_library.core import backup
 
     dest = args.to or os.environ.get(BACKUP_DIR_ENV)
     if not dest:
         return {
-            "title": "Last success",
+            "title": _LAST_SUCCESS,
             "items": [f"no backup location (--to or ${BACKUP_DIR_ENV})"],
         }
     last = backup.last_success(dest)
     if last is None:
-        return {"title": "Last success", "items": [f"none yet in {dest}"]}
+        return {"title": _LAST_SUCCESS, "items": [f"none yet in {dest}"]}
     return {
-        "title": "Last success",
+        "title": _LAST_SUCCESS,
         "items": [
             f"{last['created_at']} - {last['snapshot']} ({last['items']} items; "
             f"{last['snapshots_kept']} snapshots kept)"
@@ -85,7 +88,7 @@ def cmd_overview(args: argparse.Namespace) -> int:
 
 
 def _wrap(fn, *a, **kw):
-    from culture_library.core.backup import BackupError, PgToolMissing
+    from culture_library.core.backup import PgToolMissing
     from culture_library.core.errors import CoreError
 
     try:
@@ -96,7 +99,7 @@ def _wrap(fn, *a, **kw):
             str(exc),
             f"install the PostgreSQL 17 client tools or set {PG_BIN_DIR_ENV}",
         ) from None
-    except (BackupError, CoreError) as exc:
+    except CoreError as exc:
         raise CliError(EXIT_USER_ERROR, str(exc), "see 'culture-library explain backup'") from None
     except OSError as exc:
         raise CliError(

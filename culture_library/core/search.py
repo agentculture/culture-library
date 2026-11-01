@@ -817,21 +817,17 @@ def passages(
     q = _query_vector(qvec, strategy)
     v = _as_vis(vis)
     pair = (model_id, strategy)
-    flts: dict[int, tuple[str, list]] = {}
-    if "item" in want:
-        item_flt = _filters(v, kind, item_ids)
-        if item_flt is not None:
-            flts[_ITEM] = item_flt
-    if "repodoc" in want and item_ids is None:
-        flts[_DOC] = _doc_filters(v, kind)
+    flts = _corpus_filters(want, v, kind, item_ids)
     pool = k if mode == "semantic" else max(2 * k, HYBRID_POOL)
     cands: dict[tuple, tuple] = {}
     fts: dict[int, dict] = {}
     for corpus, flt in flts.items():
-        if corpus == _ITEM and item_ids is not None:  # narrow: score those items exactly
-            rows = _exact(conn, corpus, q, flt, pair, limit=pool)
-        else:
-            rows = _ann(conn, corpus, q, flt, pool, pair)
+        exact = corpus == _ITEM and item_ids is not None  # narrow: score those items exactly
+        rows = (
+            _exact(conn, corpus, q, flt, pair, limit=pool)
+            if exact
+            else _ann(conn, corpus, q, flt, pool, pair)
+        )
         if mode == "hybrid":
             fts[corpus] = _fts_rank(conn, corpus, query, flt, pool)
             if fts[corpus]:
@@ -846,15 +842,33 @@ def passages(
     if mode == "semantic":
         scored = [(_similarity(r[0]), r) for r in ranked]
     else:
-        scored = []
-        for pos, r in enumerate(ranked):
-            score = 1.0 / (RRF_K + pos)
-            rank = fts[r[1]].get(r[2])
-            if rank is not None:
-                score += 1.0 / (RRF_K + rank)
-            scored.append((score, r))
-        scored.sort(key=lambda s: (-s[0], s[1][1], s[1][2], s[1][3]))
+        scored = _rrf_scores(ranked, fts)
     return [_passage(s, r, mode) for s, r in scored[:k]]
+
+
+def _corpus_filters(
+    want: Iterable[str], v: Vis, kind: str | None, item_ids: Iterable[int] | None
+) -> dict[int, tuple[str, list]]:
+    flts: dict[int, tuple[str, list]] = {}
+    if "item" in want:
+        item_flt = _filters(v, kind, item_ids)
+        if item_flt is not None:
+            flts[_ITEM] = item_flt
+    if "repodoc" in want and item_ids is None:
+        flts[_DOC] = _doc_filters(v, kind)
+    return flts
+
+
+def _rrf_scores(ranked: list[tuple], fts: dict[int, dict]) -> list[tuple[float, tuple]]:
+    scored = []
+    for pos, r in enumerate(ranked):
+        score = 1.0 / (RRF_K + pos)
+        rank = fts[r[1]].get(r[2])
+        if rank is not None:
+            score += 1.0 / (RRF_K + rank)
+        scored.append((score, r))
+    scored.sort(key=lambda s: (-s[0], s[1][1], s[1][2], s[1][3]))
+    return scored
 
 
 def _passage(score: float, r: tuple, mode: str) -> Passage:

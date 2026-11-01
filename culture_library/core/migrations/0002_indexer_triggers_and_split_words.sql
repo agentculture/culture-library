@@ -61,6 +61,8 @@ CREATE TRIGGER repodoc_versions_update_dirty AFTER UPDATE ON repodoc_versions
 -- writes no trigger saw: mark every doc once, so the next discovery re-plans them all.
 INSERT INTO repodoc_dirty (doc_id) SELECT id FROM repodocs ON CONFLICT (doc_id) DO NOTHING;
 
+-- (The helper functions call each other schema-qualified: pg_restore runs with an empty
+-- search_path.)
 -- 2. Punctuated tokens (plan risk r5). Postgres's parser reads core/search.py as one file
 -- lexeme where SQLite FTS5's unicode61 tokenizer read core, search and py, so "search" would no
 -- longer find a body that names core/search.py. Each text now also indexes the words of its
@@ -75,39 +77,20 @@ INSERT INTO repodoc_dirty (doc_id) SELECT id FROM repodocs ON CONFLICT (doc_id) 
 -- A generated column cannot be altered in place: drop it (its GIN index goes with it), re-add
 -- it and recreate the index; the re-add recomputes every stored row.
 ALTER TABLE item_text DROP COLUMN tsv;
-ALTER TABLE item_text ADD COLUMN tsv tsvector GENERATED ALWAYS AS (
-    setweight(
-        to_tsvector('english'::regconfig, title)
-        || to_tsvector('english'::regconfig, regexp_replace(regexp_replace(
-            ' ' || title || ' ',
-            '(?<=\s)[[:punct:]]*[^[:punct:][:space:]]*[[:punct:]]*(?=\s)', '', 'g'),
-            '[[:punct:]]+', ' ', 'g')),
-        'A')
-    || setweight(
-        to_tsvector('english'::regconfig, body)
-        || to_tsvector('english'::regconfig, regexp_replace(regexp_replace(
-            ' ' || body || ' ',
-            '(?<=\s)[[:punct:]]*[^[:punct:][:space:]]*[[:punct:]]*(?=\s)', '', 'g'),
-            '[[:punct:]]+', ' ', 'g')),
-        'B')
-) STORED;
-CREATE INDEX item_text_tsv ON item_text USING gin (tsv);
-
 ALTER TABLE repodoc_text DROP COLUMN tsv;
-ALTER TABLE repodoc_text ADD COLUMN tsv tsvector GENERATED ALWAYS AS (
-    setweight(
-        to_tsvector('english'::regconfig, title)
-        || to_tsvector('english'::regconfig, regexp_replace(regexp_replace(
-            ' ' || title || ' ',
-            '(?<=\s)[[:punct:]]*[^[:punct:][:space:]]*[[:punct:]]*(?=\s)', '', 'g'),
-            '[[:punct:]]+', ' ', 'g')),
-        'A')
-    || setweight(
-        to_tsvector('english'::regconfig, body)
-        || to_tsvector('english'::regconfig, regexp_replace(regexp_replace(
-            ' ' || body || ' ',
-            '(?<=\s)[[:punct:]]*[^[:punct:][:space:]]*[[:punct:]]*(?=\s)', '', 'g'),
-            '[[:punct:]]+', ' ', 'g')),
-        'B')
-) STORED;
+CREATE OR REPLACE FUNCTION library_fts_split(t text) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$ SELECT regexp_replace(regexp_replace(' ' || t || ' ',
+        '(?<=\s)[[:punct:]]*[^[:punct:][:space:]]*[[:punct:]]*(?=\s)', '', 'g'),
+        '[[:punct:]]+', ' ', 'g') $$;
+CREATE OR REPLACE FUNCTION library_fts_part(t text, w "char") RETURNS tsvector
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$ SELECT setweight(to_tsvector('english'::regconfig, t)
+        || to_tsvector('english'::regconfig, public.library_fts_split(t)), w) $$;
+CREATE OR REPLACE FUNCTION library_fts_doc(title text, body text) RETURNS tsvector
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$ SELECT public.library_fts_part(title, 'A') || public.library_fts_part(body, 'B') $$;
+ALTER TABLE item_text ADD COLUMN tsv tsvector GENERATED ALWAYS AS (library_fts_doc(title, body)) STORED;
+CREATE INDEX item_text_tsv ON item_text USING gin (tsv);
+ALTER TABLE repodoc_text ADD COLUMN tsv tsvector GENERATED ALWAYS AS (library_fts_doc(title, body)) STORED;
 CREATE INDEX repodoc_text_tsv ON repodoc_text USING gin (tsv);
