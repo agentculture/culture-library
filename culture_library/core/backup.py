@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import CoreError
-from .store import _psycopg, conninfo_from_env
+from .store import _psycopg, conninfo_from_env, with_env_password
 
 BACKUP_DIR_ENV = "CULTURE_LIBRARY_BACKUP_DIR"
 PG_BIN_DIR_ENV = "CULTURE_LIBRARY_PG_BIN_DIR"
@@ -281,7 +281,8 @@ def run_backup(
 ) -> Snapshot:
     """Snapshot the database and ``data_dir``'s files into ``dest``; keep the last ``keep``.
 
-    ``dsn`` defaults to the ``CULTURE_LIBRARY_PG_*`` settings the Store reads.
+    ``dsn`` defaults to the ``CULTURE_LIBRARY_PG_*`` settings the Store reads; a given
+    ``dsn`` without a password takes ``CULTURE_LIBRARY_PG_PASSWORD``.
     """
     src = Path(data_dir).expanduser()
     root = Path(dest).expanduser()
@@ -291,7 +292,7 @@ def run_backup(
         raise BackupError("--keep must be at least 1")
     if root.resolve() == src.resolve() or src.resolve() in root.resolve().parents:
         raise BackupError("the backup location must be outside the data directory")
-    conninfo = dsn if dsn is not None else conninfo_from_env()
+    conninfo = with_env_password(dsn) if dsn is not None else conninfo_from_env()
     for attempt in range(1, SNAPSHOT_ATTEMPTS + 1):
         try:
             snap, copied, blobs, manifest = _snapshot_once(src, root, conninfo)
@@ -494,13 +495,16 @@ def restore(
     *,
     dsn: str | None = None,
 ) -> Report:
-    """Restore into an empty database (``dsn``) and an empty ``target`` files tree; verify."""
+    """Restore into an empty database (``dsn``) and an empty ``target`` files tree; verify.
+
+    A given ``dsn`` without a password takes ``CULTURE_LIBRARY_PG_PASSWORD``.
+    """
     snap = Path(snapshot).expanduser()
     out = Path(target).expanduser()
     manifest = _load_manifest(snap)
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise BackupError(f"restore target {out} is not empty; refusing to overwrite")
-    conninfo = dsn if dsn is not None else conninfo_from_env()
+    conninfo = with_env_password(dsn) if dsn is not None else conninfo_from_env()
     _require_empty_database(conninfo)
     root = snap.parent.parent
     pre = _check_dump(snap, manifest) + _check_blobs(root, manifest)
@@ -569,7 +573,18 @@ def install_units(
     data_dir: str, dest: str, *, unit_dir: str | os.PathLike[str] | None = None,
     command: str | None = None,
 ) -> dict:  # fmt: skip
-    """Write the service and timer into the systemd *user* unit directory; enable nothing."""
+    """Write the service and timer into the systemd *user* unit directory; enable nothing.
+
+    ``command`` (the ``ExecStart``) is required: the default ``culture-library backup run``
+    cannot reach the live database, whose password is a grant secret that is never in
+    ``live.env`` and whose container publishes no port. Pass the ``grant run ... docker
+    compose run ... backup run`` wrapper from docs/operations/backup.md ("On the live stack").
+    """
+    if not command:
+        raise BackupError(
+            "writing the backup units needs a command: the default 'culture-library backup "
+            "run' has no database password and no route to the live Postgres"
+        )
     base = Path(unit_dir).expanduser() if unit_dir else Path("~/.config/systemd/user").expanduser()
     base.mkdir(parents=True, exist_ok=True)
     written = []
@@ -579,10 +594,16 @@ def install_units(
     return {"written": written, "next": systemctl_commands()}
 
 
-def schedule_text(data_dir: str, dest: str, *, kind: str = "systemd") -> str:
-    """Return (never install) a daily schedule: a systemd service+timer pair or a cron line."""
+def schedule_text(
+    data_dir: str, dest: str, *, kind: str = "systemd", command: str | None = None
+) -> str:
+    """Return (never install) a daily schedule: a systemd service+timer pair or a cron line.
+
+    ``command`` replaces the default ``culture-library backup run ...`` command.
+    """
     if kind == "cron":
-        return f"17 3 * * * {_command(data_dir, dest)}\n"
+        return f"17 3 * * * {command or _command(data_dir, dest)}\n"
     if kind != "systemd":
         raise BackupError("schedule kind must be systemd or cron")
-    return "".join(f"# {name}\n{text}\n" for name, text in unit_files(data_dir, dest).items())
+    units = unit_files(data_dir, dest, command=command)
+    return "".join(f"# {name}\n{text}\n" for name, text in units.items())

@@ -38,6 +38,7 @@ s3 = [
 # imports without it; never in base deps.
 pg = [
     "psycopg[binary]>=3.2,<4",
+    "psycopg-pool>=3.2,<4",
 ]
 
 [project.urls]
@@ -71,6 +72,7 @@ dev = [
     "python-multipart>=0.0.9",
     "mcp>=1.2,<2",
     "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
 ]
 # Opt-in visual parity tests (tests/visual): `uv sync --group visual`, then
 # `uv run playwright install chromium` and `uv run pytest -m visual`.

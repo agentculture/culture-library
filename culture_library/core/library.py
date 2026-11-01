@@ -330,6 +330,10 @@ def replace(
         item = _row(conn, item_id, lock=True)  # two replaces of one item run one after another
         if not _visible(conn, item, include_private, False, owner):
             raise NotFoundError(f"item {item_id} not found")
+        # The blob lock before the duplicate check: an add() of these bytes takes it before
+        # its insert, so the check sees that add's committed row (lock order: item row, blob,
+        # feed).
+        lock_blob(conn, sha)
         if item.sha256 == sha:
             _ensure_blob(store, conn, sha, data)  # same bytes repair a lost file, as add() does
             return item
