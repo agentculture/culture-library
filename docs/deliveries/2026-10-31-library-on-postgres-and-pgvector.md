@@ -151,7 +151,7 @@ claim at `medium` unless a later live run checked the behaviour directly.
 | `c34` — feed cursor paging never skips an event under concurrent writers | high | e5 (21 passed) |
 | `c13` — SQLite-specific SQL ported in every core module | high | e6 (AST guard plus store tests, 109 passed) |
 | `c15` / `c37` — the live data moved once with ids, cursors, counts, text and vectors preserved | high | e7 (38 passed; lapses l4 and l5 apply to the tests), but e19 is the live copy itself: 23 tables equal, digests identical |
-| `c26` — cutover loses nothing: counts equal and a full-corpus mirror check reads 0/0 | medium | counts: e19. Mirror: e27 (**fail** at the cutover, 8 files edited during the freeze) and e26 (pass, 3,823 ok, 0/0, 20:23 UTC). o16, e26 and e27 await approval |
+| `c26` — cutover loses nothing: counts equal and a full-corpus mirror check reads 0/0 | medium | counts: e19. Mirror: e27 (**fail** at the cutover, 8 files edited during the freeze) and e26 (pass, 3,823 ok, 0/0, 20:23 UTC) |
 | `c28` — a restore drill rebuilt an empty Postgres and files tree with every table identical, before the cutover | high | e9 (41 passed; lapse l6 applies to the tests), e20 (drill: md5 of all 24 tables identical, restored as the app role) |
 | `c17` / `c39` — `deploy restart` starts Postgres and injects the password from grant; least privilege | high | e11 (86 passed), e12 (three live restarts, all secrets present) |
 | `c27` — the full suite passes against Postgres in CI with no skip for lack of a database | high | e13 (CI runs 41344240996 and 41344241006), e14 |
@@ -188,7 +188,6 @@ Notes on the records (they are append-only, so these clarifications live here):
   - Run `culture-library backup schedule --command "<the live-stack backup command>" --to <dir>` (`docs/operations/backup.md`, "On the live stack"), then `systemctl --user enable --now culture-library-backup.timer`.
   - Run it once by hand and check `backup overview`.
   - Owner: operator (it touches spark's systemd).
-- **c26:** approve o16, e26 and e27.
 - **d6 (`needs-follow-up`), done:** t5's library tests were first checked only against stand-ins. Since t12, t13 and t16 merged they run against the real search, indexer and repodocs modules, in the full suite (2036 passed at `57b8e16`). Nothing is left open there.
 - **#25, the turn path.** RAG without rerank is 155 ms p95 on live. Item vector queries take about 23 ms flat, which looks like the planner scanning all 7,861 item vectors exactly rather than using the HNSW index. Worth an `EXPLAIN` before tuning.
 - **#35, removing docs from GitHub.** Its precondition, a full-corpus mirror check at 0/0, was met again on 2026-11-01 at 20:23 UTC (e26).

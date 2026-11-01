@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-11-01T20:23:21Z",
+  "updated": "2026-11-01T21:05:46Z",
   "claims": [
     {
       "id": "c1",
@@ -1357,7 +1357,7 @@
       "behavior": "every table's count and max id match the SQLite source, and a full-corpus verify-mirror reports 0 missing and 0 mismatched",
       "source_text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }

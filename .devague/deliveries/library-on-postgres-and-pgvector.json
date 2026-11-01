@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-11-01T20:23:30Z",
+  "updated": "2026-11-01T21:05:46Z",
   "deviations": [
     {
       "id": "d1",
@@ -795,7 +795,7 @@
         "commit": "57b8e16"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 49
     },
@@ -814,7 +814,7 @@
         "commit": "23392ee"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 50
     }
