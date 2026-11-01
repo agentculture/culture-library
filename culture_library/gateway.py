@@ -13,6 +13,8 @@ Configuration comes from the environment; the key is never written to disk or sh
   (``Retrieval-document``, used by the indexer) and the query (``Retrieval-query``, used by
   retrieval) embedders; anything else, or unset, enables them.
 - ``LOBES_RERANK_MODEL``: the reranker model (default ``reranker``).
+- ``LOBES_CAPABILITIES_FAILURE_TTL``: seconds a failed ``/capabilities`` lookup is remembered
+  (default 30; ``0`` asks again on every call).
 
 Which vectors the embedder makes (decision c42): :meth:`GatewayEmbedder.vector_space` reads the
 gateway's ``GET /capabilities`` (no key needed, none is sent), whose entry for the embedder's
@@ -20,8 +22,10 @@ model (a role or lane name such as ``gemma2-embed``) names the real model (``mod
 ``google/embeddinggemma-2``), its ``dimension`` and its ``normalization``. With the prompts and
 the indexer's chunker that makes the ``(model_id, Strategy)`` pair every stored vector carries.
 The answer is cached for the embedder's lifetime (a restart reads it again); an unreachable or
-incomplete answer raises :class:`EmbeddingError` and is not cached, so the indexer's job backs
-off and asks again instead of guessing.
+incomplete answer raises :class:`EmbeddingError`, so the indexer's job backs off and asks again
+instead of guessing. The fetch runs outside the embedder's lock and is single-flight: callers
+arriving while it is in flight wait for that one fetch instead of each paying a timeout, and a
+failure is remembered for a short negative TTL so callers in that window fail fast too.
 
 Both clients refuse every HTTP redirect (the idea is cited from embodiment's
 ``voice._NoRedirectHandler``): stdlib ``urlopen`` would resend ``Authorization`` to whatever
@@ -32,10 +36,12 @@ surfaces as the client's ordinary error (:class:`EmbeddingError` / :class:`Reran
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
+import time
 import urllib.request
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .core import indexer
 from .core.embedding_strategy import Strategy
@@ -50,6 +56,8 @@ PROMPT_NAMES = {"document": "Retrieval-document", "query": "Retrieval-query"}
 
 _ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError)
 CAPABILITIES_TIMEOUT = 10.0
+#: Seconds a failed ``/capabilities`` lookup is answered from the cache before asking again.
+CAPABILITIES_FAILURE_TTL = 30.0
 
 
 class RerankError(Exception):
@@ -134,6 +142,35 @@ def _object(reply: object) -> dict:
     return reply
 
 
+def _failure_ttl_from_env() -> float:
+    """``LOBES_CAPABILITIES_FAILURE_TTL`` as finite seconds >= 0, else the default."""
+    raw = os.environ.get("LOBES_CAPABILITIES_FAILURE_TTL", "").strip()
+    try:
+        ttl = float(raw)
+    except ValueError:
+        return CAPABILITIES_FAILURE_TTL
+    return ttl if math.isfinite(ttl) and ttl >= 0 else CAPABILITIES_FAILURE_TTL
+
+
+def _again(error: EmbeddingError | None) -> EmbeddingError:
+    """A fresh error for one caller of a shared failure (one instance raised in many threads
+    would share, and keep growing, a single traceback)."""
+    if error is None:  # pragma: no cover - a finished flight always has its outcome
+        return EmbeddingError("capabilities lookup failed")
+    fresh = EmbeddingError(str(error))
+    fresh.__cause__ = error
+    return fresh
+
+
+class _Flight:
+    """One in-flight ``/capabilities`` lookup; its waiters read the outcome when it lands."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.space: tuple[str, Strategy] | None = None
+        self.error: EmbeddingError | None = None
+
+
 def _gateway_from_env() -> tuple[str, str] | None:
     key = os.environ.get("GATEWAY_API_KEY", "")
     if not key:
@@ -156,6 +193,9 @@ class GatewayEmbedder:
     ``prompts`` is the (document, query) prompt pair of the configuration this embedder
     belongs to, part of the strategy. Without it, a ``Retrieval-*`` ``prompt_name`` implies
     the standard pair, another prompt is taken for both, and no prompt means neither.
+
+    ``failure_ttl`` is how long, in seconds of ``clock`` (monotonic), a failed
+    :meth:`vector_space` lookup is answered from the cache.
     """
 
     def __init__(
@@ -166,6 +206,8 @@ class GatewayEmbedder:
         timeout: float = 60,
         prompt_name: str | None = None,
         prompts: tuple[str | None, str | None] | None = None,
+        failure_ttl: float = CAPABILITIES_FAILURE_TTL,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.url = url.rstrip("/")
         self._key = key
@@ -179,8 +221,12 @@ class GatewayEmbedder:
             else:
                 prompts = (self.prompt_name, self.prompt_name)
         self.prompts = (prompts[0] or None, prompts[1] or None)
+        self.failure_ttl = failure_ttl
+        self._clock = clock
         self._space: tuple[str, Strategy] | None = None
-        self._space_lock = threading.Lock()
+        self._failure: tuple[EmbeddingError, float] | None = None  # (error, retry at)
+        self._flight: _Flight | None = None
+        self._space_lock = threading.Lock()  # guards the three above; never held for I/O
 
     @property
     def label(self) -> str:
@@ -214,33 +260,74 @@ class GatewayEmbedder:
                 PROMPT_NAMES["document"] if on else None,
                 PROMPT_NAMES["query"] if on else None,
             ),
+            failure_ttl=_failure_ttl_from_env(),
         )
 
     def vector_space(self) -> tuple[str, Strategy]:
         """``(model_id, strategy)`` of the vectors this embedder makes, from ``/capabilities``.
 
-        Cached after the first answer. Raises :class:`EmbeddingError` (retryable: nothing is
-        cached) when ``/capabilities`` is unreachable or its entry for :attr:`model` lacks the
-        model id, dimension or normalization; the model is never guessed.
+        A success is cached for the embedder's lifetime. Raises :class:`EmbeddingError` when
+        ``/capabilities`` is unreachable or its entry for :attr:`model` lacks the model id,
+        dimension or normalization; the model is never guessed. That failure is remembered
+        for :attr:`failure_ttl` seconds, during which every call raises it at once; the first
+        call after it asks again.
+
+        The fetch is single-flight and runs outside the lock: one caller fetches, callers
+        arriving meanwhile wait for its outcome (the fetch has a timeout), so a hanging
+        gateway costs concurrent callers one timeout in all, not one each in turn.
         """
         with self._space_lock:
-            if self._space is None:
-                try:
-                    caps = fetch_capabilities(self.url, min(self.timeout, CAPABILITIES_TIMEOUT))
-                    model_id, dimension, norm = _space_from_capabilities(caps, self.model)
-                except _ERRORS as exc:
-                    raise EmbeddingError(
-                        f"cannot tell which model {self.model!r} is from "
-                        f"{self.url}/capabilities: {exc}"
-                    ) from exc
-                strategy = indexer.strategy_for(
-                    document_prompt=self.prompts[0],
-                    query_prompt=self.prompts[1],
-                    dimension=dimension,
-                    normalisation=norm,
-                )
-                self._space = (model_id, strategy)
-            return self._space
+            if self._space is not None:
+                return self._space
+            if self._failure is not None and self._clock() < self._failure[1]:
+                raise _again(self._failure[0])
+            if self._flight is not None:
+                flight, leader = self._flight, False
+            else:
+                flight = self._flight = _Flight()
+                leader = True
+        if leader:
+            self._lead(flight)
+        else:
+            flight.done.wait()
+        if flight.space is None:
+            raise _again(flight.error)
+        return flight.space
+
+    def _lead(self, flight: _Flight) -> None:
+        """Run ``flight``'s fetch (outside the lock), record its outcome and release waiters."""
+        try:
+            flight.space = self._fetch_space()
+        except EmbeddingError as exc:
+            flight.error = exc
+        finally:  # even on an unexpected error, never strand the waiters
+            with self._space_lock:
+                if flight.space is not None:
+                    self._space, self._failure = flight.space, None
+                else:
+                    flight.error = flight.error or EmbeddingError(
+                        f"cannot tell which model {self.model!r} is: the lookup failed"
+                    )
+                    self._failure = (flight.error, self._clock() + self.failure_ttl)
+                self._flight = None
+            flight.done.set()
+
+    def _fetch_space(self) -> tuple[str, Strategy]:
+        """One ``/capabilities`` lookup (no caching): the pair, or :class:`EmbeddingError`."""
+        try:
+            caps = fetch_capabilities(self.url, min(self.timeout, CAPABILITIES_TIMEOUT))
+            model_id, dimension, norm = _space_from_capabilities(caps, self.model)
+        except _ERRORS as exc:
+            raise EmbeddingError(
+                f"cannot tell which model {self.model!r} is from " f"{self.url}/capabilities: {exc}"
+            ) from exc
+        strategy = indexer.strategy_for(
+            document_prompt=self.prompts[0],
+            query_prompt=self.prompts[1],
+            dimension=dimension,
+            normalisation=norm,
+        )
+        return model_id, strategy
 
     def __call__(self, texts: Sequence[str]) -> list[list[float]]:
         payload: dict = {"model": self.model, "input": list(texts)}

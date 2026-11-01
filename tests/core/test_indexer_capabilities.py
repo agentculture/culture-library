@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import io
 import json
+import threading
+import time
 
 import pytest
 
@@ -83,14 +85,109 @@ def test_vector_space_is_cached(opener):
     assert len(opener.requests) == 1
 
 
-def test_unreachable_capabilities_raise_and_are_not_cached(opener):
+def test_unreachable_capabilities_raise_and_are_retried_after_the_failure_ttl(opener):
+    clock = [100.0]
     opener.reply = OSError("connection refused")
-    emb = _embedder()
+    emb = _embedder(failure_ttl=30.0, clock=lambda: clock[0])
     with pytest.raises(sr.EmbeddingError, match="capabilities"):
         emb.vector_space()
+    clock[0] += 29.0  # within the TTL: the failure is answered from the cache, no request
     opener.reply = CAPS
+    with pytest.raises(sr.EmbeddingError, match="connection refused"):
+        emb.vector_space()
+    assert len(opener.requests) == 1
+    clock[0] += 1.5  # past the TTL: asked again, and the success replaces the failure
     assert emb.vector_space()[0] == "google/embeddinggemma-2"
+    opener.reply = OSError("down again")
+    clock[0] += 1000.0
+    assert emb.vector_space()[0] == "google/embeddinggemma-2"  # a success stays cached
     assert len(opener.requests) == 2
+
+
+def test_a_zero_failure_ttl_retries_every_call(opener):
+    opener.reply = OSError("connection refused")
+    emb = _embedder(failure_ttl=0)
+    for _ in range(2):
+        with pytest.raises(sr.EmbeddingError):
+            emb.vector_space()
+    assert len(opener.requests) == 2
+
+
+class SlowOpener(FakeOpener):
+    """A /capabilities that hangs ``delay`` seconds, then answers (or fails)."""
+
+    def __init__(self, delay, reply=CAPS):
+        super().__init__(reply)
+        self.delay = delay
+        self._lock = threading.Lock()
+
+    def open(self, req, timeout=None):
+        time.sleep(self.delay)
+        with self._lock:
+            return super().open(req, timeout)
+
+
+def _concurrently(fn, n=5):
+    results = [None] * n
+    barrier = threading.Barrier(n)
+
+    def run(i):
+        barrier.wait()
+        try:
+            results[i] = fn()
+        except Exception as exc:  # collected, asserted by the caller
+            results[i] = exc
+
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(n)]
+    started = time.monotonic()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    return results, time.monotonic() - started
+
+
+@pytest.mark.parametrize("reply", [OSError("timed out"), CAPS])
+def test_concurrent_callers_share_one_fetch_of_a_hanging_gateway(monkeypatch, reply):
+    slow = SlowOpener(0.5, reply)
+    monkeypatch.setattr(gw, "_OPENER", slow)
+    emb = _embedder()
+    results, elapsed = _concurrently(emb.vector_space)
+    assert len(slow.requests) == 1  # single flight: one fetch, not one per caller
+    assert elapsed < 0.5 * 1.8  # about one timeout in all, not five in a row
+    if isinstance(reply, Exception):
+        assert all(isinstance(r, sr.EmbeddingError) for r in results), results
+        started = time.monotonic()
+        with pytest.raises(sr.EmbeddingError, match="timed out"):
+            emb.vector_space()  # a later caller fails fast from the negative cache
+        assert time.monotonic() - started < 0.1
+    else:
+        assert {r[0] for r in results} == {"google/embeddinggemma-2"}
+    assert len(slow.requests) == 1
+
+
+def test_the_lock_is_not_held_while_fetching(monkeypatch):
+    # a caller arriving mid-fetch waits on the flight, never on a lock held across the I/O
+    slow = SlowOpener(0.3)
+    monkeypatch.setattr(gw, "_OPENER", slow)
+    emb = _embedder()
+    leader = threading.Thread(target=emb.vector_space)
+    leader.start()
+    time.sleep(0.1)
+    assert emb._space_lock.acquire(timeout=0.05)  # free while the fetch is in flight
+    emb._space_lock.release()
+    leader.join(5)
+    assert emb.vector_space()[0] == "google/embeddinggemma-2"
+
+
+def test_from_env_reads_the_failure_ttl(monkeypatch):
+    monkeypatch.setenv("GATEWAY_API_KEY", "sekret")
+    assert gw.GatewayEmbedder.from_env("document").failure_ttl == gw.CAPABILITIES_FAILURE_TTL
+    monkeypatch.setenv("LOBES_CAPABILITIES_FAILURE_TTL", "5")
+    assert gw.GatewayEmbedder.from_env("document").failure_ttl == 5.0
+    for bad in ("soon", "-1", "nan", "inf"):
+        monkeypatch.setenv("LOBES_CAPABILITIES_FAILURE_TTL", bad)
+        assert gw.GatewayEmbedder.from_env().failure_ttl == gw.CAPABILITIES_FAILURE_TTL
 
 
 @pytest.mark.parametrize(
@@ -164,7 +261,8 @@ def test_the_indexer_backs_off_while_capabilities_are_down(store, opener):
     item = store.add_item(b"all about cats", kind="document", title="Felines", format="md").item
     with store.connect() as conn:
         ix.index_on_add(conn, item)
-    idx = ix.Indexer(store, embed=_embedder(), now=lambda: clock[0], backoff_base=10)
+    emb = _embedder(clock=lambda: clock[0])  # one clock for the backoff and the failure TTL
+    idx = ix.Indexer(store, embed=emb, now=lambda: clock[0], backoff_base=10)
     assert idx.run_once() == 0
     st = ix.status(store, now=clock[0])
     assert st["pending"] == 1
@@ -172,5 +270,9 @@ def test_the_indexer_backs_off_while_capabilities_are_down(store, opener):
     with store.reader() as conn:
         assert conn.execute("SELECT count(*) FROM embeddings").fetchone()[0] == 0
     opener.reply = CAPS
-    clock[0] += 11
+    clock[0] += 11  # the job is due again, but the failure is still remembered: no request
+    n_requests = len(opener.requests)
+    assert idx.run_once() == 0
+    assert len(opener.requests) == n_requests
+    clock[0] += gw.CAPABILITIES_FAILURE_TTL  # past the TTL (and the doubled backoff)
     assert idx.run_once() == 1

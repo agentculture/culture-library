@@ -10,7 +10,10 @@ are the 768-d fakes of tests/core/search_helpers.py; no gateway is ever contacte
 from __future__ import annotations
 
 import json
+import threading
+import time
 
+import psycopg
 import pytest
 
 from culture_library.core import embedding_strategy as es
@@ -270,6 +273,35 @@ def test_binary_design_indexes_only_path_and_title(store, docs):
     assert hits[0].kind == "design"
     assert _doc_hits(store, "quokka") == []
     assert _count(store, "SELECT body FROM repodoc_text") == ""
+
+
+def test_nul_characters_in_repodocs_are_stripped_so_they_index(store, docs):
+    # Postgres text rejects NUL: a raw 0x00 in Markdown and a JSON "\u0000" escape (which
+    # json.loads and devague_text pass through) must not fail the job forever.
+    _commit(docs, "docs/specs/nul.md", b"# Wom\x00bats\n\nthe wom\x00bat burrows deep\n")
+    frame = {"slug": "f\u0000", "claims": [{"id": "c1", "kind": "outcome", "text": "Ot\u0000ters"}]}
+    _commit(docs, ".devague/frames/nul.json", json.dumps(frame))
+    assert ix.Indexer(store, embed=fake_embed).run_once() == 2
+    assert ix.repodoc_status(store)["failed"] == 0
+    assert _count(store, "SELECT count(*) FROM repodoc_index_queue WHERE state = 'done'") == 2
+    assert len(_doc_hits(store, "wombat")) == 1
+    assert len(_doc_hits(store, "otters")) == 1
+    assert _count(store, "SELECT count(*) FROM repodoc_text WHERE label = 'Wombats'") == 1
+    assert _count(store, "SELECT count(*) FROM repodoc_embeddings") > 0
+    with store.reader() as conn:
+        stored = [
+            v
+            for r in conn.execute("SELECT title, label, body FROM repodoc_text").fetchall()
+            for v in r
+        ] + [r[0] for r in conn.execute("SELECT text FROM repodoc_embeddings").fetchall()]
+    assert not any("\x00" in v for v in stored)
+
+
+def test_repodoc_text_strips_nul():
+    assert ix.repodoc_text("a.md", b"# T\x00itle\n\nb\x00ody") == ("Title", "# Title\n\nbody")
+    title, body = ix.repodoc_text("f.json", json.dumps({"title": "J\u0000", "x": "y"}).encode())
+    assert "\x00" not in title + body
+    assert ix.repodoc_text("raw.json", b"{not json\x00") == ("raw.json", "{not json")
 
 
 def test_new_push_is_rediscovered_and_reindexed(store, docs):
@@ -578,13 +610,121 @@ def test_ensure_hnsw_index_is_idempotent_and_skips_wide_strategies(store):
     assert not _index_exists(store, es.hnsw_index_name("embeddings", OTHER_MODEL, wide))
 
 
-def test_index_creation_rolls_back_with_a_failed_write(store):
+def _index_valid(store, name):
+    with store.reader() as conn:
+        row = conn.execute(
+            "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid"
+            " WHERE c.relname = %s",
+            (name,),
+        ).fetchone()
+    return None if row is None else row[0]
+
+
+def _wait_for(predicate, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _building(store):
+    return (
+        _count(
+            store,
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+            " AND strpos(query, 'CREATE INDEX CONCURRENTLY') = 1 AND wait_event_type = 'Lock'",
+        )
+        > 0
+    )
+
+
+def test_the_hnsw_build_is_concurrent_and_does_not_block_writers(store, pg_dsn):
+    # A plain CREATE INDEX queues for a SHARE lock behind an open writer, and every later
+    # writer of the table queues behind it. CONCURRENTLY takes SHARE UPDATE EXCLUSIVE.
+    name = es.hnsw_index_name("embeddings", OTHER_MODEL, SMALL)
+    _drop_index(store, "embeddings", OTHER_MODEL, SMALL)
+    blocker = psycopg.connect(pg_dsn)  # an open writer of embeddings the build must wait for
+    blocker.execute("LOCK TABLE embeddings IN ROW EXCLUSIVE MODE")
+    result = {}
+    builder = threading.Thread(
+        target=lambda: result.update(
+            ok=ix.ensure_hnsw_index_concurrently(store, "embeddings", OTHER_MODEL, SMALL)
+        )
+    )
+    builder.start()
+    try:
+        assert _wait_for(lambda: _building(store)), "the build never started waiting"
+        with psycopg.connect(pg_dsn) as writer:  # another pair's writer is not held up
+            writer.execute("SET lock_timeout = '2s'")
+            writer.execute("LOCK TABLE embeddings IN ROW EXCLUSIVE MODE")
+    finally:
+        blocker.rollback()
+        blocker.close()
+        builder.join(30)
+    assert result == {"ok": True}
+    assert _index_valid(store, name) is True
+    assert ix.ensure_hnsw_index_concurrently(store, "embeddings", OTHER_MODEL, SMALL) is True
+
+
+def test_an_invalid_index_left_by_a_failed_build_is_rebuilt(store, pg_dsn):
+    name = es.hnsw_index_name("embeddings", OTHER_MODEL, SMALL)
+    _drop_index(store, "embeddings", OTHER_MODEL, SMALL)
+    blocker = psycopg.connect(pg_dsn)
+    blocker.execute("LOCK TABLE embeddings IN ROW EXCLUSIVE MODE")
+    try:  # the build gives up waiting for the open writer: an INVALID index is left behind
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            ix.ensure_hnsw_index_concurrently(
+                store, "embeddings", OTHER_MODEL, SMALL, lock_timeout=0.2
+            )
+    finally:
+        blocker.rollback()
+        blocker.close()
+    assert _index_valid(store, name) is False
+    assert ix.ensure_hnsw_index_concurrently(store, "embeddings", OTHER_MODEL, SMALL) is True
+    assert _index_valid(store, name) is True
+
+
+def test_a_build_in_another_session_is_not_waited_for(store, pg_dsn):
+    _drop_index(store, "embeddings", OTHER_MODEL, SMALL)
+    with psycopg.connect(pg_dsn, autocommit=True) as other:
+        other.execute("SELECT pg_advisory_lock(%s)", (ix.HNSW_LOCK_KEY,))
+        started = time.monotonic()
+        assert ix.ensure_hnsw_index_concurrently(store, "embeddings", OTHER_MODEL, SMALL) is False
+        assert time.monotonic() - started < 2
+        # the job does not wait for it either: its vectors are written, the builder indexes them
+        _add(store, "Felines", b"cat body")
+        assert ix.Indexer(store, embed=SpaceEmbed((OTHER_MODEL, SMALL))).run_once() == 1
+    assert _pairs(store) == {(OTHER_MODEL, SMALL.key())}
+    assert ix.ensure_hnsw_index_concurrently(store, "embeddings", OTHER_MODEL, SMALL) is True
+
+
+def test_the_index_is_built_before_and_outside_the_write_transaction(store, monkeypatch):
+    calls = []
+    real = ix.ensure_hnsw_index_concurrently
+
+    def spy(st, table, model_id, strategy, **kw):
+        # nothing of this job is written yet when the index is built
+        calls.append((table, _count(store, "SELECT count(*) FROM embeddings")))
+        return real(st, table, model_id, strategy, **kw)
+
+    monkeypatch.setattr(ix, "ensure_hnsw_index_concurrently", spy)
+    monkeypatch.setattr(ix, "ensure_hnsw_index", None)  # the in-transaction build is not used
     _drop_index(store, "embeddings", OTHER_MODEL, SMALL)
     _add(store, "Felines", b"cat body")
     bad = SpaceEmbed((OTHER_MODEL, SMALL), fn=lambda texts: [[0.0] * 4 for _ in texts])
-    ix.Indexer(store, embed=bad).run_once()  # zero vectors: set_embeddings refuses them
+    idx = ix.Indexer(store, embed=bad)
+    idx.run_once()  # zero vectors: set_embeddings refuses them, the job backs off
     assert "zero vector" in ix.status(store)["last_error"]
-    assert not _index_exists(store, es.hnsw_index_name("embeddings", OTHER_MODEL, SMALL))
+    assert calls == [("embeddings", 0)]
+    # the index outlives the failed write (it was never part of it), empty and valid
+    assert _index_valid(store, es.hnsw_index_name("embeddings", OTHER_MODEL, SMALL)) is True
+    idx.embed = SpaceEmbed((OTHER_MODEL, SMALL))
+    with store.connect() as conn:
+        conn.execute("UPDATE index_queue SET next_attempt_at = 0")
+    assert idx.run_once() == 1
+    assert calls == [("embeddings", 0)]  # a ready index is remembered, not checked per job
 
 
 def test_unresolvable_vector_space_fails_the_job_with_backoff_and_writes_nothing(store, docs):

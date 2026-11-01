@@ -37,8 +37,9 @@ already written by then.
 
 Vectors (decision c42, plan task t13): every vector carries the real model id and the
 strategy (prompts, chunker and ``max_chars``, dimension, normalisation) it was made with;
-see :class:`Indexer` for where the pair comes from, and :func:`ensure_hnsw_index` for the
-per-pair HNSW index the first vector of a pair creates.
+see :class:`Indexer` for where the pair comes from, and
+:func:`ensure_hnsw_index_concurrently` for the per-pair HNSW index the first vector of a pair
+creates (built concurrently, before the job's write transaction).
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ import json
 import posixpath
 import threading
 import time
+from contextlib import suppress
 from typing import Any, Callable
 
 from . import devague_text, ingest, search
@@ -64,8 +66,12 @@ CHUNKER = "paragraph-pack"
 # pgvector's HNSW index takes at most 2,000 dimensions of a ``vector``; a wider strategy's
 # vectors are stored and searched without one (an exact scan).
 HNSW_MAX_DIMENSION = 2000
-# pg_advisory_xact_lock key serialising HNSW index creation ("culture-library hnsw").
+# Advisory lock key serialising HNSW index creation ("culture-library hnsw"): taken for the
+# transaction by ensure_hnsw_index, for the session (try, never wait) by the concurrent build.
 HNSW_LOCK_KEY = 0x6C6962_686E7377
+# How long a concurrent HNSW build waits, in seconds, for each open transaction on the table
+# before it gives up (its lock waits obey lock_timeout); the job then backs off and retries.
+HNSW_BUILD_LOCK_TIMEOUT = 60.0
 
 # A write that changes what a repo doc shows marks the doc in ``repodoc_dirty`` in the same
 # transaction (#39), so discovery plans only those docs and an idle tick never reads
@@ -116,16 +122,14 @@ def _relation_exists(conn: Any, name: str) -> bool:
 
 
 def ensure_hnsw_index(conn: Any, table: str, model_id: str, strategy: Strategy) -> bool:
-    """Create the (``model_id``, ``strategy``) HNSW index on ``table`` if it is missing.
+    """Create the (``model_id``, ``strategy``) HNSW index on ``table`` in ``conn``'s
+    transaction, if it is missing: a plain ``CREATE INDEX``.
 
-    Runs inside the caller's write transaction, before the pair's vectors are written, so the
-    first vector of a new pair creates its index: a plain ``CREATE INDEX``, not
-    ``CONCURRENTLY`` (which cannot run in a transaction and leaves an invalid index behind
-    when it fails). The pair has no rows yet, so the build is one scan of the table that
-    finds nothing to insert, and later rows are added to the index as they are written; its
-    SHARE lock holds other writers of ``table`` only until this transaction commits. An
-    advisory lock serialises two creators, which would otherwise race on the index name.
-    Returns True when it created the index. A strategy wider than
+    For a bulk load that owns the database (the SQLite migration). Its SHARE lock holds every
+    other writer of ``table`` until the transaction commits, and the build scans the whole
+    table, so the running :class:`Indexer` uses :func:`ensure_hnsw_index_concurrently`
+    instead. An advisory lock serialises two creators, which would otherwise race on the
+    index name. Returns True when it created the index. A strategy wider than
     :data:`HNSW_MAX_DIMENSION` gets none.
     """
     if strategy.dimension > HNSW_MAX_DIMENSION:
@@ -138,6 +142,85 @@ def ensure_hnsw_index(conn: Any, table: str, model_id: str, strategy: Strategy) 
         return False
     conn.execute(hnsw_index_sql(table, model_id, strategy))
     return True
+
+
+def _index_valid(conn: Any, name: str) -> bool | None:
+    """True for a valid index ``name``, False for an invalid one (a failed concurrent build),
+    None when there is none."""
+    row = conn.execute(
+        "SELECT i.indisvalid FROM pg_catalog.pg_index i"
+        " JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid"
+        " WHERE c.relname = %s AND c.relnamespace = current_schema()::regnamespace",
+        (name,),
+    ).fetchone()
+    return None if row is None else bool(row[0])
+
+
+def ensure_hnsw_index_concurrently(
+    store: Store,
+    table: str,
+    model_id: str,
+    strategy: Strategy,
+    *,
+    lock_timeout: float = HNSW_BUILD_LOCK_TIMEOUT,
+) -> bool:
+    """Build the (``model_id``, ``strategy``) HNSW index on ``table`` without blocking writers.
+
+    The :class:`Indexer` calls it before its first write transaction for a pair, so the first
+    vector of a new pair still creates its index, but outside that transaction:
+    ``CREATE INDEX CONCURRENTLY`` on a connection of its own in autocommit mode. It takes
+    SHARE UPDATE EXCLUSIVE, which no row writer conflicts with, so every other writer of
+    ``table`` (another pair's vectors, another job) carries on while it builds.
+
+    Only one session builds: the session advisory lock :data:`HNSW_LOCK_KEY` is *tried*, and
+    when another session holds it this returns False at once rather than wait (a waiter would
+    hold a snapshot the build itself waits for, a deadlock). Vectors written meanwhile are
+    picked up by that build. An INVALID index of the same name, left by a build that failed
+    or was cancelled, is dropped (``CONCURRENTLY``) and built again. The build's waits for
+    open transactions on ``table`` obey ``lock_timeout`` seconds; past it the error
+    propagates (the job backs off) and the invalid index it leaves is rebuilt next time.
+
+    Returns True when the index is valid on return, False when there is none: another session
+    is building it, or the strategy is wider than :data:`HNSW_MAX_DIMENSION`.
+    """
+    if strategy.dimension > HNSW_MAX_DIMENSION:
+        return False
+    name = hnsw_index_name(table, model_id, strategy)
+    with store.reader() as conn:
+        if _index_valid(conn, name):
+            return True
+    create = hnsw_index_sql(table, model_id, strategy)
+    prefix = "CREATE INDEX "
+    if not create.startswith(prefix):  # pragma: no cover - hnsw_index_sql's fixed shape
+        raise ValueError(f"unexpected index DDL: {create[:40]!r}")
+    create = "CREATE INDEX CONCURRENTLY " + create[len(prefix) :]
+    # A fresh connection from the store, switched to autocommit before its first statement
+    # (CONCURRENTLY cannot run in a transaction block), and switched back before it is
+    # handed back.
+    with store.connect() as conn:
+        conn.autocommit = True
+        try:
+            if not conn.execute("SELECT pg_try_advisory_lock(%s)", (HNSW_LOCK_KEY,)).fetchone()[0]:
+                return False
+            try:
+                conn.execute(
+                    "SELECT set_config('lock_timeout', %s, false)",
+                    (f"{max(1, int(lock_timeout * 1000))}ms",),
+                )
+                state = _index_valid(conn, name)
+                if state:  # a racing builder finished it
+                    return True
+                if state is False:
+                    conn.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {name}")
+                conn.execute(create)
+                return True
+            finally:  # never mask the build's error; a broken connection drops both anyway
+                with suppress(Exception):
+                    conn.execute("SELECT pg_advisory_unlock(%s)", (HNSW_LOCK_KEY,))
+                    conn.execute("RESET lock_timeout")
+        finally:
+            with suppress(Exception):
+                conn.autocommit = False
 
 
 TextFor = Callable[[Item], str]
@@ -351,29 +434,41 @@ def _json_repodoc_text(path: str, name: str, data: bytes) -> tuple[str, str]:
     return _json_title(parsed) or name, devague_text.text_for(path, parsed)
 
 
-def _text_repodoc_text(name: str, data: bytes) -> tuple[str, str]:
-    raw = data.decode("utf-8", errors="replace")
+def _text_repodoc_text(name: str, raw: str) -> tuple[str, str]:
     for line in raw.splitlines():
         if line.startswith("# ") and line[2:].strip():
             return line[2:].strip(), raw
     return name, raw
 
 
+def strip_nul(text: str) -> str:
+    """``text`` without NUL characters, which a Postgres ``text`` value cannot hold.
+
+    Stripped rather than replaced with U+FFFD: a NUL carries no meaning in prose, and the
+    commonest source (UTF-16 text pushed as bytes, a NUL beside every letter) reads, and is
+    found, as the right words once they are gone; a U+FFFD would split every word.
+    """
+    return text.replace("\x00", "")
+
+
 def repodoc_text(path: str, data: bytes) -> tuple[str, str]:
-    """``(title, body)`` to index for a repo doc's shown bytes.
+    """``(title, body)`` to index for a repo doc's shown bytes, free of NUL (:func:`strip_nul`).
 
     ``.json``: devague prose (:func:`devague_text.text_for`; title from its title/slug), or
     the raw text if it does not parse. Markdown and plain text: the raw text (title from the
     first ``# `` heading). Anything else, i.e. binary design assets: no body, so only the
     path and the file name (the title) are searchable.
     """
-    name = posixpath.basename(path)
+    name = strip_nul(posixpath.basename(path))
     low = path.lower()
     if low.endswith(".json"):
-        return _json_repodoc_text(path, name, data)
-    if low.endswith(_TEXT_SUFFIXES):
-        return _text_repodoc_text(name, data)
-    return name, ""
+        title, body = _json_repodoc_text(path, name, data)
+    elif low.endswith(_TEXT_SUFFIXES):
+        # stripped before the heading is looked for, so "# \x00" is not a title
+        return _text_repodoc_text(name, strip_nul(data.decode("utf-8", errors="replace")))
+    else:
+        return name, ""
+    return strip_nul(title), strip_nul(body)
 
 
 _SHOWN_SQL = """
@@ -518,7 +613,8 @@ class Indexer:
     no vector is written under a guessed model); else, for a plain callable that states no
     vector space (a test fake, an injected embedder), the current pair
     (:data:`~culture_library.core.embedding_strategy.CURRENT_MODEL_ID` and ``CURRENT_STRATEGY``).
-    The first vector of a pair creates its HNSW index (:func:`ensure_hnsw_index`). ``model``
+    The first vector of a pair creates its HNSW index, before and outside the write
+    transaction (:func:`ensure_hnsw_index_concurrently`). ``model``
     is only a display label (``/api/status``), never stored.
     """
 
@@ -557,6 +653,7 @@ class Indexer:
         self._thread: threading.Thread | None = None
         self._swept = False  # the first run_once re-plans every repo doc (self-healing)
         self._stale_checked = False  # the first resolved pair re-opens jobs lacking it
+        self._hnsw_ready: set[tuple[str, str, str]] = set()  # (table, model_id, strategy key)
 
     def status(self) -> dict:
         return status(self.store, now=self.now())
@@ -629,6 +726,14 @@ class Indexer:
                 )
             ]
 
+    def _ensure_index(self, table: str, model_id: str, strategy: Strategy) -> None:
+        """Build the pair's HNSW index before the job's write transaction (once per pair)."""
+        pair = (table, model_id, strategy.key())
+        if pair in self._hnsw_ready:
+            return
+        if ensure_hnsw_index_concurrently(self.store, table, model_id, strategy):
+            self._hnsw_ready.add(pair)
+
     def _embed_chunks(self, chunks: list[str]) -> list:
         vecs: list = []
         for i in range(0, len(chunks), self.batch_size):
@@ -649,6 +754,7 @@ class Indexer:
                 return False  # discovery drops it
             sha, vis, path = job["shown_sha256"], job["shown_visibility"], job["path"]
             title, body = repodoc_text(path, self.store.blob_path(sha).read_bytes())
+            path = strip_nul(path)  # a stored path cannot hold NUL; cheap, and chunks use it
             with self.store.connect() as conn:
                 _doc_still_current(conn, doc_id, sha)
                 search.set_repodoc_text(conn, doc_id, title, path, body, vis)
@@ -656,9 +762,9 @@ class Indexer:
                 model_id, strategy = self.vector_space()
                 chunks = [f"{title}\n{path}".strip()] + search.chunk_text(body)
                 vecs = self._embed_chunks(chunks)
+                self._ensure_index("repodoc_embeddings", model_id, strategy)
                 with self.store.connect() as conn:
                     _doc_still_current(conn, doc_id, sha)
-                    ensure_hnsw_index(conn, "repodoc_embeddings", model_id, strategy)
                     search.set_repodoc_embeddings(
                         conn, doc_id, chunks, vecs, model_id=model_id, strategy=strategy
                     )
@@ -722,9 +828,9 @@ class Indexer:
         header = f"{item.title}\n{item.author}".strip()
         chunks = [header] + search.chunk_text(body[0] if body else "")
         vecs = self._embed_chunks(chunks)
+        self._ensure_index("embeddings", model_id, strategy)
         with self.store.connect() as conn:
             _still_current(conn, item)
-            ensure_hnsw_index(conn, "embeddings", model_id, strategy)
             search.set_embeddings(conn, item.id, chunks, vecs, model_id=model_id, strategy=strategy)
 
     def _fail(
