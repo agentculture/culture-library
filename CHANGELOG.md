@@ -24,9 +24,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tests run on Postgres: one database per worker, truncated per test; CI runs a pgvector service
 
 ### Fixed
+
 - Code-review round on PR #49: repo-doc text drops NUL before indexing; explicit `--dsn`/`--to` take `CULTURE_LIBRARY_PG_PASSWORD`; `backup schedule` requires `--command`; purge and add/replace no longer deadlock (consistent item, blob and feed lock order); snippets read a bounded body window chosen from the stored vector; stopword-only queries match through a `simple`-config fallback; a new (model, strategy) HNSW index builds with `CREATE INDEX CONCURRENTLY`; `/capabilities` is fetched single-flight with a short failure cache; JSON from feed, sources and projects returns with sorted keys
 - A connection pool (`psycopg-pool`, `CULTURE_LIBRARY_PG_POOL_MIN`/`_MAX`) replaces a new connection per call
-
 - Store.write_blob temp-name collision when threads wrote the same bytes
 
 ## [0.19.8] - 2026-10-31
