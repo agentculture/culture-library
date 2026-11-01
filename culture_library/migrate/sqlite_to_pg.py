@@ -52,6 +52,7 @@ the copy (nothing is written); none is mapped silently:
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import math
@@ -246,6 +247,27 @@ class Report:
             "elapsed_s": round(self.elapsed_s, 3),
         }
 
+    def _table_row(self, t: Any) -> tuple[str, ...]:
+        return (
+            t.table if t.table == t.source_table else f"{t.table} <- {t.source_table}",
+            str(t.source_count),
+            _show(t.source_max_id),
+            _show(t.target_count),
+            _show(t.target_max_id),
+            str(t.skipped) if t.skipped else "",
+            {None: "", True: "same", False: "DIFFERS"}[t.digest_ok],
+            "ok" if t.ok else "DIFF",
+        )
+
+    def _problem_lines(self) -> list[str]:
+        more = self.problem_count - len(self.problems)
+        tail = f", the first {len(self.problems)} listed" if more else ""
+        lines = [f"problems ({self.problem_count}{tail}):"]
+        for p in self.problems:
+            where = f"{p.table}.{p.column}" if p.column else p.table
+            lines.append(f"  {where} [{p.row}]: {p.reason}")
+        return lines
+
     def render(self) -> str:
         head = {
             "copied": "COPIED (committed)",
@@ -259,20 +281,7 @@ class Report:
         if self.model_id:
             lines.append(f"vectors: model_id={self.model_id} strategy={self.strategy}")
         cols = ("table", "src count", "src max", "pg count", "pg max", "skip", "digest", "")
-        rows = [cols]
-        for t in self.tables:
-            rows.append(
-                (
-                    t.table if t.table == t.source_table else f"{t.table} <- {t.source_table}",
-                    str(t.source_count),
-                    _show(t.source_max_id),
-                    _show(t.target_count),
-                    _show(t.target_max_id),
-                    str(t.skipped) if t.skipped else "",
-                    {None: "", True: "same", False: "DIFFERS"}[t.digest_ok],
-                    "ok" if t.ok else "DIFF",
-                )
-            )
+        rows = [cols] + [self._table_row(t) for t in self.tables]
         widths = [max(len(r[i]) for r in rows) for i in range(len(cols))]
         for r in rows:
             lines.append("  ".join(v.ljust(w) for v, w in zip(r, widths)).rstrip())
@@ -283,12 +292,7 @@ class Report:
             seqs = ", ".join(f"{k}={v}" for k, v in sorted(self.sequences.items()))
             lines.append(f"next identity values: {seqs}")
         if self.problems:
-            more = self.problem_count - len(self.problems)
-            tail = f", the first {len(self.problems)} listed" if more else ""
-            lines.append(f"problems ({self.problem_count}{tail}):")
-            for p in self.problems:
-                where = f"{p.table}.{p.column}" if p.column else p.table
-                lines.append(f"  {where} [{p.row}]: {p.reason}")
+            lines.extend(self._problem_lines())
         lines.append(f"elapsed: {self.elapsed_s:.1f} s")
         return "\n".join(lines)
 
@@ -504,39 +508,57 @@ def _json_problem(text: str) -> str | None:
     return None
 
 
+def _convert_int(col: _Column, value: Any) -> tuple[Any, str | None]:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None, f"not an integer: {value!r:.40}"
+    if not -_INT_RANGE[col.type] <= value < _INT_RANGE[col.type]:
+        return None, f"out of range for {col.type}: {value}"
+    return value, None
+
+
+def _convert_float(value: Any) -> tuple[Any, str | None]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None, f"not a number: {value!r:.40}"
+    return float(value), None
+
+
+def _convert_bool(value: Any) -> tuple[Any, str | None]:
+    if value in (0, 1) and not isinstance(value, float):
+        return bool(value), None
+    return None, f"not a 0/1 flag: {value!r:.40}"
+
+
+def _convert_text(col: _Column, value: Any) -> tuple[Any, str | None]:
+    if not isinstance(value, str):
+        return None, f"not text ({type(value).__name__})"
+    bad = _bad_string(value)
+    if not bad and col.type == "jsonb":
+        bad = _json_problem(value)
+    if bad:
+        return None, bad
+    return value, None
+
+
+def _convert_null(col: _Column, *, fts: bool) -> tuple[Any, str | None]:
+    if col.nullable:
+        return None, None
+    if fts and col.type == "text":
+        return "", None  # FTS5 columns have no NOT NULL; NULL text is empty text
+    return None, "NULL in a NOT NULL column"
+
+
 def _convert(col: _Column, value: Any, *, fts: bool) -> tuple[Any, str | None]:
     """``(value for Postgres, problem or None)``."""
     if value is None:
-        if col.nullable:
-            return None, None
-        if fts and col.type == "text":
-            return "", None  # FTS5 columns have no NOT NULL; NULL text is empty text
-        return None, "NULL in a NOT NULL column"
+        return _convert_null(col, fts=fts)
     if col.type in ("bigint", "integer"):
-        if isinstance(value, bool) or not isinstance(value, int):
-            return None, f"not an integer: {value!r:.40}"
-        if not -_INT_RANGE[col.type] <= value < _INT_RANGE[col.type]:
-            return None, f"out of range for {col.type}: {value}"
-        return value, None
+        return _convert_int(col, value)
     if col.type == "double precision":
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return None, f"not a number: {value!r:.40}"
-        return float(value), None
+        return _convert_float(value)
     if col.type == "boolean":
-        if value in (0, 1) and not isinstance(value, float):
-            return bool(value), None
-        return None, f"not a 0/1 flag: {value!r:.40}"
+        return _convert_bool(value)
     if col.type in ("text", "jsonb"):
-        if not isinstance(value, str):
-            return None, f"not text ({type(value).__name__})"
-        bad = _bad_string(value)
-        if bad:
-            return None, bad
-        if col.type == "jsonb":
-            bad = _json_problem(value)
-            if bad:
-                return None, bad
-        return value, None
+        return _convert_text(col, value)
     return None, f"no conversion to {col.type}"  # pragma: no cover - schema drift
 
 
@@ -587,7 +609,7 @@ class _TablePlan:
         return self.table in VECTOR_TABLES
 
 
-def _plan(src: sqlite3.Connection, conn: Any) -> list[_TablePlan]:
+def _check_tables(src: sqlite3.Connection, conn: Any) -> None:
     target = _target_tables(conn)
     unknown_target = target - set(COPY_ORDER)
     if unknown_target:
@@ -608,38 +630,50 @@ def _plan(src: sqlite3.Connection, conn: Any) -> list[_TablePlan]:
             f"the SQLite file is not a 0.19.8 library ({'; '.join(parts)}); "
             "copy from the 0.19.8 library.db"
         )
-    fks = _foreign_keys(conn)
-    plans = []
-    for table in COPY_ORDER:
-        source = SOURCE_TABLE.get(table, table)
-        cols = _target_columns(conn, table)
-        src_cols = set(_source_columns(src, source))
-        if source in SOURCE_TABLE.values():
-            src_cols.add("rowid")
-        used, exprs, written = set(), [], []
-        for col in cols:
-            if table in VECTOR_TABLES and col.name in ("model_id", "strategy"):
-                exprs.append(None)
-                written.append(col)
-                continue
-            name = RENAMED.get((table, col.name), col.name)
-            if name not in src_cols:
-                raise SourceError(f"{source} has no column {name} (needed for {table}.{col.name})")
-            used.add(name)
-            exprs.append(name)
-            written.append(col)
-        if table in VECTOR_TABLES:
-            used.add("model")
-        leftover = src_cols - used - ({"rowid"} if source in SOURCE_TABLE.values() else set())
-        if leftover:
-            raise SourceError(
-                f"{source} has columns the copy would drop: {', '.join(sorted(leftover))}"
-            )
-        table_fks = {c: p for (t, c), p in fks.items() if t == table}
-        plans.append(
-            _TablePlan(table, source, written, exprs, _primary_key(conn, table), table_fks)
+
+
+def _column_exprs(
+    table: str, source: str, cols: list[_Column], src_cols: set[str]
+) -> tuple[set[str], list[str | None]]:
+    """``(source columns used, the SQLite expression per target column)``."""
+    used: set[str] = set()
+    exprs: list[str | None] = []
+    for col in cols:
+        if table in VECTOR_TABLES and col.name in ("model_id", "strategy"):
+            exprs.append(None)
+            continue
+        name = RENAMED.get((table, col.name), col.name)
+        if name not in src_cols:
+            raise SourceError(f"{source} has no column {name} (needed for {table}.{col.name})")
+        used.add(name)
+        exprs.append(name)
+    return used, exprs
+
+
+def _plan_table(
+    src: sqlite3.Connection, conn: Any, table: str, fks: dict[tuple[str, str], tuple[str, str]]
+) -> _TablePlan:
+    source = SOURCE_TABLE.get(table, table)
+    cols = _target_columns(conn, table)
+    src_cols = set(_source_columns(src, source))
+    if source in SOURCE_TABLE.values():
+        src_cols.add("rowid")
+    used, exprs = _column_exprs(table, source, cols, src_cols)
+    if table in VECTOR_TABLES:
+        used.add("model")
+    leftover = src_cols - used - ({"rowid"} if source in SOURCE_TABLE.values() else set())
+    if leftover:
+        raise SourceError(
+            f"{source} has columns the copy would drop: {', '.join(sorted(leftover))}"
         )
-    return plans
+    table_fks = {c: p for (t, c), p in fks.items() if t == table}
+    return _TablePlan(table, source, list(cols), exprs, _primary_key(conn, table), table_fks)
+
+
+def _plan(src: sqlite3.Connection, conn: Any) -> list[_TablePlan]:
+    _check_tables(src, conn)
+    fks = _foreign_keys(conn)
+    return [_plan_table(src, conn, table, fks) for table in COPY_ORDER]
 
 
 def _select(plan: _TablePlan, extra: Sequence[str] = ()) -> str:
@@ -721,6 +755,45 @@ class _Run:
         if len(self.report.problems) < MAX_LISTED_PROBLEMS:
             self.report.problems.append(Problem(table, column, row, reason))
 
+    def _stale_label(self, plan: _TablePlan, by_name: dict, key: str) -> bool:
+        """Record a stale vector label as a problem; True when the row is bad."""
+        if not plan.is_vector or by_name["model"] == self.label:
+            return False
+        self.problem(
+            plan.table,
+            "model_id",
+            key,
+            f"vector label {by_name['model']!r} is not the gateway embedder's "
+            f"{self.label!r} (stale: pass --drop-stale-vectors to leave it for the "
+            "indexer to re-embed)",
+        )
+        return True
+
+    def _cell(self, plan: _TablePlan, col: _Column, expr: str, by_name: dict, fts: bool):
+        """``(value, problem or None)`` for one source cell."""
+        if plan.is_vector and col.name == "vec":
+            return _vector_value(by_name["vec"], self.strategy.dimension)
+        value, why = _convert(col, by_name[expr], fts=fts)
+        if why is None and value is not None and col.name in plan.fks:
+            parent = plan.fks[col.name]
+            if value not in self.parents[parent]:
+                why = f"orphan: no {parent[0]} row with {parent[1]} = {value}"
+        return value, why
+
+    def _row(self, plan: _TablePlan, by_name: dict, key: str, fts: bool) -> list[Any] | None:
+        bad = self._stale_label(plan, by_name, key)
+        out: list[Any] = []
+        for col, expr in zip(plan.columns, plan.source_exprs):
+            if expr is None:  # a vector table's model_id or strategy
+                out.append(self.model_id if col.name == "model_id" else self.key)
+                continue
+            value, why = self._cell(plan, col, expr, by_name, fts)
+            if why is not None:
+                self.problem(plan.table, col.name, key, why)
+                bad = True
+            out.append(value)
+        return None if bad else out
+
     def _rows(self, plan: _TablePlan) -> Iterator[list[Any] | None]:
         """Postgres values per source row (None: not written); records problems."""
         extra = ["model"] if plan.is_vector else []
@@ -734,38 +807,10 @@ class _Run:
         for raw in self.src.execute(_select(plan, extra)):
             key = ",".join(f"{c}={_shown(raw[i])}" for c, i in keyed)
             by_name = dict(zip(names, raw))
-            bad = False
-            if plan.is_vector and by_name["model"] != self.label:
-                if self.drop_stale:
-                    yield None
-                    continue
-                self.problem(
-                    plan.table,
-                    "model_id",
-                    key,
-                    f"vector label {by_name['model']!r} is not the gateway embedder's "
-                    f"{self.label!r} (stale: pass --drop-stale-vectors to leave it for the "
-                    "indexer to re-embed)",
-                )
-                bad = True
-            out: list[Any] = []
-            for col, expr in zip(plan.columns, plan.source_exprs):
-                if expr is None:  # a vector table's model_id or strategy
-                    out.append(self.model_id if col.name == "model_id" else self.key)
-                    continue
-                if plan.is_vector and col.name == "vec":
-                    value, why = _vector_value(by_name["vec"], self.strategy.dimension)
-                else:
-                    value, why = _convert(col, by_name[expr], fts=fts)
-                if why is None and value is not None and col.name in plan.fks:
-                    parent = plan.fks[col.name]
-                    if value not in self.parents[parent]:
-                        why = f"orphan: no {parent[0]} row with {parent[1]} = {value}"
-                if why is not None:
-                    self.problem(plan.table, col.name, key, why)
-                    bad = True
-                out.append(value)
-            yield None if bad else out
+            if plan.is_vector and by_name["model"] != self.label and self.drop_stale:
+                yield None
+                continue
+            yield self._row(plan, by_name, key, fts)
 
     def copy_table(self, plan: _TablePlan) -> None:
         cols = ", ".join(_ident(c.name) for c in plan.columns)
@@ -776,8 +821,7 @@ class _Run:
         writing = not self.report.problems
         with self.conn.cursor() as cur:
             if not writing:
-                for _values in self._rows(plan):
-                    pass
+                collections.deque(self._rows(plan), maxlen=0)  # validate only
                 return
             with cur.copy(sql) as copy:
                 if plan.is_vector:

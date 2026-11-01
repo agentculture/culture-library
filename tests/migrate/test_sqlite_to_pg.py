@@ -121,15 +121,19 @@ def test_fixture_source_has_rows_in_every_table(source):
 def test_copies_every_table_with_ids_and_reports_both_sides(source, pg_dsn, gateway):
     report = s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
     assert report.status == "copied", report.render()
-    assert report.ok and not report.problems
+    assert report.ok
+    assert not report.problems
     assert gateway.caps_calls >= 1
     by = {t.table: t for t in report.tables}
     assert set(by) == set(s2p.COPY_ORDER)
     for t in report.tables:
         assert (t.source_count, t.source_max_id) == (t.target_count, t.target_max_id), t
-    assert by["items"].source_max_id == 5 and by["feed"].target_count == 4
-    assert by["item_text"].source_table == "search_fts" and by["item_text"].digest_ok
-    assert by["embeddings"].digest_ok and by["repodoc_embeddings"].digest_ok
+    assert by["items"].source_max_id == 5
+    assert by["feed"].target_count == 4
+    assert by["item_text"].source_table == "search_fts"
+    assert by["item_text"].digest_ok
+    assert by["embeddings"].digest_ok
+    assert by["repodoc_embeddings"].digest_ok
     with _pg(pg_dsn) as conn:
         assert [r[0] for r in conn.execute("SELECT id FROM items ORDER BY id")] == [1, 2, 5]
         assert conn.execute("SELECT seq, subject FROM feed WHERE seq = 3").fetchone() == (
@@ -191,7 +195,8 @@ def test_vectors_are_byte_identical_with_model_id_and_strategy(source, pg_dsn, g
         assert s2p._blob_from_pg(vec) == want[(item_id, chunk_no)][0]
     vals = array("f")
     vals.frombytes(want[(1, 0)][0])
-    assert str(vals[0]) == "-0.0" and vals[1] > 0
+    assert str(vals[0]) == "-0.0"
+    assert vals[1] > 0
     assert first.startswith("[-0,1e-45,")
 
 
@@ -236,15 +241,17 @@ def test_empty_table_identity_starts_at_one(tmp_path, pg_dsn, gateway):
 def test_refused_on_non_empty_target(source, pg_dsn, gateway):
     with _pg(pg_dsn) as conn:
         conn.execute("INSERT INTO index_meta VALUES ('x', 'y')")
+    embedder = gateway.embedder()
     with pytest.raises(s2p.TargetNotEmptyError, match="index_meta"):
-        s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
+        s2p.copy_library(source, pg_dsn, embedder=embedder)
     assert _library_rows(pg_dsn) == 1
 
 
 def test_refused_when_capabilities_unreachable(source, pg_dsn, gateway):
     gateway.caps = None
+    embedder = gateway.embedder()
     with pytest.raises(EmbeddingError, match="capabilities"):
-        s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
+        s2p.copy_library(source, pg_dsn, embedder=embedder)
     assert _library_rows(pg_dsn) == 0
 
 
@@ -358,18 +365,20 @@ def test_drop_stale_vectors_skips_them_and_reports_it(source, pg_dsn, gateway):
     assert report.status == "copied", report.render()
     by = {t.table: t for t in report.tables}
     assert (by["embeddings"].source_count, by["embeddings"].skipped) == (3, 2)
-    assert by["embeddings"].target_count == 1 and by["embeddings"].ok
+    assert by["embeddings"].target_count == 1
+    assert by["embeddings"].ok
     assert report.labels["embeddings"] == {"gemma2-embed": 2, fx.LABEL: 1}
 
 
 def test_unknown_source_table_or_column_is_refused(source, pg_dsn, gateway):
     _poke(source, "CREATE TABLE extra (x)")
+    embedder = gateway.embedder()
     with pytest.raises(s2p.SourceError, match="unknown extra"):
-        s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
+        s2p.copy_library(source, pg_dsn, embedder=embedder)
     _poke(source, "DROP TABLE extra")
     _poke(source, "ALTER TABLE items ADD COLUMN surprise TEXT")
     with pytest.raises(s2p.SourceError, match="surprise"):
-        s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
+        s2p.copy_library(source, pg_dsn, embedder=embedder)
     assert _library_rows(pg_dsn) == 0
 
 
@@ -383,16 +392,19 @@ def test_source_is_read_only(source, pg_dsn, gateway):
 def test_verify_reports_a_difference(source, pg_dsn, gateway):
     assert s2p.copy_library(source, pg_dsn, embedder=gateway.embedder()).ok
     good = s2p.verify_library(source, pg_dsn, embedder=gateway.embedder())
-    assert good.status == "verified" and good.ok
+    assert good.status == "verified"
+    assert good.ok
     with _pg(pg_dsn) as conn:
         conn.execute("DELETE FROM eval_samples WHERE id = 2")
         conn.execute("UPDATE item_text SET body = 'changed' WHERE item_id = 2")
     bad = s2p.verify_library(source, pg_dsn, embedder=gateway.embedder())
-    assert bad.status == "mismatch" and not bad.ok
+    assert bad.status == "mismatch"
+    assert not bad.ok
     by = {t.table: t for t in bad.tables}
     assert (by["eval_samples"].target_count, by["eval_samples"].target_max_id) == (1, 1)
     assert not by["eval_samples"].ok
-    assert by["item_text"].digest_ok is False and not by["item_text"].ok
+    assert by["item_text"].digest_ok is False
+    assert not by["item_text"].ok
     assert sum(not t.ok for t in bad.tables) == 2
 
 
@@ -429,13 +441,15 @@ def test_cli_copies_and_prints_report(source, pg_dsn, gateway, capsys):
     out = capsys.readouterr().out
     assert "COPIED" in out
     assert "item_text <- search_fts" in out
-    assert "embeddings" in out and "same" in out
+    assert "embeddings" in out
+    assert "same" in out
 
 
 def test_cli_json_report(source, pg_dsn, gateway, capsys):
     assert main(_cli(gateway, source, "--json")) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["status"] == "copied" and out["ok"] is True
+    assert out["status"] == "copied"
+    assert out["ok"] is True
     assert out["model_id"] == CURRENT_MODEL_ID
     tables = {t["table"]: t for t in out["tables"]}
     assert tables["feed"]["source_count"] == tables["feed"]["target_count"] == 4
@@ -447,7 +461,8 @@ def test_cli_problem_exits_non_zero_with_report(source, pg_dsn, gateway, capsys)
     assert main(_cli(gateway, source, "--json")) == 1
     captured = capsys.readouterr()
     out = json.loads(captured.out)
-    assert out["status"] == "refused" and out["problems"][0]["table"] == "feed"
+    assert out["status"] == "refused"
+    assert out["problems"][0]["table"] == "feed"
     assert "hint:" in captured.err or '"remediation"' in captured.err
 
 
@@ -458,7 +473,8 @@ def test_cli_verify_mismatch_exits_non_zero(source, pg_dsn, gateway, capsys):
     capsys.readouterr()
     assert main(_cli(gateway, source, "--verify-only")) == 1
     captured = capsys.readouterr()
-    assert "MISMATCH" in captured.out and "DIFF" in captured.out
+    assert "MISMATCH" in captured.out
+    assert "DIFF" in captured.out
     assert "hint:" in captured.err
 
 
@@ -470,14 +486,16 @@ def test_cli_non_empty_target(source, pg_dsn, gateway, capsys):
         )
     assert main(_cli(gateway, source)) == 1
     err = capsys.readouterr().err
-    assert "already holds library rows" in err and "hint:" in err
+    assert "already holds library rows" in err
+    assert "hint:" in err
 
 
 def test_cli_unreachable_gateway_is_env_error(source, pg_dsn, gateway, capsys):
     gateway.caps = None
     assert main(_cli(gateway, source)) == 2
     err = capsys.readouterr().err
-    assert "capabilities" in err and "hint:" in err
+    assert "capabilities" in err
+    assert "hint:" in err
 
 
 def test_cli_missing_source(tmp_path, gateway, capsys):
@@ -501,7 +519,8 @@ def test_hnsw_indexes_are_rebuilt_after_the_copy(source, pg_dsn, gateway):
         valid = conn.execute(
             "SELECT bool_and(indisvalid) FROM pg_index WHERE indrelid = 'embeddings'::regclass"
         ).fetchone()[0]
-    assert after == before and valid
+    assert after == before
+    assert valid
     names = {n for n, _ in after}
     for table in s2p.VECTOR_TABLES:
         assert hnsw_index_name(table, CURRENT_MODEL_ID, CURRENT_STRATEGY) in names
