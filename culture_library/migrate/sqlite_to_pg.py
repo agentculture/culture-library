@@ -33,6 +33,9 @@ The table mapping (SQLite -> Postgres; see core/migrations/0001_initial.sql):
   ``/capabilities``; the float32 blob becomes a pgvector ``vector`` with the same float32
   values, bit for bit (written in pgvector's binary format, never through decimal text);
 * INTEGER 0/1 flags -> boolean; JSON in TEXT -> jsonb;
+* ``vector_log`` (0.19.8's change log for its in-process vector cache) is not copied:
+  Postgres answers vector queries from pgvector and keeps no cache. The report names it with
+  its row count; a source without it (written before 0.19.8 first opened it) copies too;
 * ``repodoc_dirty`` is copied exactly: the plpgsql triggers mark every copied doc while
   ``repodocs`` and its versions and drafts arrive, and those marks are deleted before the
   SQLite marks are copied. (The indexer re-plans every doc once on its first run anyway.)
@@ -113,6 +116,10 @@ COPY_ORDER = (
     "repodoc_dirty",
 )
 
+# SQLite tables the copy reads past, with the reason the report gives.
+NOT_COPIED = {
+    "vector_log": "0.19.8's vector cache change log; Postgres keeps no cache",
+}
 # Target table -> its SQLite source, where the name differs.
 SOURCE_TABLE = {"item_text": "search_fts", "repodoc_text": "repodoc_fts"}
 # (target table, target column) -> SQLite column, where the name differs.
@@ -225,6 +232,7 @@ class Report:
     problem_count: int = 0
     labels: dict[str, dict[str, int]] = field(default_factory=dict)
     sequences: dict[str, int] = field(default_factory=dict)  # table -> its next identity value
+    not_copied: dict[str, int] = field(default_factory=dict)  # NOT_COPIED table -> its rows
     elapsed_s: float = 0.0
 
     @property
@@ -244,6 +252,7 @@ class Report:
             "problem_count": self.problem_count,
             "labels": self.labels,
             "sequences": self.sequences,
+            "not_copied": self.not_copied,
             "elapsed_s": round(self.elapsed_s, 3),
         }
 
@@ -291,6 +300,8 @@ class Report:
         if self.sequences:
             seqs = ", ".join(f"{k}={v}" for k, v in sorted(self.sequences.items()))
             lines.append(f"next identity values: {seqs}")
+        for table, rows in sorted(self.not_copied.items()):
+            lines.append(f"not copied: {table} ({rows} rows; {NOT_COPIED[table]})")
         if self.problems:
             lines.extend(self._problem_lines())
         lines.append(f"elapsed: {self.elapsed_s:.1f} s")
@@ -618,7 +629,7 @@ def _check_tables(src: sqlite3.Connection, conn: Any) -> None:
             f"{', '.join(sorted(unknown_target))}; this culture-library is newer than its copy"
         )
     expected_source = {SOURCE_TABLE.get(t, t) for t in COPY_ORDER}
-    have = _source_tables(src)
+    have = _source_tables(src) - set(NOT_COPIED)
     missing, extra = expected_source - have, have - expected_source
     if missing or extra:
         parts = []
@@ -668,6 +679,12 @@ def _plan_table(
         )
     table_fks = {c: p for (t, c), p in fks.items() if t == table}
     return _TablePlan(table, source, list(cols), exprs, _primary_key(conn, table), table_fks)
+
+
+def _not_copied_rows(src: sqlite3.Connection) -> dict[str, int]:
+    present = _source_tables(src) & set(NOT_COPIED)
+    sql = 'SELECT count(*) FROM "{}"'  # nosec B608 - names from NOT_COPIED
+    return {t: src.execute(sql.format(t)).fetchone()[0] for t in sorted(present)}
 
 
 def _plan(src: sqlite3.Connection, conn: Any) -> list[_TablePlan]:
@@ -746,6 +763,7 @@ class _Run:
         self.label = label
         self.drop_stale = drop_stale_vectors
         self.plans = _plan(src, conn)
+        report.not_copied = _not_copied_rows(src)
         self.parents = _parent_keys(src, self.plans)
         self.vector_oid = 0
         self.maintenance_work_mem = maintenance_work_mem

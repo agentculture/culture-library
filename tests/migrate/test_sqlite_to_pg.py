@@ -377,6 +377,25 @@ def test_drop_stale_vectors_skips_them_and_reports_it(source, pg_dsn, gateway):
     assert report.labels["embeddings"] == {"gemma2-embed": 2, fx.LABEL: 1}
 
 
+def test_vector_log_is_not_copied_and_the_report_says_so(source, pg_dsn, gateway):
+    rows = sqlite3.connect(source).execute("SELECT count(*) FROM vector_log").fetchone()[0]
+    assert rows > 0  # the fixture's vlog triggers fill it, as on live 0.19.8
+    report = s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
+    assert report.status == "copied", report.render()
+    assert report.not_copied == {"vector_log": rows}
+    assert report.to_dict()["not_copied"] == {"vector_log": rows}
+    assert f"not copied: vector_log ({rows} rows;" in report.render()
+    assert "vector_log" not in {t.table for t in report.tables}
+
+
+def test_source_without_vector_log_still_copies(source, pg_dsn, gateway):
+    _poke(source, "DROP TABLE vector_log")
+    report = s2p.copy_library(source, pg_dsn, embedder=gateway.embedder())
+    assert report.status == "copied", report.render()
+    assert report.not_copied == {}
+    assert "not copied" not in report.render()
+
+
 def test_unknown_source_table_or_column_is_refused(source, pg_dsn, gateway):
     _poke(source, "CREATE TABLE extra (x)")
     embedder = gateway.embedder()

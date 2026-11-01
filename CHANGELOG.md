@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-11-01
+
+### Changed
+
+- The copy tests' 0.19.8 schema fixture now comes from a library.db that 0.19.8 had opened, so it carries `vector_log` and its six triggers (lapse l5).
+
+### Fixed
+
+- `migrate sqlite-to-postgres` copies the real 0.19.8 library.db: it reads past `vector_log` (the 0.19.8 vector cache's change log, which Postgres has no use for) and names it with its row count in the report, instead of refusing the file. The t18 restore drill found it (deviation d15).
+
 ## [0.20.0] - 2026-11-01
 
 ### Added
