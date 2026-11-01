@@ -73,12 +73,13 @@ RRF_K = 60
 # hybrid passages: the nearest chunks and the top full-text owners per corpus that are fused
 HYBRID_POOL = 50
 _EF_SEARCH_MAX = 1000  # pgvector's upper limit for hnsw.ef_search
-# The least hnsw.ef_search an index query runs with (pgvector default 40). On test vectors
-# (tests/core/test_search_hnsw.py) 100 was enough, but live's 62.6k repo-doc chunks, full of
-# near-duplicates across repos, measured recall@10 against exact scoring (40 questions, t20,
-# 2026-11-01) of 0.853 at 100, 0.922 at 200, 0.953 at 400 and 1.000 at 1000, for an index
-# query of about 4, 5, 10 and 133 ms. Items were exact at 100. Hence 400 (deviation d23).
-EF_SEARCH = 400
+# The least hnsw.ef_search each corpus's index query runs with (pgvector default 40). Measured
+# on live (t20, 2026-11-01; 40 questions, HNSW top 10 against exact scoring): items were exact
+# at 100. Repo docs (62.6k chunks, full of near-duplicates across repos) gave 0.853 at 100,
+# 0.922 at 200, 0.953 at 400 and 1.000 at 1000, for an index query of about 4, 5, 10 and
+# 133 ms. So repo docs use 400 (deviation d23), and items, on the latency-critical RAG and
+# turn paths (#25), keep 100.
+EF_SEARCH = {"item": 100, "repodoc": 400}
 
 
 class EmbeddingError(CoreError):
@@ -662,7 +663,8 @@ def _ann(conn: Any, corpus: int, q: str, flt: tuple[str, list], limit: int, pair
     )  # fixed fragments and escaped literals; values are bound parameters
     with conn.transaction():
         conn.execute("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
-        ef = str(min(_EF_SEARCH_MAX, max(EF_SEARCH, limit + 1)))
+        least = EF_SEARCH["repodoc" if corpus == _DOC else "item"]
+        ef = str(min(_EF_SEARCH_MAX, max(least, limit + 1)))
         conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (ef,))
         rows = [tuple(r) for r in conn.execute(sql, (q, *params, q, limit + 1)).fetchall()]
     if len(rows) > limit and rows[limit][0] == rows[limit - 1][0]:

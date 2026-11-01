@@ -9,7 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- HNSW queries run with hnsw.ef_search 400 (was 100). Measured on live repo docs (62.6k chunks, many near-duplicates across repos; 40 questions): recall@10 against exact scoring 0.853 at 100, 0.953 at 400, for an index query of about 10 ms instead of 4. Items were already exact. Resolves plan risk r2 (deviation d23).
+- HNSW search breadth is per corpus: `search.EF_SEARCH` is `{"item": 100, "repodoc": 400}`. Measured on live (40 questions, top 10 against exact scoring), items were already exact at 100, and repo docs (62.6k chunks, many near-duplicates across repos) went from 0.853 recall@10 at 100 to 0.953 at 400, for an index query of about 10 ms instead of 4. The item paths (RAG retrieve, evals, the turn path in #25) keep 100. Resolves plan risk r2 (deviation d23).
+- CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md say live runs PostgreSQL since the 2026-11-01 cutover.
 
 ## [0.20.2] - 2026-11-01
 
