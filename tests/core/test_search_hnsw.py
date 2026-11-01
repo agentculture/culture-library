@@ -16,8 +16,10 @@ scoring, and how often a query came back short:
   (0.5%), k=5 and k=50; never short. Index queries took 4-8 ms against 15-27 ms exact.
 * 4,000 unstructured random vectors (the worst case for HNSW): with no filter, recall@5 was
   0.51 at ef_search 40, 0.80 at 100 and 0.93 at 200 (about 8, 10 and 11 ms); never short.
-  Hence EF_SEARCH = 100. Narrow kind filters were exact at every setting (the planner did not
-  use the index).
+  Hence EF_SEARCH = 100 at first. Narrow kind filters were exact at every setting (the
+  planner did not use the index).
+* Live repo docs (62.6k chunks, many near-duplicates; t20, 2026-11-01): recall@10 0.853 at
+  100 and 0.953 at 400 (about 10 ms), so EF_SEARCH is now 400 (deviation d23).
 
 The tests below keep the clustered case as a regression check at a smaller size.
 """

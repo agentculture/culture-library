@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.3] - 2026-11-01
+
+### Changed
+
+- HNSW queries run with hnsw.ef_search 400 (was 100). Measured on live repo docs (62.6k chunks, many near-duplicates across repos; 40 questions): recall@10 against exact scoring 0.853 at 100, 0.953 at 400, for an index query of about 10 ms instead of 4. Items were already exact. Resolves plan risk r2 (deviation d23).
+
 ## [0.20.2] - 2026-11-01
 
 ### Added

@@ -73,10 +73,12 @@ RRF_K = 60
 # hybrid passages: the nearest chunks and the top full-text owners per corpus that are fused
 HYBRID_POOL = 50
 _EF_SEARCH_MAX = 1000  # pgvector's upper limit for hnsw.ef_search
-# The least hnsw.ef_search an index query runs with (pgvector default 40): measured in
-# tests/core/test_search_hnsw.py, 100 lifts recall@5 on unstructured vectors from 0.51 to 0.80
-# for about 2 ms, and clustered (embedding-like) vectors reach 1.00 at either setting.
-EF_SEARCH = 100
+# The least hnsw.ef_search an index query runs with (pgvector default 40). On test vectors
+# (tests/core/test_search_hnsw.py) 100 was enough, but live's 62.6k repo-doc chunks, full of
+# near-duplicates across repos, measured recall@10 against exact scoring (40 questions, t20,
+# 2026-11-01) of 0.853 at 100, 0.922 at 200, 0.953 at 400 and 1.000 at 1000, for an index
+# query of about 4, 5, 10 and 133 ms. Items were exact at 100. Hence 400 (deviation d23).
+EF_SEARCH = 400
 
 
 class EmbeddingError(CoreError):
