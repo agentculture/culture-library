@@ -461,7 +461,8 @@ def test_postgres_comes_up_healthy_before_library_and_mcp(tmp_path, compose, cal
     db = next(i for i, f in enumerate(flat) if f.endswith("--wait postgres"))
     app = next(i for i, f in enumerate(flat) if f.endswith("library mcp"))
     assert db < app
-    assert "library" not in steps[db] and "mcp" not in steps[db]
+    assert "library" not in steps[db]
+    assert "mcp" not in steps[db]
 
 
 def test_pg_passwords_are_injected_from_grant_to_the_right_steps(tmp_path, compose, calls, capsys):
@@ -487,7 +488,8 @@ def test_pg_secret_names_can_change(tmp_path, compose, calls, capsys):
         "SU_PW",
     )
     db, app = json.loads(out.out)["steps"]
-    assert "POSTGRES_PASSWORD=SU_PW" in db and "CULTURE_LIBRARY_PG_PASSWORD=APP_PW" in db
+    assert "POSTGRES_PASSWORD=SU_PW" in db
+    assert "CULTURE_LIBRARY_PG_PASSWORD=APP_PW" in db
     assert "CULTURE_LIBRARY_PG_PASSWORD=APP_PW" in app
 
 
@@ -496,7 +498,8 @@ def test_pg_password_in_the_env_file_is_refused(tmp_path, compose, calls, capsys
     env = _env(tmp_path, **{key: "hunter2"})
     assert _restart("--env-file", str(env), "--compose", str(compose)) == 1
     err = json.loads(capsys.readouterr().err)
-    assert key in err["message"] and "grant" in err["remediation"]
+    assert key in err["message"]
+    assert "grant" in err["remediation"]
     assert calls == []
 
 

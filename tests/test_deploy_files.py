@@ -144,7 +144,11 @@ def test_library_waits_for_healthy_postgres(compose):
 
 def test_postgres_init_script_shape():
     sql = INIT_SQL.read_text(encoding="utf-8")
-    assert "NOSUPERUSER" in sql and "NOCREATEROLE" in sql and "NOCREATEDB" in sql
-    assert "LC_COLLATE 'C'" in sql and "OWNER culture_library" in sql
+    assert "NOSUPERUSER" in sql
+    assert "NOCREATEROLE" in sql
+    assert "NOCREATEDB" in sql
+    assert "LC_COLLATE 'C'" in sql
+    assert "OWNER culture_library" in sql
     assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
-    assert ":'apppw'" in sql and "\\getenv apppw CULTURE_LIBRARY_PG_PASSWORD" in sql
+    assert ":'apppw'" in sql
+    assert "\\getenv apppw CULTURE_LIBRARY_PG_PASSWORD" in sql

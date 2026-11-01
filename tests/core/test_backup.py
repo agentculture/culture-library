@@ -31,7 +31,8 @@ def test_run_creates_snapshot_with_dump_and_manifest(store, tmp_path):
     assert [i["id"] for i in m["items"]] == [1, 2, 3]
     assert m["visibility_counts"] == {"public": 2, "private": 1}
     assert m["tables"]["items"] == 3
-    assert "items" in m["tables"] and "schema_version" in m["tables"]
+    assert "items" in m["tables"]
+    assert "schema_version" in m["tables"]
     assert (snap.path / "library.dump").read_bytes()[:5] == b"PGDMP"  # custom format
     for i in m["items"]:
         assert (tmp_path / "bk" / "files" / i["sha256"][:2] / i["sha256"]).is_file()
@@ -189,7 +190,8 @@ def test_install_units_writes_user_units_and_enables_nothing(tmp_path):
     timer = (tmp_path / "units" / "culture-library-backup.timer").read_text()
     assert "ExecStart=culture-library backup run --data-dir /srv/lib --to /mnt/bk" in service
     assert "Type=oneshot" in service
-    assert "OnCalendar=daily" in timer and "Persistent=true" in timer
+    assert "OnCalendar=daily" in timer
+    assert "Persistent=true" in timer
     assert "Unit=culture-library-backup.service" in timer
     assert "WantedBy=timers.target" in timer
     assert len(res["written"]) == 2

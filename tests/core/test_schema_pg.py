@@ -210,7 +210,8 @@ def test_fixture_tables_are_all_mapped():
     assert set(_fixture_blocks()) == set(TABLES)
     assert len(TABLES) == 33
     for fts in FTS_REPLACED:
-        assert "VIRTUAL TABLE" in _fixture_blocks()[fts] and "fts5" in _fixture_blocks()[fts]
+        assert "VIRTUAL TABLE" in _fixture_blocks()[fts]
+        assert "fts5" in _fixture_blocks()[fts]
 
 
 def test_postgres_has_exactly_the_mapped_tables(pg):
@@ -266,7 +267,8 @@ def test_fts_columns_have_a_home(fts, pg):
     assert set(columns) == {"rowid", *fts_cols}
     pg_cols = _pg_columns(pg, table)
     assert set(pg_cols) == set(columns.values()) | ADDED[table]
-    assert pg_cols["tsv"]["type"] == "tsvector" and pg_cols["tsv"]["generated"]
+    assert pg_cols["tsv"]["type"] == "tsvector"
+    assert pg_cols["tsv"]["generated"]
     for name in columns.values():
         assert not pg_cols[name]["nullable"], f"{table}.{name}"
 
@@ -465,7 +467,8 @@ def test_tsvector_has_a_gin_index_the_planner_uses(table, pg):
         " WHERE i.indrelid = %s::regclass AND am.amname = 'gin'",
         (table,),
     ).fetchone()
-    assert row is not None and row[2].endswith("USING gin (tsv)"), row
+    assert row is not None, row
+    assert row[2].endswith("USING gin (tsv)"), row
     with pg.transaction():
         pg.execute("SET LOCAL enable_seqscan = off")
         plan = "\n".join(
@@ -554,11 +557,12 @@ def test_vectors_of_two_strategies_side_by_side_and_the_index_serves_only_its_ow
             (oid, n, _vec(4, n), *other),
         )
     # a vector whose length disagrees with its strategy's dimension is refused
+    params = (oid, _vec(4, 0), *current)
     with pytest.raises(psycopg.errors.CheckViolation):
         pg.execute(
             f"INSERT INTO {table} ({key}, chunk_no, text, vec, model_id, strategy)"
             " VALUES (%s, 9, 'chunk', %s::vector, %s, %s)",
-            (oid, _vec(4, 0), *current),
+            params,
         )
     name = es.hnsw_index_name(table, es.CURRENT_MODEL_ID, es.CURRENT_STRATEGY)
     query = (
@@ -580,6 +584,7 @@ def test_vectors_of_two_strategies_side_by_side_and_the_index_serves_only_its_ow
 def test_hnsw_index_sql_quotes_literals():
     s = es.Strategy("it's", "q", "paragraph-pack", 1000, 768, "l2")
     sql = es.hnsw_index_sql("embeddings", "o'model", s)
-    assert "'o''model'" in sql and "it''s" in sql
+    assert "'o''model'" in sql
+    assert "it''s" in sql
     with pytest.raises(ValueError):
         es.hnsw_index_sql("embeddings; DROP TABLE items", "m", s)

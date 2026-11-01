@@ -193,19 +193,19 @@ def test_set_embeddings_replaces_only_its_own_pair(store):
 
 def test_set_embeddings_rejects_bad_input(store):
     item = add(store, "Alpha", "cat")
+    one = [vec(1.0)]
+    nan = [vec(float("nan"))]
     with store.connect() as conn:
         with pytest.raises(sr.EmbeddingError):
             sr.set_embeddings(conn, item.id, ["a"], [[1.0, 0.0]], **PAIR)
         with pytest.raises(ValueError):
-            sr.set_embeddings(conn, item.id, ["a", "b"], [vec(1.0)], **PAIR)
+            sr.set_embeddings(conn, item.id, ["a", "b"], one, **PAIR)
         with pytest.raises(ValueError):
-            sr.set_embeddings(conn, item.id, ["a"], [vec(float("nan"))], **PAIR)
+            sr.set_embeddings(conn, item.id, ["a"], nan, **PAIR)
         with pytest.raises(ValueError):
-            sr.set_embeddings(
-                conn, item.id, ["a"], [vec(1.0)], model_id="", strategy=es.CURRENT_STRATEGY
-            )
+            sr.set_embeddings(conn, item.id, ["a"], one, model_id="", strategy=es.CURRENT_STRATEGY)
         with pytest.raises(TypeError):  # the pair is required, by keyword
-            sr.set_embeddings(conn, item.id, ["a"], [vec(1.0)], "gemma2-embed")
+            sr.set_embeddings(conn, item.id, ["a"], one, "gemma2-embed")
 
 
 def test_semantic_wrong_dimension_is_an_embedding_error(store):
@@ -218,8 +218,9 @@ def test_zero_vector_is_refused(store):
     """A cosine vector needs a direction; pgvector's HNSW cosine index skips zero vectors, so
     one stored could never be found consistently."""
     item = add(store, "Zero", "x")
+    zero = [vec()]
     with store.connect() as conn, pytest.raises(sr.EmbeddingError):
-        sr.set_embeddings(conn, item.id, ["x"], [vec()], **PAIR)
+        sr.set_embeddings(conn, item.id, ["x"], zero, **PAIR)
 
 
 def test_hybrid_fuses_with_rrf_k60(store):
@@ -247,8 +248,9 @@ def test_hybrid_falls_back_to_fulltext_when_embedder_down(store):
 
 
 def test_semantic_raises_when_embedder_down(store):
+    down = DownEmbed()
     with pytest.raises(sr.EmbeddingError):
-        sr.semantic(store, "cat", DownEmbed())
+        sr.semantic(store, "cat", down)
 
 
 def test_body_only_index_has_no_vectors(store):

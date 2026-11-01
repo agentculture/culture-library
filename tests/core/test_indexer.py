@@ -550,7 +550,8 @@ def test_first_vector_of_a_new_pair_creates_its_hnsw_index(store, docs):
     assert _index_exists(store, doc_index)
     indexdef = _count(store, "SELECT indexdef FROM pg_indexes WHERE indexname = %s", (item_index,))
     assert "USING hnsw (((vec)::vector(4)) vector_cosine_ops)" in indexdef
-    assert OTHER_MODEL in indexdef and SMALL.key() in indexdef
+    assert OTHER_MODEL in indexdef
+    assert SMALL.key() in indexdef
     # the planner can use it for a query of that pair
     q = sr.vector_literal([1.0, 1.0, 0.5, 0.25])
     with store.reader() as conn:
@@ -669,5 +670,7 @@ def test_split_words_keep_non_ascii_letters_whole(store):
     with store.connect() as conn:
         sr.set_body(conn, item, "café-crème and naïve")
     tsv = _count(store, "SELECT tsv::text FROM item_text WHERE item_id = %s", (item.id,))
-    assert "'caf'" not in tsv and "'café'" in tsv and "'crème'" in tsv
+    assert "'caf'" not in tsv
+    assert "'café'" in tsv
+    assert "'crème'" in tsv
     assert sr.fulltext(store, "crème")[0].item_id == item.id

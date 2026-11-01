@@ -115,4 +115,5 @@ def test_pg_extra_is_psycopg3_and_the_image_installs_it() -> None:
     install = [
         ln for ln in (ROOT / "deploy/Dockerfile").read_text().splitlines() if "pip install" in ln
     ]
-    assert len(install) == 1 and '".[server,s3,pg]"' in install[0], install
+    assert len(install) == 1, install
+    assert '".[server,s3,pg]"' in install[0], install

@@ -39,7 +39,7 @@ def no_network():
     (libpq opens its own sockets in C, so the Python-level guard would not see them anyway;
     overriding it says so instead of passing by accident.)
     """
-    yield []
+    return []
 
 
 @pytest.fixture
@@ -180,7 +180,7 @@ def test_connect_commits_on_success(store, db):
 
 
 def test_connect_is_one_transaction_rolled_back_on_error(store, db):
-    with pytest.raises(RuntimeError):
+    def write_then_fail():
         with store.connect() as conn:
             conn.execute(
                 "INSERT INTO items (sha256, kind, title, format, size, created_at)"
@@ -191,12 +191,15 @@ def test_connect_is_one_transaction_rolled_back_on_error(store, db):
                 " VALUES ('b', 'book', 't', 'epub', 1, 'now')"
             )
             raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        write_then_fail()
     with _raw(db) as conn:
         assert conn.execute("SELECT count(*) FROM items").fetchone()[0] == 0
 
 
 def test_connect_rolls_back_on_sql_error(store, db):
-    with pytest.raises(psycopg.errors.CheckViolation):
+    def write_a_bad_kind():
         with store.connect() as conn:
             conn.execute(
                 "INSERT INTO items (sha256, kind, title, format, size, created_at)"
@@ -206,6 +209,9 @@ def test_connect_rolls_back_on_sql_error(store, db):
                 "INSERT INTO items (sha256, kind, title, format, size, created_at)"
                 " VALUES ('b', 'comic', 't', 'epub', 1, 'now')"
             )
+
+    with pytest.raises(psycopg.errors.CheckViolation):
+        write_a_bad_kind()
     with _raw(db) as conn:
         assert conn.execute("SELECT count(*) FROM items").fetchone()[0] == 0
 
@@ -221,12 +227,15 @@ def test_connect_is_not_autocommit(store):
 
 def test_reader_is_read_only_and_refuses_row_locks(store):
     _add(store)
-    with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+
+    def run_in_reader(sql):
         with store.reader() as conn:
-            conn.execute("SELECT * FROM items FOR UPDATE").fetchall()
+            conn.execute(sql).fetchall()
+
     with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
-        with store.reader() as conn:
-            conn.execute("UPDATE items SET title = 'x'")
+        run_in_reader("SELECT * FROM items FOR UPDATE")
+    with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+        run_in_reader("UPDATE items SET title = 'x'")
 
 
 def test_reader_does_not_block_a_writer(store, db):
@@ -377,9 +386,10 @@ def test_failed_migration_rolls_back_everything(db, tmp_path):
         (bad / f"{m.name}.sql").write_text(m.sql)
     nxt = migrations.CURRENT_VERSION + 1
     (bad / f"{nxt:04d}_broken.sql").write_text("CREATE TABLE ok_part (x int); SELECT 1/0;")
+    broken = migrations.load(bad)
     with psycopg.connect(db) as conn:
         with pytest.raises(psycopg.errors.DivisionByZero):
-            migrations.migrate(conn, migrations.load(bad))
+            migrations.migrate(conn, broken)
     with _raw(db) as conn:
         assert conn.execute("SELECT to_regclass('schema_version')").fetchone()[0] is None
         assert conn.execute("SELECT to_regclass('ok_part')").fetchone()[0] is None

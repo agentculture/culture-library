@@ -181,7 +181,8 @@ def test_two_concurrent_first_records_both_apply(store, monkeypatch):
         lambda: sl.record(1, pr=7),
         lambda: sl.record(1, code_paths=["a.py"], at_commit="c", at_committed_at=T1),
     )
-    assert one[1] and two[1]
+    assert one[1]
+    assert two[1]
     got = sl.links(1)
     assert got["pr"] == {"url": None, "number": 7}
     assert got["code_paths"] == ["a.py"]

@@ -95,8 +95,10 @@ def test_status_answers_with_database_stopped(tmp_path):
     body = resp.json()
     assert body["database"]["reachable"] is False
     assert body["database"]["schema_version"] is None
-    assert body["counts"] is None and body["feed"] is None
-    assert "retrieval" in body and body["retrieval"]["chunk_count"] is None
+    assert body["counts"] is None
+    assert body["feed"] is None
+    assert "retrieval" in body
+    assert body["retrieval"]["chunk_count"] is None
 
 
 def test_status_with_unverifiable_key_and_database_stopped(tmp_path, monkeypatch):

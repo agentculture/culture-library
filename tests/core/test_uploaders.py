@@ -25,7 +25,8 @@ def test_visible_sql_uses_percent_s_placeholders(store):
     assert uploaders.visible_sql(True) == ("1=1", [])
     assert uploaders.visible_sql(False) == ("visibility = 'public'", [])
     sql, params = uploaders.visible_sql(False, "alice", visibility="i.visibility", item_id="i.id")
-    assert "%s" in sql and "?" not in sql
+    assert "%s" in sql
+    assert "?" not in sql
     assert params == ["alice"]
 
 
