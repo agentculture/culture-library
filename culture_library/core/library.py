@@ -579,19 +579,28 @@ def purge_expired(store: Store, now: datetime | None = None) -> list[int]:
     cutoff = _now(now) - RETENTION
     purged: list[int] = []
     dropped: list[str] = []
+    removed: list[Item] = []
     with store.connect() as conn:
         rows = conn.execute(_SEL + " WHERE archived_at IS NOT NULL ORDER BY id").fetchall()
         for row in rows:
             item = _item(row)
             if _parse(item.archived_at) > cutoff:  # type: ignore[arg-type]
                 continue
-            gone = conn.execute("DELETE FROM items WHERE id = %s RETURNING id", (item.id,))
-            if gone.fetchone() is None:  # a concurrent purge got it first
+            # Re-check archived_at: a writer that un-archived the row while we waited on its
+            # lock must keep it. No feed event here: appending takes the global feed lock and
+            # the next DELETE may wait on an item row lock, the opposite order from writers.
+            gone = conn.execute(
+                "DELETE FROM items WHERE id = %s AND archived_at IS NOT NULL RETURNING id",
+                (item.id,),
+            )
+            if gone.fetchone() is None:  # a concurrent purge or un-archive got it first
                 continue
-            _event(conn, "purged", item, {"archived_at": item.archived_at})
             if not _blob_referenced(conn, item.sha256):
                 dropped.append(item.sha256)
+            removed.append(item)
             purged.append(item.id)
+        for item in removed:  # events last: the feed lock is taken only after every row lock
+            _event(conn, "purged", item, {"archived_at": item.archived_at})
     _unlink_unreferenced(store, dropped)
     return purged
 

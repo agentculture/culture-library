@@ -712,3 +712,43 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
     assert ix.run_once() == 1
     assert any("okapi" in t for t in embedded)
     assert len(calls) == 1
+
+
+def test_purge_concurrent_with_unarchive_does_not_deadlock(tmp_path):
+    """Purge must not hold the feed lock while it waits on an item row lock, because an
+    un-archiving writer locks the row first and appends (feed lock) second."""
+    import threading
+    import time
+
+    store = Store(tmp_path / "d")
+    first = _add(store, b"first", title="first")
+    second = _add(store, b"second", title="second")
+    for item in (first, second):
+        library.archive(store, item.id, include_private=True, now=T0)
+    locked, errors, result = threading.Event(), [], []
+
+    def reupload():
+        try:
+            with store.connect() as conn:
+                conn.execute("UPDATE items SET archived_at = NULL WHERE id = %s", (second.id,))
+                locked.set()
+                time.sleep(1.0)  # purge is now past the first item and waiting on this row
+                library._event(conn, "updated", second, {"restored": True})
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    def purge():
+        try:
+            locked.wait(5)
+            result.extend(library.purge_expired(store, now=T0 + timedelta(days=31)))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=reupload), threading.Thread(target=purge)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert errors == []
+    assert result == [first.id]
+    assert store.get_item(second.id) is not None

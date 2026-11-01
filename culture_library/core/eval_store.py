@@ -19,6 +19,7 @@ from typing import Any
 
 from . import uploaders
 from .errors import NotFoundError, ValidationError
+from .jsonvalues import sorted_keys
 from .store import now
 
 RUN_STATUSES = ("complete", "partial", "failed")
@@ -68,23 +69,10 @@ def _json(value: Any) -> Any:
     return None if value is None else Jsonb(_clean(value))
 
 
-def _sorted(value: Any) -> Any:
-    """``value`` with object keys sorted at every depth.
-
-    jsonb orders keys by length, then bytes; the SQLite store sorted them alphabetically and
-    API responses (and the contract tests) were written against that, so reads restore it.
-    """
-    if isinstance(value, dict):
-        return {k: _sorted(value[k]) for k in sorted(value)}
-    if isinstance(value, list):
-        return [_sorted(v) for v in value]
-    return value
-
-
 def _decode(row: Sequence[Any], cols: str, json_cols: Sequence[str]) -> dict[str, Any]:
     out = dict(zip((c.strip() for c in cols.split(",")), tuple(row), strict=True))
     for col in json_cols:
-        out[col] = _sorted(out[col])
+        out[col] = sorted_keys(out[col])
     return out
 
 

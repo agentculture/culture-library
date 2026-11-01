@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import uploaders
 from .errors import ValidationError
+from .jsonvalues import sorted_keys
 from .models import KINDS, VISIBILITIES
 from .store import now
 
@@ -193,7 +194,7 @@ def read_since(
                 "kind": r[4],
                 "visibility": r[5],
                 "at": r[6],
-                "data": r[7],
+                "data": sorted_keys(r[7]),
                 "subject": r[8],
             }
         )
