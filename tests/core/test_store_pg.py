@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -24,6 +25,12 @@ import pytest
 from psycopg.conninfo import conninfo_to_dict, make_conninfo  # noqa: E402
 
 import culture_library.core  # noqa: E402
+
+# Placeholder passwords are generated per run: none is a real credential, and a literal
+# would only trip secret scanners.
+ENV_PW = secrets.token_hex(8)
+INLINE_PW = secrets.token_hex(8)
+OTHER_PW = secrets.token_hex(8)
 from culture_library.core import migrations  # noqa: E402
 from culture_library.core import KINDS, CoreError, Store, ValidationError  # noqa: E402
 from culture_library.core import store as store_mod  # noqa: E402
@@ -99,7 +106,7 @@ def test_conninfo_from_parts():
         "CULTURE_LIBRARY_PG_PORT": "6543",
         "CULTURE_LIBRARY_PG_DATABASE": "lib",
         "CULTURE_LIBRARY_PG_USER": "librarian",
-        "CULTURE_LIBRARY_PG_PASSWORD": "s3cret",
+        "CULTURE_LIBRARY_PG_PASSWORD": ENV_PW,
     }
     parts = conninfo_to_dict(store_mod.conninfo_from_env(env))
     assert parts == {
@@ -107,7 +114,7 @@ def test_conninfo_from_parts():
         "port": "6543",
         "dbname": "lib",
         "user": "librarian",
-        "password": "s3cret",
+        "password": ENV_PW,
     }
 
 
@@ -126,41 +133,47 @@ def test_dsn_overrides_parts_and_takes_the_password():
         "CULTURE_LIBRARY_PG_DSN": "postgresql://u@127.0.0.1:1/d",
         "CULTURE_LIBRARY_PG_HOST": "ignored",
         "CULTURE_LIBRARY_PG_DATABASE": "ignored",
-        "CULTURE_LIBRARY_PG_PASSWORD": "pw",
+        "CULTURE_LIBRARY_PG_PASSWORD": ENV_PW,
     }
     parts = conninfo_to_dict(store_mod.conninfo_from_env(env))
-    assert parts == {"host": "127.0.0.1", "port": "1", "dbname": "d", "user": "u", "password": "pw"}
+    assert parts == {
+        "host": "127.0.0.1",
+        "port": "1",
+        "dbname": "d",
+        "user": "u",
+        "password": ENV_PW,
+    }
 
 
 def test_dsn_with_its_own_password_keeps_it():
     env = {
-        "CULTURE_LIBRARY_PG_DSN": "postgresql://u:inline@127.0.0.1/d",
-        "CULTURE_LIBRARY_PG_PASSWORD": "other",
+        "CULTURE_LIBRARY_PG_DSN": f"postgresql://u:{INLINE_PW}@127.0.0.1/d",
+        "CULTURE_LIBRARY_PG_PASSWORD": OTHER_PW,
     }
-    assert conninfo_to_dict(store_mod.conninfo_from_env(env))["password"] == "inline"
+    assert conninfo_to_dict(store_mod.conninfo_from_env(env))["password"] == INLINE_PW
 
 
 def test_explicit_dsn_takes_the_env_password():
-    env = {"CULTURE_LIBRARY_PG_PASSWORD": "from-env"}
+    env = {"CULTURE_LIBRARY_PG_PASSWORD": ENV_PW}
     parts = conninfo_to_dict(store_mod.with_env_password("postgresql://u@127.0.0.1:1/d", env))
     assert parts == {
         "host": "127.0.0.1",
         "port": "1",
         "dbname": "d",
         "user": "u",
-        "password": "from-env",
+        "password": ENV_PW,
     }
 
 
 def test_explicit_dsn_keeps_its_inline_password():
-    env = {"CULTURE_LIBRARY_PG_PASSWORD": "from-env"}
-    merged = store_mod.with_env_password("postgresql://u:inline@127.0.0.1/d", env)
-    assert conninfo_to_dict(merged)["password"] == "inline"
+    env = {"CULTURE_LIBRARY_PG_PASSWORD": ENV_PW}
+    merged = store_mod.with_env_password(f"postgresql://u:{INLINE_PW}@127.0.0.1/d", env)
+    assert conninfo_to_dict(merged)["password"] == INLINE_PW
 
 
 def test_explicit_dsn_that_does_not_parse_is_a_core_error():
     with pytest.raises(CoreError, match="not a valid libpq DSN"):
-        store_mod.with_env_password("host=h dbname", {"CULTURE_LIBRARY_PG_PASSWORD": "pw"})
+        store_mod.with_env_password("host=h dbname", {"CULTURE_LIBRARY_PG_PASSWORD": ENV_PW})
 
 
 def test_explicit_dsn_without_env_password_is_unchanged():
@@ -185,9 +198,9 @@ def test_data_dir_from_env(monkeypatch, tmp_path, db):
 
 
 def test_password_not_in_repr(tmp_path, db):
-    s = Store(tmp_path / "d", dsn=make_conninfo(db, password="hunter2"))
-    assert "hunter2" not in repr(s)
-    assert "hunter2" not in str(vars(s).get("data_dir"))
+    s = Store(tmp_path / "d", dsn=make_conninfo(db, password=INLINE_PW))
+    assert INLINE_PW not in repr(s)
+    assert INLINE_PW not in str(vars(s).get("data_dir"))
 
 
 def test_unreachable_database_is_a_core_error(tmp_path):
@@ -722,12 +735,19 @@ def test_connections_are_reused_not_reopened(tmp_path, db, monkeypatch):
 
 def test_a_connection_returned_after_an_error_is_usable(tmp_path, db, monkeypatch):
     s = _pooled_store(tmp_path, db, monkeypatch, high="1")
-    with pytest.raises(psycopg.errors.UndefinedTable):
+
+    def missing_table():
         with s.connect() as conn:
             conn.execute("SELECT * FROM no_such_table")
-    with pytest.raises(psycopg.errors.DivisionByZero):
+
+    def divide_by_zero():
         with s.reader() as conn:
             conn.execute("SELECT 1 / 0")
+
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        missing_table()
+    with pytest.raises(psycopg.errors.DivisionByZero):
+        divide_by_zero()
     with s.connect() as conn:
         assert conn.execute("SELECT 1").fetchone()[0] == 1
     s.close()
@@ -783,7 +803,7 @@ def test_close_releases_the_connections_and_a_later_call_reopens(tmp_path, db, m
 
 def test_stores_on_one_database_share_a_pool(tmp_path, db, monkeypatch):
     a = _pooled_store(tmp_path, db, monkeypatch, high="1")
-    b = Store(tmp_path / "other", dsn=db)
+    b = Store(tmp_path / OTHER_PW, dsn=db)
     with a.reader() as conn:
         first = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
     with b.reader() as conn:

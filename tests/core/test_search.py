@@ -225,7 +225,8 @@ def test_stopword_only_query_feeds_hybrid_fulltext_rank(store):
     index(store, the_the)
     with store.reader() as conn:
         ps = sr.passages(conn, vec(1, 0, 0.1), 3, "hybrid", (False, None), query="the the")
-    assert ps and ps[0].item_id == the_the.id
+    assert ps
+    assert ps[0].item_id == the_the.id
     assert ps[0].score > 1.0 / (sr.RRF_K + 0)
 
 

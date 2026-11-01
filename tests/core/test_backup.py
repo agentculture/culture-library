@@ -6,11 +6,18 @@ container (see docs/operations/testing.md); with neither, the tests fail, never 
 """
 
 import json
+import secrets
 
 import pytest
 
 from culture_library.core import Store, backup
 from tests import backup_fixtures
+
+# Placeholder passwords are generated per run: none is a real credential, and a literal
+# would only trip secret scanners.
+ENV_PW = secrets.token_hex(8)
+INLINE_PW = secrets.token_hex(8)
+OTHER_PW = secrets.token_hex(8)
 
 # fixtures, picked up by pytest under these names
 pg_bin = backup_fixtures.pg_bin
@@ -350,9 +357,10 @@ class _Stop(Exception):
 @pytest.mark.parametrize(
     ("dsn", "password"),
     [
-        ("postgresql://u@127.0.0.1:1/d", "from-env"),
-        ("postgresql://u:inline@127.0.0.1:1/d", "inline"),
+        ("postgresql://u@127.0.0.1:1/d", ENV_PW),
+        (f"postgresql://u:{INLINE_PW}@127.0.0.1:1/d", INLINE_PW),
     ],
+    ids=["env-password", "inline-password"],  # the passwords are random per run
 )
 def test_run_and_restore_merge_the_env_password_into_an_explicit_dsn(
     store, tmp_path, monkeypatch, dsn, password
@@ -366,7 +374,7 @@ def test_run_and_restore_merge_the_env_password_into_an_explicit_dsn(
         seen.append(next(a for a in args if isinstance(a, str) and "127.0.0.1" in a))
         raise _Stop
 
-    monkeypatch.setenv("CULTURE_LIBRARY_PG_PASSWORD", "from-env")
+    monkeypatch.setenv("CULTURE_LIBRARY_PG_PASSWORD", ENV_PW)
     monkeypatch.setattr(backup, "_snapshot_once", capture)
     monkeypatch.setattr(backup, "_require_empty_database", capture)
     with pytest.raises(_Stop):

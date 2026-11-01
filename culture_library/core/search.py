@@ -962,19 +962,9 @@ def passages(
     fts: dict[int, dict] = {}
     for corpus, flt in flts.items():
         exact = corpus == _ITEM and item_ids is not None  # narrow: score those items exactly
-        rows = (
-            _exact(conn, corpus, q, flt, pair, limit=pool)
-            if exact
-            else _ann(conn, corpus, q, flt, pool, pair)
-        )
-        if mode == "hybrid":
-            fts[corpus] = _fts_rank(conn, corpus, query, flt, pool)
-            if fts[corpus]:
-                owners = (
-                    f"{flt[0]} AND {_SOURCES[corpus][1]} = ANY(%s)",
-                    [*flt[1], list(fts[corpus])],
-                )
-                rows += _exact(conn, corpus, q, owners, pair, per_owner=k)
+        rows, fts_rank = _corpus_candidates(conn, corpus, q, flt, pair, pool, k, mode, query, exact)
+        if fts_rank is not None:
+            fts[corpus] = fts_rank
         for r in rows:
             cands.setdefault((r[1], r[2], r[3]), r)
     ranked = sorted(cands.values(), key=_order)
@@ -983,6 +973,40 @@ def passages(
     else:
         scored = _rrf_scores(ranked, fts)
     return [_passage(s, r, mode) for s, r in scored[:k]]
+
+
+def _corpus_candidates(
+    conn: Any,
+    corpus: int,
+    q: str,
+    flt: tuple[str, list],
+    pair,
+    pool: int,
+    k: int,
+    mode: str,
+    query: str,
+    exact: bool,
+) -> tuple[list, dict | None]:
+    """One corpus's candidate chunks, plus its full-text owner ranks in hybrid mode.
+
+    The nearest ``pool`` chunks (exactly when ``exact``); in hybrid mode, also the nearest
+    ``k`` chunks of each owner full text ranked, so a full-text match outside the nearest
+    chunks still gets its boost.
+    """
+    if exact:
+        rows = _exact(conn, corpus, q, flt, pair, limit=pool)
+    else:
+        rows = _ann(conn, corpus, q, flt, pool, pair)
+    if mode != "hybrid":
+        return rows, None
+    fts_rank = _fts_rank(conn, corpus, query, flt, pool)
+    if fts_rank:
+        owners = (
+            f"{flt[0]} AND {_SOURCES[corpus][1]} = ANY(%s)",
+            [*flt[1], list(fts_rank)],
+        )
+        rows = rows + _exact(conn, corpus, q, owners, pair, per_owner=k)
+    return rows, fts_rank
 
 
 def _corpus_filters(

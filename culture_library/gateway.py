@@ -319,7 +319,7 @@ class GatewayEmbedder:
             model_id, dimension, norm = _space_from_capabilities(caps, self.model)
         except _ERRORS as exc:
             raise EmbeddingError(
-                f"cannot tell which model {self.model!r} is from " f"{self.url}/capabilities: {exc}"
+                f"cannot tell which model {self.model!r} is from {self.url}/capabilities: {exc}"
             ) from exc
         strategy = indexer.strategy_for(
             document_prompt=self.prompts[0],

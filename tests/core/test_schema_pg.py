@@ -588,3 +588,19 @@ def test_hnsw_index_sql_quotes_literals():
     assert "it''s" in sql
     with pytest.raises(ValueError):
         es.hnsw_index_sql("embeddings; DROP TABLE items", "m", s)
+
+
+def test_text_defaults_come_from_one_function_each(pg):
+    """Visibility defaults to 'private' and job state to 'pending' on every table that has
+    them; both come from a single SQL function each (no duplicated literals)."""
+    rows = pg.execute(
+        "SELECT table_name, column_name, column_default FROM information_schema.columns"
+        " WHERE table_schema = 'public' AND column_name IN"
+        " ('visibility', 'shown_visibility', 'state') AND column_default IS NOT NULL"
+    ).fetchall()
+    assert rows
+    for table, column, default in rows:
+        want = "library_default_state()" if column == "state" else "library_default_visibility()"
+        assert want in default, (table, column, default)
+    assert pg.execute("SELECT public.library_default_visibility()").fetchone()[0] == "private"
+    assert pg.execute("SELECT public.library_default_state()").fetchone()[0] == "pending"

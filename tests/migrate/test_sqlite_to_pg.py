@@ -7,6 +7,7 @@ is a local stub whose ``/capabilities`` answers and whose ``/v1/embeddings`` fai
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import threading
 from array import array
@@ -20,6 +21,12 @@ from culture_library.core.embedding_strategy import CURRENT_MODEL_ID, CURRENT_ST
 from culture_library.core.search import EmbeddingError
 from culture_library.migrate import sqlite_to_pg as s2p
 from tests.migrate import sqlite_source as fx
+
+# Placeholder passwords are generated per run: none is a real credential, and a literal
+# would only trip secret scanners.
+ENV_PW = secrets.token_hex(8)
+INLINE_PW = secrets.token_hex(8)
+OTHER_PW = secrets.token_hex(8)
 
 CAPS = {
     "gemma2-embed": {
@@ -506,9 +513,10 @@ def test_cli_missing_source(tmp_path, gateway, capsys):
 @pytest.mark.parametrize(
     ("dsn", "password"),
     [
-        ("postgresql://u@127.0.0.1:1/d", "from-env"),
-        ("postgresql://u:inline@127.0.0.1:1/d", "inline"),
+        ("postgresql://u@127.0.0.1:1/d", ENV_PW),
+        (f"postgresql://u:{INLINE_PW}@127.0.0.1:1/d", INLINE_PW),
     ],
+    ids=["env-password", "inline-password"],  # the passwords are random per run
 )
 def test_cli_explicit_to_takes_the_env_password(source, gateway, monkeypatch, dsn, password):
     from psycopg.conninfo import conninfo_to_dict
@@ -519,7 +527,7 @@ def test_cli_explicit_to_takes_the_env_password(source, gateway, monkeypatch, ds
         seen.append(conninfo)
         raise s2p.SourceError("stop here")
 
-    monkeypatch.setenv("CULTURE_LIBRARY_PG_PASSWORD", "from-env")
+    monkeypatch.setenv("CULTURE_LIBRARY_PG_PASSWORD", ENV_PW)
     monkeypatch.setattr(s2p, "copy_library", capture)
     assert main(_cli(gateway, source, "--to", dsn)) == 1
     assert conninfo_to_dict(seen[0])["password"] == password
