@@ -317,8 +317,9 @@ The pieces that span files:
   with action verbs must also expose an `overview` verb
   (`teken cli doctor --strict` checks this).
 
-**The `[pg]` extra (decision).** The store's driver is `psycopg[binary]` 3, an optional
-`pg` extra; base `dependencies` stays empty and the production image installs
+**The `[pg]` extra (decision).** The store's driver is `psycopg[binary]` 3 with
+`psycopg-pool` (one pool per process and database, `CULTURE_LIBRARY_PG_POOL_MIN`/`_MAX`,
+defaults 1/10), an optional `pg` extra; base `dependencies` stays empty and the production image installs
 `.[server,s3,pg]`. The database comes from `CULTURE_LIBRARY_PG_HOST`, `_PORT`, `_DATABASE`,
 `_USER` and `_PASSWORD` (the password is a grant secret that `deploy restart` injects;
 it is never in `live.env`). Postgres tests need a server:

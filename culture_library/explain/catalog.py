@@ -246,7 +246,8 @@ Back up the library to a second location and prove it restores.
 - `backup restore --from <snapshot> --to <dir> [--dsn DSN]` — `pg_restore` into an empty
   database and an empty files tree (non-empty ones are refused), then verify row counts,
   ids, sha256 and visibility.
-- `backup schedule [--to B] [--unit-dir U]` — write a daily systemd user timer and service;
+- `backup schedule --command C [--to B] [--unit-dir U]` — write a daily systemd user timer
+  and service (`--command` is required: a bare `backup run` cannot reach the database);
   prints the `systemctl --user` commands and enables nothing. `--print [--kind systemd|cron]`
   only prints.
 - `backup overview [--to B]` — describe this noun and show the last successful backup.

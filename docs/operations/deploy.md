@@ -44,7 +44,10 @@ run again, so changing a password later is an `ALTER ROLE`, not an edit to a sec
 
 `library` reads `CULTURE_LIBRARY_PG_HOST`, `_PORT`, `_DATABASE` and `_USER` (set in
 `compose.yaml` to `postgres`, `5432`, `culture_library`, `culture_library`) and
-`CULTURE_LIBRARY_PG_PASSWORD`. `mcp` has no database settings.
+`CULTURE_LIBRARY_PG_PASSWORD`. `mcp` has no database settings. Each process keeps one
+connection pool per database (`psycopg-pool`), sized by `CULTURE_LIBRARY_PG_POOL_MIN` and
+`CULTURE_LIBRARY_PG_POOL_MAX` (defaults 1 and 10). An explicit `--dsn` or `--to` takes the
+password from `CULTURE_LIBRARY_PG_PASSWORD` too, so keep it out of the DSN.
 
 Two grant secrets hold the passwords. Create them before the first restart that starts
 Postgres:

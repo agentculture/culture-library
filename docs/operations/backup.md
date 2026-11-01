@@ -63,16 +63,20 @@ failed or a target was not empty.
 
 ## Schedule
 
-`backup schedule` writes a daily systemd user timer and service and enables nothing:
+`backup schedule` writes a daily systemd user timer and service and enables nothing.
+`--command` is required to write units: the database password is a grant secret that is
+never in `live.env` and Postgres publishes no port, so a bare `culture-library backup run`
+cannot reach the database from a timer (see "On the live stack" below for the command):
 
 ```bash
-culture-library backup schedule --data-dir /srv/culture-library --to /mnt/second-disk/culture-library-backup
+culture-library backup schedule --command "<the live-stack backup command>" \
+  --to /mnt/second-disk/culture-library-backup
 ```
 
-It writes `culture-library-backup.service` and `.timer` into
-`$HOME/.config/systemd/user/` (`--unit-dir` changes that; `--command` replaces the
-`ExecStart`, for example a `docker exec` into the library container) and prints the
-commands to run yourself:
+Without `--command` it refuses and exits 1; `backup schedule --print` still prints a
+template. It writes `culture-library-backup.service` and `.timer` into
+`$HOME/.config/systemd/user/` (`--unit-dir` changes that) and prints the commands to run
+yourself:
 
 ```bash
 systemctl --user daemon-reload
