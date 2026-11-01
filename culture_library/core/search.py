@@ -386,8 +386,11 @@ class _FtsQuery:
       re-parsed) or the stored ``tsv`` (where the last word's prefix finds ``the`` in
       ``theory``); its rank is over the simple title (weight A) and the stored ``tsv``;
     * when only the last word is a stopword (``road the``), the english query keeps the other
-      words and ranks, and the last word must still match as a simple prefix, of the title or
-      of a stored lexeme.
+      words and ranks, and the last word must still match as a prefix of a word, as in FTS5:
+      of a title word, a stored lexeme, or a body word in ``simple_tsv`` (the unstemmed body,
+      migration 0004). The english ``tsv`` never holds the stopword itself, so without
+      ``simple_tsv`` ``... ship with?`` would need a ``without`` in the doc (deviations d20,
+      d21; d22 moved the body check from a regex to this index).
     """
 
     cfg: str  # the text search config of ``q``: "english" or "simple"
@@ -403,9 +406,9 @@ class _FtsQuery:
             return f"{a}.tsv @@ {tsq}", [self.q]
         last = "to_tsquery('simple', %s)"
         return (
-            f"{a}.tsv @@ {tsq} AND ({a}.tsv @@ {last}"
+            f"{a}.tsv @@ {tsq} AND ({a}.tsv @@ {last} OR {a}.simple_tsv @@ {last}"
             f" OR {_TITLE_SIMPLE.format(a=a)} @@ {last})",
-            [self.q, self.last, self.last],
+            [self.q, self.last, self.last, self.last],
         )
 
     def rank(self, a: str) -> tuple[str, list[str]]:

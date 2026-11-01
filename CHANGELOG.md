@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-11-01
+
+### Added
+
+- Migration 0004 (schema version 4): `item_text.simple_tsv` and `repodoc_text.simple_tsv`, the body as a GIN-indexed `'simple'` tsvector (no stemming, stopwords kept). About 49 MB and 3 s to build over live's text.
+
+### Fixed
+
+- Full-text search: a query whose last word is a stopword the english config drops ("... did JetPack 7.0 ship with?") again matches a document that contains that word, as FTS5 did. The english tsvector never holds stopwords, so the last-word prefix rule (spec s21) had required some *other* word starting with it ("without") and silently dropped such documents from the full-text side of hybrid search. The last word is now also checked as a prefix in `simple_tsv`, an index lookup. A document with no word starting with it still does not match ("road the" vs a "Road map" about planners), with or without trailing punctuation. Found by the t20 re-baseline on live (eval set 6, newspaper question 103); deviations d20, d21, d22.
+
 ## [0.20.1] - 2026-11-01
 
 ### Added
