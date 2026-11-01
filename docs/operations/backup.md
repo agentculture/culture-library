@@ -56,10 +56,34 @@ every blob the manifest names.
 verifies the snapshot first, loads the dump with `pg_restore --single-transaction`,
 copies the blobs back, then checks the restored database: every table's row count, and
 every item's and repo-document version's id, sha256 and visibility, against the
-manifest, and re-hashes every blob. The target database must exist, be empty, and use
-the C collation (the same rule the server enforces); the `vector` extension is created
-by the dump, so the role needs the privilege to do that. Exit code 1 means a check
-failed or a target was not empty.
+manifest, and re-hashes every blob. The target database must exist, be empty, use the C
+collation (the same rule the server enforces), and already have the `vector` extension.
+Only a superuser may create the extension, so make the target the way the init script makes
+the live database; the restore itself then runs as the application role. It skips the
+dump's comments: the only one is the extension's, which only its owner may set. Exit code 1
+means a check failed or a target was not empty.
+
+On the live stack (the superuser password is the grant secret
+`CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD`; inside the `postgres` container the socket needs
+none):
+
+```bash
+docker compose -p culture-library -f deploy/compose.yaml exec -T postgres psql -U postgres \
+  -c "CREATE DATABASE culture_library_restore OWNER culture_library TEMPLATE template0
+      ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'"
+docker compose -p culture-library -f deploy/compose.yaml exec -T postgres psql -U postgres \
+  -d culture_library_restore -c "CREATE EXTENSION vector"
+R=/mnt/second-disk/culture-library-restore; mkdir -p "$R"; chmod o+w "$R"
+grant run --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD -- \
+  docker compose -p culture-library -f deploy/compose.yaml \
+  --env-file "$HOME/.config/culture-library/live.env" run --rm --no-deps \
+  -v "$B":/backup:ro -v "$R":/restore library culture-library backup restore \
+  --from /backup/snapshots/<UTC stamp> --to /restore \
+  --dsn "host=postgres dbname=culture_library_restore user=culture_library"
+```
+
+The t18 drill (2026-11-01) ran this shape on a scratch server built from the same image and
+init script; see "Restore drill" below.
 
 ## Schedule
 

@@ -22,6 +22,8 @@ OTHER_PW = secrets.token_hex(8)
 # fixtures, picked up by pytest under these names
 pg_bin = backup_fixtures.pg_bin
 scratch_dsn = backup_fixtures.scratch_dsn
+no_vector_dsn = backup_fixtures.no_vector_dsn
+app_role_dsn = backup_fixtures.app_role_dsn
 
 
 def _seed(store: Store) -> None:
@@ -84,6 +86,25 @@ def test_restore_into_empty_database_reproduces_every_table_count(store, tmp_pat
     for i in manifest["items"]:
         blob = target / "files" / i["sha256"][:2] / i["sha256"]
         assert backup._sha256_file(blob) == i["sha256"]
+
+
+def test_restore_as_the_least_privilege_app_role(store, tmp_path, app_role_dsn):
+    # Live's library container only has the culture_library role, which does not own the
+    # vector extension; the dump's COMMENT ON EXTENSION would need its owner.
+    _seed(store)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    report = backup.restore(snap.path, tmp_path / "restored", dsn=app_role_dsn)
+    assert report.ok, report.problems
+    restored = Store(tmp_path / "restored", dsn=app_role_dsn)
+    assert restored.read_bytes(2) == b"beta"
+
+
+def test_restore_refuses_a_database_without_the_vector_extension(store, tmp_path, no_vector_dsn):
+    _seed(store)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    with pytest.raises(backup.BackupError, match="CREATE EXTENSION vector"):
+        backup.restore(snap.path, tmp_path / "restored", dsn=no_vector_dsn)
+    assert not (tmp_path / "restored").exists()
 
 
 def test_restore_refuses_non_empty_files_target(store, tmp_path, scratch_dsn):

@@ -21,7 +21,11 @@ table), except the ``feed`` log, which also names blobs of purged items.
 the dump with ``pg_restore --list`` to confirm every manifest table is in it, and re-hashes
 every blob the manifest names. ``restore`` loads the dump into an *empty* database with
 ``pg_restore``, then compares the restored per-table row counts, items and repo-document
-versions with the manifest and copies the blobs back, re-hashing each.
+versions with the manifest and copies the blobs back, re-hashing each. The target must
+already have the ``vector`` extension: only a superuser may create it, so on live the init
+script makes it, and a restore runs as the application role, which does not own it. That is
+also why ``restore`` skips the dump's comments: the only one is the extension's, and
+``COMMENT ON EXTENSION`` needs its owner.
 
 The client tools come from ``CULTURE_LIBRARY_PG_BIN_DIR`` (a directory holding ``pg_dump`` and
 ``pg_restore``) or, when that is unset, from ``PATH``; a missing tool raises an error naming it.
@@ -167,7 +171,9 @@ def _pg_dump(conninfo: str, snapshot_id: str, dst: Path) -> None:
 def _pg_restore(conninfo: str, dump: Path) -> None:
     dbname, env = _conn_args(conninfo)
     argv = [_tool("pg_restore"), "--no-owner", "--exit-on-error", "--single-transaction"]
-    argv.append(f"--dbname={dbname}")
+    # --no-comments: the dump's one comment is the vector extension's, which only its owner
+    # (the superuser) may set; the app role restores everything else.
+    argv += ["--no-comments", f"--dbname={dbname}"]
     with dump.open("rb") as fh:
         _run_tool(argv, env, stdin=fh)
 
@@ -483,10 +489,16 @@ def _require_empty_database(conninfo: str) -> None:
     try:
         with psycopg.connect(conninfo, connect_timeout=10) as conn:
             tables = _table_names(conn)
+            vector = conn.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector'").fetchone()
     except psycopg.OperationalError as exc:
         raise BackupError(f"cannot connect to the restore database: {exc}") from exc
     if tables:
         raise BackupError("restore database is not empty; refusing to overwrite")
+    if vector is None:
+        raise BackupError(
+            "restore database has no vector extension; as a superuser, connect to it and run "
+            "CREATE EXTENSION vector (live's init script does this; the app role cannot)"
+        )
 
 
 def restore(
