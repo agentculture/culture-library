@@ -503,6 +503,29 @@ def test_cli_missing_source(tmp_path, gateway, capsys):
     assert "hint:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("dsn", "password"),
+    [
+        ("postgresql://u@127.0.0.1:1/d", "from-env"),
+        ("postgresql://u:inline@127.0.0.1:1/d", "inline"),
+    ],
+)
+def test_cli_explicit_to_takes_the_env_password(source, gateway, monkeypatch, dsn, password):
+    from psycopg.conninfo import conninfo_to_dict
+
+    seen = []
+
+    def capture(_source, conninfo, **_kw):
+        seen.append(conninfo)
+        raise s2p.SourceError("stop here")
+
+    monkeypatch.setenv("CULTURE_LIBRARY_PG_PASSWORD", "from-env")
+    monkeypatch.setattr(s2p, "copy_library", capture)
+    assert main(_cli(gateway, source, "--to", dsn)) == 1
+    assert conninfo_to_dict(seen[0])["password"] == password
+    assert conninfo_to_dict(seen[0])["dbname"] == "d"
+
+
 def test_cli_overview_lists_the_verb(capsys):
     assert main(["migrate", "overview"]) == 0
     assert "sqlite-to-postgres" in capsys.readouterr().out

@@ -184,11 +184,19 @@ def test_schedule_text():
     assert "culture-library backup run" in backup.schedule_text("/d", "/b", kind="cron")
 
 
+def test_install_units_needs_a_command(tmp_path):
+    with pytest.raises(backup.BackupError, match="command"):
+        backup.install_units("/srv/lib", "/mnt/bk", unit_dir=tmp_path / "units")
+    assert not (tmp_path / "units").exists()
+
+
 def test_install_units_writes_user_units_and_enables_nothing(tmp_path):
-    res = backup.install_units("/srv/lib", "/mnt/bk", unit_dir=tmp_path / "units")
+    res = backup.install_units(
+        "/srv/lib", "/mnt/bk", unit_dir=tmp_path / "units", command="/usr/bin/wrapper --x"
+    )
     service = (tmp_path / "units" / "culture-library-backup.service").read_text()
     timer = (tmp_path / "units" / "culture-library-backup.timer").read_text()
-    assert "ExecStart=culture-library backup run --data-dir /srv/lib --to /mnt/bk" in service
+    assert "ExecStart=/usr/bin/wrapper --x" in service
     assert "Type=oneshot" in service
     assert "OnCalendar=daily" in timer
     assert "Persistent=true" in timer
@@ -330,3 +338,39 @@ def test_blob_unlinked_during_copy_also_retries(store, tmp_path, monkeypatch):
     monkeypatch.setattr(backup.shutil, "copyfile", racing_copy)
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
     assert backup.verify(snap.path).ok
+
+
+# --- explicit DSN and the password ------------------------------------------------------------
+
+
+class _Stop(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("dsn", "password"),
+    [
+        ("postgresql://u@127.0.0.1:1/d", "from-env"),
+        ("postgresql://u:inline@127.0.0.1:1/d", "inline"),
+    ],
+)
+def test_run_and_restore_merge_the_env_password_into_an_explicit_dsn(
+    store, tmp_path, monkeypatch, dsn, password
+):
+    from psycopg.conninfo import conninfo_to_dict
+
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")  # a real snapshot to restore
+    seen = []
+
+    def capture(*args):
+        seen.append(next(a for a in args if isinstance(a, str) and "127.0.0.1" in a))
+        raise _Stop
+
+    monkeypatch.setenv("CULTURE_LIBRARY_PG_PASSWORD", "from-env")
+    monkeypatch.setattr(backup, "_snapshot_once", capture)
+    monkeypatch.setattr(backup, "_require_empty_database", capture)
+    with pytest.raises(_Stop):
+        backup.run_backup(store.data_dir, tmp_path / "bk2", dsn=dsn)
+    with pytest.raises(_Stop):
+        backup.restore(snap.path, tmp_path / "restored", dsn=dsn)
+    assert [conninfo_to_dict(c)["password"] for c in seen] == [password, password]

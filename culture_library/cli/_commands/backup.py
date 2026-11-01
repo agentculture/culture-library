@@ -67,8 +67,8 @@ def cmd_overview(args: argparse.Namespace) -> int:
                     "verify <snapshot> - check the dump, manifest and every blob's sha256",
                     "restore --from <snapshot> --to <empty dir> [--dsn DSN] - pg_restore into "
                     "an empty database and files tree, then verify",
-                    "schedule [--to D] [--unit-dir U] - write a daily systemd user timer "
-                    "(enables nothing); --print only prints (systemd or cron)",
+                    "schedule --command C [--to D] [--unit-dir U] - write a daily systemd user "
+                    "timer running C (enables nothing); --print only prints (systemd or cron)",
                     "overview [--to D] - this description and the last successful backup",
                 ],
             },
@@ -147,7 +147,11 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 
     if args.print_only:
         text = _wrap(
-            backup.schedule_text, _data_dir(args), args.to or f"${BACKUP_DIR_ENV}", kind=args.kind
+            backup.schedule_text,
+            _data_dir(args),
+            args.to or f"${BACKUP_DIR_ENV}",
+            kind=args.kind,
+            command=args.exec_command,
         )
         emit_result(
             {"kind": args.kind, "text": text} if _json(args) else text, json_mode=_json(args)
@@ -158,6 +162,15 @@ def cmd_schedule(args: argparse.Namespace) -> int:
             EXIT_USER_ERROR,
             "only systemd units can be written; cron is print-only",
             "use --print --kind cron and install the line yourself",
+        )
+    if not args.exec_command:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "backup schedule writes units only with --command: the default 'culture-library "
+            "backup run' cannot reach the live database (its password is a grant secret, "
+            "never in live.env, and postgres publishes no port)",
+            "pass --command with the grant run ... docker compose run ... wrapper from "
+            'docs/operations/backup.md ("On the live stack"), or --print to see the units',
         )
     res = _wrap(
         backup.install_units,
@@ -187,7 +200,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument("--data-dir", help=f"Library data dir (default ${DATA_DIR_ENV}).")
     r.add_argument("--to", help=f"Backup location (default ${BACKUP_DIR_ENV}).")
     r.add_argument("--keep", type=int, default=DEFAULT_KEEP, help="Snapshots to keep (7).")
-    r.add_argument("--dsn", help="Library database DSN (default: the CULTURE_LIBRARY_PG_* env).")
+    r.add_argument(
+        "--dsn",
+        help="Library database DSN (default: the CULTURE_LIBRARY_PG_* env). Keep the "
+        "password in CULTURE_LIBRARY_PG_PASSWORD, not here.",
+    )
     common(r)
     r.set_defaults(func=cmd_run)
 
@@ -199,7 +216,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     rs = nsub.add_parser("restore", help="Restore a snapshot into an empty directory.")
     rs.add_argument("--from", dest="source", required=True, help="Snapshot directory.")
     rs.add_argument("--to", required=True, help="Empty target data directory (files tree).")
-    rs.add_argument("--dsn", help="EMPTY database to restore into (default: the PG env).")
+    rs.add_argument(
+        "--dsn",
+        help="EMPTY database to restore into (default: the PG env); the password comes "
+        "from CULTURE_LIBRARY_PG_PASSWORD.",
+    )
     common(rs)
     rs.set_defaults(func=cmd_restore)
 
@@ -209,7 +230,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     s.add_argument(
         "--command",
         dest="exec_command",
-        help="ExecStart command (default: culture-library backup run).",
+        help="ExecStart command; required to write units (the grant run ... wrapper in "
+        "docs/operations/backup.md). --print without it shows 'culture-library backup run'.",
     )
     s.add_argument("--kind", choices=("systemd", "cron"), default="systemd")
     s.add_argument("--data-dir", help=f"Library data dir (default ${DATA_DIR_ENV}).")

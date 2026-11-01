@@ -75,7 +75,9 @@ def db(admin_dsn):
 
 @pytest.fixture
 def store(tmp_path, db):
-    return Store(tmp_path / "data", dsn=db)
+    s = Store(tmp_path / "data", dsn=db)
+    yield s
+    s.close()  # before the scratch database is dropped
 
 
 def _add(store, data=b"hello", **kw):
@@ -136,6 +138,33 @@ def test_dsn_with_its_own_password_keeps_it():
         "CULTURE_LIBRARY_PG_PASSWORD": "other",
     }
     assert conninfo_to_dict(store_mod.conninfo_from_env(env))["password"] == "inline"
+
+
+def test_explicit_dsn_takes_the_env_password():
+    env = {"CULTURE_LIBRARY_PG_PASSWORD": "from-env"}
+    parts = conninfo_to_dict(store_mod.with_env_password("postgresql://u@127.0.0.1:1/d", env))
+    assert parts == {
+        "host": "127.0.0.1",
+        "port": "1",
+        "dbname": "d",
+        "user": "u",
+        "password": "from-env",
+    }
+
+
+def test_explicit_dsn_keeps_its_inline_password():
+    env = {"CULTURE_LIBRARY_PG_PASSWORD": "from-env"}
+    merged = store_mod.with_env_password("postgresql://u:inline@127.0.0.1/d", env)
+    assert conninfo_to_dict(merged)["password"] == "inline"
+
+
+def test_explicit_dsn_that_does_not_parse_is_a_core_error():
+    with pytest.raises(CoreError, match="not a valid libpq DSN"):
+        store_mod.with_env_password("host=h dbname", {"CULTURE_LIBRARY_PG_PASSWORD": "pw"})
+
+
+def test_explicit_dsn_without_env_password_is_unchanged():
+    assert store_mod.with_env_password("host=h dbname=d", {}) == "host=h dbname=d"
 
 
 def test_store_reads_dsn_from_env(monkeypatch, tmp_path, db):
@@ -325,11 +354,12 @@ def test_second_open_runs_no_ddl(tmp_path, db, monkeypatch):
     real = psycopg.Cursor.execute
 
     def counting(self, query, *args, **kwargs):
-        statements.append(str(query))
+        if str(query):  # the pool's health check is an empty query
+            statements.append(str(query))
         return real(self, query, *args, **kwargs)
 
     monkeypatch.setattr(psycopg.Cursor, "execute", counting)
-    Store(tmp_path / "d", dsn=db)
+    Store(tmp_path / "d", dsn=db).close()
     monkeypatch.undo()
 
     assert _ddl_count(db) == after_first  # server side: no DDL command ran
@@ -604,6 +634,222 @@ def test_concurrent_writes_and_reads(store):
     assert errors == []
     with store.reader() as conn:
         assert conn.execute("SELECT count(*) FROM items").fetchone()[0] == 200
+
+
+# --- connection pool ----------------------------------------------------------------------------
+
+
+def _backends(dsn: str) -> int:
+    """Connections to this database other than the counting one."""
+    with _raw(dsn) as conn:
+        return conn.execute(
+            "SELECT count(*) FROM pg_stat_activity"
+            " WHERE datname = current_database() AND pid <> pg_backend_pid()"
+        ).fetchone()[0]
+
+
+def _settles(check, seconds: float = 5.0) -> bool:
+    import time
+
+    deadline = time.monotonic() + seconds
+    while not check():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def _pooled_store(tmp_path, db, monkeypatch, *, low="1", high="3"):
+    monkeypatch.setenv("CULTURE_LIBRARY_PG_POOL_MIN", low)
+    monkeypatch.setenv("CULTURE_LIBRARY_PG_POOL_MAX", high)
+    return Store(tmp_path / "pooled", dsn=db)
+
+
+def test_pool_bounds_default_and_env():
+    assert store_mod.pool_bounds({}) == (1, 10)
+    env = {"CULTURE_LIBRARY_PG_POOL_MIN": "2", "CULTURE_LIBRARY_PG_POOL_MAX": "4"}
+    assert store_mod.pool_bounds(env) == (2, 4)
+    for bad in ({"CULTURE_LIBRARY_PG_POOL_MAX": "x"}, {"CULTURE_LIBRARY_PG_POOL_MAX": "0"}):
+        with pytest.raises(CoreError, match="CULTURE_LIBRARY_PG_POOL_MAX"):
+            store_mod.pool_bounds(bad)
+
+
+def test_a_burst_of_connections_opens_at_most_the_pool_maximum(tmp_path, db, monkeypatch):
+    s = _pooled_store(tmp_path, db, monkeypatch, high="3")
+    errors: list[BaseException] = []
+    peak = [0]
+    stop = threading.Event()
+    barrier = threading.Barrier(20)
+
+    def worker(n):
+        try:
+            barrier.wait()
+            for _ in range(5):
+                with s.connect() if n % 2 else s.reader() as conn:
+                    conn.execute("SELECT pg_sleep(0.01)")
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    def sampler():
+        while not stop.is_set():
+            peak[0] = max(peak[0], _backends(db))
+
+    watch = threading.Thread(target=sampler)
+    watch.start()
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stop.set()
+    watch.join()
+    s.close()
+    assert errors == []
+    assert 1 <= peak[0] <= 3
+
+
+def test_connections_are_reused_not_reopened(tmp_path, db, monkeypatch):
+    s = _pooled_store(tmp_path, db, monkeypatch, high="1")
+    pids = set()
+    for _ in range(5):
+        with s.connect() as conn:
+            pids.add(conn.execute("SELECT pg_backend_pid()").fetchone()[0])
+        with s.reader() as conn:
+            pids.add(conn.execute("SELECT pg_backend_pid()").fetchone()[0])
+    s.close()
+    assert len(pids) == 1
+
+
+def test_a_connection_returned_after_an_error_is_usable(tmp_path, db, monkeypatch):
+    s = _pooled_store(tmp_path, db, monkeypatch, high="1")
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        with s.connect() as conn:
+            conn.execute("SELECT * FROM no_such_table")
+    with pytest.raises(psycopg.errors.DivisionByZero):
+        with s.reader() as conn:
+            conn.execute("SELECT 1 / 0")
+    with s.connect() as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+    s.close()
+
+
+def test_read_only_does_not_leak_into_a_later_connect(tmp_path, db, monkeypatch):
+    s = _pooled_store(tmp_path, db, monkeypatch, high="1")
+    with s.reader() as conn:
+        assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
+    with s.connect() as conn:
+        assert conn.read_only is None
+        assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "off"
+        conn.execute(
+            "INSERT INTO items (sha256, kind, title, format, size, created_at)"
+            " VALUES ('a', 'book', 't', 'epub', 1, 'now')"
+        )
+    s.close()
+
+
+def test_client_state_and_local_settings_do_not_leak(tmp_path, db, monkeypatch):
+    s = _pooled_store(tmp_path, db, monkeypatch, high="1")
+    with s.reader() as conn:
+        default_mem = conn.execute("SHOW work_mem").fetchone()[0]
+    with s.reader() as conn:  # what search does before an HNSW query
+        conn.execute("SELECT set_config('work_mem', '7MB', true)")
+        conn.execute("SELECT set_config('hnsw.ef_search', '123', true)")
+    with s.connect() as conn:
+        conn.isolation_level = psycopg.IsolationLevel.SERIALIZABLE
+        conn.execute("SELECT set_config('statement_timeout', '1234', true)")
+    with s.connect() as conn:
+        assert conn.isolation_level is None
+        assert conn.autocommit is False
+        assert conn.execute("SHOW work_mem").fetchone()[0] == default_mem
+        assert conn.execute("SHOW statement_timeout").fetchone()[0] == "0"
+        assert conn.execute("SELECT current_setting('hnsw.ef_search', true)").fetchone()[0] in (
+            None,
+            "",
+            "40",
+        )
+        assert isinstance(conn.execute("SELECT 1 AS one").fetchone(), store_mod.Row)
+    s.close()
+
+
+def test_close_releases_the_connections_and_a_later_call_reopens(tmp_path, db, monkeypatch):
+    s = _pooled_store(tmp_path, db, monkeypatch, low="2", high="3")
+    with s.reader() as conn:
+        conn.execute("SELECT 1")
+    s.close()
+    assert _settles(lambda: _backends(db) == 0)  # a backend exits just after its client
+    assert s.get_item(1) is None  # the pool comes back on demand
+    s.close()
+
+
+def test_stores_on_one_database_share_a_pool(tmp_path, db, monkeypatch):
+    a = _pooled_store(tmp_path, db, monkeypatch, high="1")
+    b = Store(tmp_path / "other", dsn=db)
+    with a.reader() as conn:
+        first = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+    with b.reader() as conn:
+        assert conn.execute("SELECT pg_backend_pid()").fetchone()[0] == first
+    a.close()
+
+
+# --- add vs replace lock order ------------------------------------------------------------------
+
+
+def test_concurrent_add_and_replace_of_the_same_bytes_do_not_deadlock(store):
+    """replace() takes the blob lock and then updates items.sha256; add() must take that same
+    lock before its insert, or each waits on the other (DeadlockDetected). And replace() must
+    check for a duplicate under that lock, or a just-committed add surfaces as UniqueViolation.
+    Each race ends in success or DuplicateContentError, nothing else."""
+    from culture_library.core import library
+    from culture_library.core.library import DuplicateContentError
+
+    errors: list[BaseException] = []
+    for i in range(25):
+        original, _ = library.add(store, f"original {i}".encode(), f"o{i}.md")
+        data = f"contested bytes {i}".encode()
+        barrier = threading.Barrier(2)
+
+        def do_add(data=data, barrier=barrier):
+            try:
+                barrier.wait()
+                library.add(store, data, "added.md")
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        def do_replace(data=data, barrier=barrier, item_id=original.id):
+            try:
+                barrier.wait()
+                library.replace(store, item_id, data, "replaced.md", include_private=True)
+            except DuplicateContentError:
+                pass  # add committed first: the bytes belong to another item
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=do_add), threading.Thread(target=do_replace)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    assert errors == []
+
+
+def test_add_item_takes_the_blob_lock_before_the_items_row(store):
+    """While another transaction holds the blob's lock, add_item writes no items row."""
+    data = b"locked bytes"
+    sha = hashlib.sha256(data).hexdigest()
+    done = threading.Event()
+    with store.connect() as holder:
+        store_mod.lock_blob(holder, sha)
+        t = threading.Thread(target=lambda: (_add(store, data=data), done.set()), daemon=True)
+        t.start()
+        assert not done.wait(0.5)
+        with _raw(store._conninfo) as conn:
+            assert conn.execute("SELECT count(*) FROM items").fetchone()[0] == 0
+            waiting = conn.execute(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+            ).fetchone()[0]
+            assert waiting == 1
+    t.join(10)
+    assert done.is_set()
 
 
 # --- import hygiene -------------------------------------------------------------------------------

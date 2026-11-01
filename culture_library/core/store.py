@@ -15,9 +15,11 @@ psycopg is the optional ``[pg]`` extra and is imported lazily, so ``culture_libr
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import os
 import secrets
+import threading
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -49,6 +51,15 @@ PG_DEFAULTS = {
     PG_USER_ENV: "culture_library",
 }
 CONNECT_TIMEOUT_S = 10
+# Connection pool bounds per process and database. The server's request threads, the indexer
+# and the mirror drain share one pool; a burst past the maximum waits for a free connection.
+PG_POOL_MIN_ENV = "CULTURE_LIBRARY_PG_POOL_MIN"
+PG_POOL_MAX_ENV = "CULTURE_LIBRARY_PG_POOL_MAX"
+DEFAULT_POOL_MIN = 1
+DEFAULT_POOL_MAX = 10
+# How long a caller waits for a pooled connection before the database counts as unreachable:
+# the same bound as one direct connect.
+POOL_TIMEOUT_S = CONNECT_TIMEOUT_S
 
 __all__ = [
     "DATA_DIR_ENV",
@@ -58,6 +69,7 @@ __all__ = [
     "Store",
     "conninfo_from_env",
     "now",
+    "with_env_password",
 ]
 
 
@@ -80,6 +92,28 @@ def _psycopg() -> Any:
     return psycopg
 
 
+def with_env_password(dsn: str, environ: Mapping[str, str] | None = None) -> str:
+    """``dsn`` with the password from ``CULTURE_LIBRARY_PG_PASSWORD`` merged in.
+
+    A DSN that carries its own password keeps it; without the setting the DSN is returned
+    unchanged. Every DSN the library is given (the setting, ``migrate --to``, ``backup
+    --dsn``) goes through here, so the password can stay out of the DSN and the shell history.
+    """
+    env = os.environ if environ is None else environ
+    psycopg = _psycopg()
+    from_env = env.get(PG_PASSWORD_ENV) or None  # the password, if set
+    if from_env is None:
+        return dsn
+    try:
+        if "password" in psycopg.conninfo.conninfo_to_dict(dsn):
+            return dsn
+        return psycopg.conninfo.make_conninfo(dsn, password=from_env)
+    except psycopg.ProgrammingError:  # libpq's message can quote the DSN, password included
+        raise DatabaseError(
+            "not a valid libpq DSN; use a postgresql:// URL or key=value pairs"
+        ) from None
+
+
 def conninfo_from_env(environ: Mapping[str, str] | None = None) -> str:
     """The libpq conninfo for the library database, from ``CULTURE_LIBRARY_PG_*`` settings.
 
@@ -87,22 +121,42 @@ def conninfo_from_env(environ: Mapping[str, str] | None = None) -> str:
     password always comes from ``CULTURE_LIBRARY_PG_PASSWORD`` unless the DSN carries one.
     """
     env = os.environ if environ is None else environ
-    conninfo = _psycopg().conninfo
-    from_env = env.get(PG_PASSWORD_ENV) or None  # the password, if set
     dsn = env.get(PG_DSN_ENV)
     if dsn:
-        if from_env is None or "password" in conninfo.conninfo_to_dict(dsn):
-            return dsn
-        return conninfo.make_conninfo(dsn, password=from_env)
+        return with_env_password(dsn, env)
     parts = {
         "host": env.get(PG_HOST_ENV) or PG_DEFAULTS[PG_HOST_ENV],
         "port": env.get(PG_PORT_ENV) or PG_DEFAULTS[PG_PORT_ENV],
         "dbname": env.get(PG_DATABASE_ENV) or PG_DEFAULTS[PG_DATABASE_ENV],
         "user": env.get(PG_USER_ENV) or PG_DEFAULTS[PG_USER_ENV],
     }
+    from_env = env.get(PG_PASSWORD_ENV) or None  # the password, if set
     if from_env is not None:
         parts["password"] = from_env
-    return conninfo.make_conninfo("", **parts)
+    return _psycopg().conninfo.make_conninfo("", **parts)
+
+
+def pool_bounds(environ: Mapping[str, str] | None = None) -> tuple[int, int]:
+    """``(min, max)`` pooled connections, from ``CULTURE_LIBRARY_PG_POOL_MIN``/``_MAX``."""
+    env = os.environ if environ is None else environ
+
+    def read(name: str, default: int, least: int) -> int:
+        raw = (env.get(name) or "").strip()
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            raise DatabaseError(f"{name} must be a whole number, not {raw!r}") from None
+        if value < least:
+            raise DatabaseError(f"{name} must be at least {least}, not {value}")
+        return value
+
+    low = read(PG_POOL_MIN_ENV, DEFAULT_POOL_MIN, 0)
+    high = read(PG_POOL_MAX_ENV, max(DEFAULT_POOL_MAX, low), 1)
+    if high < low:
+        raise DatabaseError(f"{PG_POOL_MAX_ENV} ({high}) is below {PG_POOL_MIN_ENV} ({low})")
+    return low, high
 
 
 class Row(tuple):
@@ -181,12 +235,140 @@ def _check_collation(conn: Any) -> None:
     )
 
 
+def _psycopg_pool() -> Any:
+    try:
+        import psycopg_pool
+    except ImportError as exc:
+        raise DatabaseError(
+            "the Postgres connection pool is not installed; install culture-library[pg] "
+            "(uv sync --extra pg)"
+        ) from exc
+    return psycopg_pool
+
+
+def _unreachable(exc: BaseException) -> DatabaseError:
+    text = str(exc).strip()
+    first = text.splitlines()[0] if text else type(exc).__name__
+    return DatabaseError(
+        f"cannot connect to the library database ({first}); check the "
+        f"CULTURE_LIBRARY_PG_* settings ({PG_DSN_ENV}, or host/port/database/user "
+        f"plus {PG_PASSWORD_ENV}) and that Postgres is running"
+    )
+
+
+def _reset_pooled(conn: Any) -> None:
+    """Hand a connection back to the pool as a new one would be.
+
+    Any open transaction is rolled back, which also undoes every ``SET LOCAL`` /
+    ``set_config(..., true)`` (the library sets nothing per session). Then the client-side
+    state a caller may have changed is restored: ``read_only`` (``reader()``), isolation
+    level, deferrable, autocommit and the row factory. Done here, before ``putconn``, and
+    not as the pool's ``reset`` callback: with a callback the pool returns connections on a
+    background worker, so a connection is not reusable the moment it is released and one
+    in flight when the pool closes is left open.
+    """
+    try:
+        if conn.closed:
+            return
+        if conn.info.transaction_status != conn.info.transaction_status.IDLE:
+            conn.rollback()
+        conn.autocommit = False
+        conn.read_only = None
+        conn.isolation_level = None
+        conn.deferrable = None
+        conn.row_factory = row_factory
+    except Exception:  # noqa: BLE001 - a connection that cannot be reset is not reused
+        with suppress(Exception):
+            conn.close()
+
+
+# One pool per (process, conninfo): every Store on the same database shares it. Keyed by pid
+# so a forked child never uses its parent's sockets.
+_POOLS: dict[tuple[int, str], Any] = {}
+_POOLS_LOCK = threading.Lock()
+
+
+def _new_pool(conninfo: str) -> Any:
+    psycopg, pool_mod = _psycopg(), _psycopg_pool()
+    low, high = pool_bounds()
+    # One direct connection first, so a wrong DSN or a stopped database fails now with
+    # libpq's own reason instead of a pool timeout.
+    try:
+        psycopg.connect(conninfo, connect_timeout=CONNECT_TIMEOUT_S).close()
+    except psycopg.OperationalError as exc:
+        raise _unreachable(exc) from exc
+    pool = pool_mod.ConnectionPool(
+        conninfo,
+        kwargs={
+            "autocommit": False,
+            "row_factory": row_factory,
+            "connect_timeout": CONNECT_TIMEOUT_S,
+        },
+        min_size=low,
+        max_size=high,
+        open=False,
+        check=pool_mod.ConnectionPool.check_connection,  # drop connections a restart killed
+        timeout=POOL_TIMEOUT_S,
+        name="culture-library",
+    )
+    pool.open()
+    try:
+        pool.wait(timeout=CONNECT_TIMEOUT_S)  # the first callers find connections ready
+    except pool_mod.PoolTimeout as exc:
+        pool.close()
+        raise _unreachable(exc) from exc
+    return pool
+
+
+def _pool_for(conninfo: str) -> Any:
+    key = (os.getpid(), conninfo)
+    pool = _POOLS.get(key)
+    if pool is None:
+        with _POOLS_LOCK:
+            pool = _POOLS.get(key)
+            if pool is None:
+                pool = _POOLS[key] = _new_pool(conninfo)
+    return pool
+
+
+def _close_pool(conninfo: str) -> None:
+    with _POOLS_LOCK:
+        pool = _POOLS.pop((os.getpid(), conninfo), None)
+    if pool is not None:
+        pool.close()
+
+
+@atexit.register
+def close_pools() -> None:
+    """Close this process's pools (registered with :mod:`atexit`)."""
+    pid = os.getpid()
+    with _POOLS_LOCK:
+        mine = [key for key in _POOLS if key[0] == pid]
+        pools = [_POOLS.pop(key) for key in mine]
+    for pool in pools:
+        with suppress(Exception):
+            pool.close()
+
+
+def lock_blob(conn: Any, sha: str) -> None:
+    """Take the transaction-scoped advisory lock that serialises one blob's writers.
+
+    The key is ``hashtextextended('blob:' || sha, 0)``, the same as ``library.lock_blob``
+    and ``repodocs._lock_blob``: one lock per blob for the whole library.
+    """
+    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"blob:{sha}",))
+
+
 class Store:
     """Owns the data directory (``files/<aa>/<sha256>``) and the library's Postgres database.
 
     ``dsn`` is a libpq conninfo or URL; without it the ``CULTURE_LIBRARY_PG_*`` settings
     are read (see :func:`conninfo_from_env`). Opening checks the database's collation and
     applies pending migrations; a current database runs no DDL.
+
+    Connections come from a pool shared by every Store on the same database in this process
+    (``CULTURE_LIBRARY_PG_POOL_MIN``/``_MAX``, default 1 and 10), created on first use and
+    closed by :meth:`close` or at exit.
     """
 
     def __init__(
@@ -205,22 +387,29 @@ class Store:
     def __repr__(self) -> str:
         return f"Store(data_dir={str(self.data_dir)!r})"
 
-    def _open(self) -> psycopg.Connection:
-        psycopg = self._psycopg
+    def close(self) -> None:
+        """Close this database's pool; a later call on any Store reopens it."""
+        _close_pool(self._conninfo)
+
+    @contextmanager
+    def _pooled(self) -> Iterator[psycopg.Connection]:
+        pool_mod = _psycopg_pool()
+        for attempt in (1, 2):
+            pool = _pool_for(self._conninfo)
+            try:
+                conn = pool.getconn()
+            except pool_mod.PoolClosed:
+                if attempt == 2:
+                    raise
+                continue  # closed under us by close(): take the replacement
+            except self._psycopg.OperationalError as exc:  # PoolTimeout included
+                raise _unreachable(exc) from exc
+            break
         try:
-            return psycopg.connect(
-                self._conninfo,
-                autocommit=False,
-                row_factory=row_factory,
-                connect_timeout=CONNECT_TIMEOUT_S,
-            )
-        except psycopg.OperationalError as exc:
-            first = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
-            raise DatabaseError(
-                f"cannot connect to the library database ({first}); check the "
-                f"CULTURE_LIBRARY_PG_* settings ({PG_DSN_ENV}, or host/port/database/user "
-                f"plus {PG_PASSWORD_ENV}) and that Postgres is running"
-            ) from exc
+            yield conn
+        finally:
+            _reset_pooled(conn)
+            pool.putconn(conn)
 
     def ensure_schema(self) -> list[str]:
         """Check the database and apply pending migrations; return the names applied."""
@@ -230,14 +419,14 @@ class Store:
 
     @contextmanager
     def connect(self) -> Iterator[psycopg.Connection]:
-        """Short-lived connection; one transaction, committed on success, rolled back on error.
+        """Pooled connection; one transaction, committed on success, rolled back on error.
 
         Unlike SQLite's ``BEGIN IMMEDIATE``, this takes no lock up front: concurrent writers
         run in parallel under READ COMMITTED, so a read-then-write that must not race needs
-        ``ON CONFLICT``, ``SELECT ... FOR UPDATE`` or an advisory lock.
+        ``ON CONFLICT``, ``SELECT ... FOR UPDATE`` or an advisory lock. Settings must be
+        transaction-local (``SET LOCAL``, ``set_config(..., true)``): the connection is reused.
         """
-        conn = self._open()
-        try:
+        with self._pooled() as conn:
             try:
                 yield conn
             except BaseException:
@@ -245,21 +434,20 @@ class Store:
                     conn.rollback()
                 raise
             conn.commit()
-        finally:
-            conn.close()
 
     @contextmanager
     def reader(self) -> Iterator[psycopg.Connection]:
-        """Short-lived read-only connection: its transaction is READ ONLY, so it cannot write
+        """Pooled read-only connection: its transaction is READ ONLY, so it cannot write
         or take row locks (``SELECT ... FOR UPDATE`` raises), and readers never block writers."""
-        conn = self._open()
-        try:
+        with self._pooled() as conn:
             conn.read_only = True
-            yield conn
-        finally:
-            with suppress(Exception):
-                conn.rollback()
-            conn.close()
+            try:
+                yield conn
+            finally:
+                with suppress(Exception):
+                    conn.rollback()
+                with suppress(Exception):
+                    conn.read_only = None  # _reset_pooled does this too
 
     def blob_path(self, sha256: str) -> Path:
         return self.files_dir / sha256[:2] / sha256
@@ -293,8 +481,13 @@ class Store:
 
         ``on_insert(conn, item)`` runs inside the insert's transaction, after the insert and
         before the commit (index rows, feed events); if it raises, the insert rolls back. It
-        is not called when the bytes were already stored (``created`` is False). Concurrent
-        adds of the same bytes create one item: the loser's insert hits ``ON CONFLICT``.
+        is not called when the bytes were already stored (``created`` is False).
+
+        The transaction takes the blob's lock (:func:`lock_blob`) before it reads or writes
+        the items row, and writes the file under it. Concurrent adds of the same bytes
+        therefore run one after another (the second finds the first's row), and an add
+        never holds an uncommitted ``sha256`` entry while waiting for the lock, which is
+        what a ``replace`` to the same bytes holds the lock for (no lock-order inversion).
         """
         if kind not in KINDS:
             raise ValidationError(f"kind must be one of {', '.join(KINDS)}")
@@ -302,8 +495,10 @@ class Store:
             raise ValidationError("title is required")
         if visibility is not None and visibility not in VISIBILITIES:
             raise ValidationError(f"visibility must be one of {', '.join(VISIBILITIES)}")
-        sha = self.write_blob(data)
+        sha = hashlib.sha256(data).hexdigest()
         with self.connect() as conn:
+            lock_blob(conn, sha)
+            self.write_blob(data)
             # Look first so a duplicate upload does not consume an identity value.
             row = conn.execute("SELECT * FROM items WHERE sha256 = %s", (sha,)).fetchone()
             if row is not None:

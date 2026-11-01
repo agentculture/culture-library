@@ -94,7 +94,7 @@ def cmd_from_xteink(args: argparse.Namespace) -> int:
 def cmd_sqlite_to_postgres(args: argparse.Namespace) -> int:
     from culture_library.core.migrations import MigrationError as SchemaError
     from culture_library.core.search import EmbeddingError
-    from culture_library.core.store import DatabaseError, conninfo_from_env
+    from culture_library.core.store import DatabaseError, conninfo_from_env, with_env_password
     from culture_library.migrate import sqlite_to_pg as s2p
 
     source = Path(args.source).expanduser()
@@ -105,7 +105,7 @@ def cmd_sqlite_to_postgres(args: argparse.Namespace) -> int:
             "point --from at the 0.19.8 library.db (a copy taken with the library stopped)",
         )
     try:
-        conninfo = args.to or conninfo_from_env()
+        conninfo = with_env_password(args.to) if args.to else conninfo_from_env()
         embedder = s2p.embedder_from_env(url=args.gateway_url, model=args.embed_model)
         run = s2p.verify_library if args.verify_only else s2p.copy_library
         report = run(
