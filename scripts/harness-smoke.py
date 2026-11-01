@@ -109,11 +109,15 @@ GUILD_HARNESS = {
 #: The devague frame below is also waived: decision c42 once named the live env file
 #: as a literal ``~/.config`` path, and devague keeps every amended claim's earlier
 #: text in its append-only ``revisions`` history, which must never be hand-edited.
+#: So is the Postgres run's delivery record: evidence e24 (c41, no backup timer) quotes the
+#: ``~/.config/systemd/user`` directory it inspected as its test reference, and evidence
+#: records are append-only too (a superseding record would leave the original text in place).
 STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
     {
         ".claude/skills/recall/SKILL.md",
         ".claude/skills/remember/SKILL.md",
         ".devague/frames/rag-endpoints-ragas-evals.json",
+        ".devague/deliveries/library-on-postgres-and-pgvector.json",
     }
 )
 
