@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-11-01T19:20:38Z",
+  "updated": "2026-11-01T20:23:30Z",
   "deviations": [
     {
       "id": "d1",
@@ -304,7 +304,632 @@
       "seq": 23
     }
   ],
-  "evidence": [],
-  "deltas": [],
-  "supersessions": []
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "live /api/status database block and psql on culture-library-postgres-1 (0.20.3)",
+      "behavior_text": "database reachable, schema_version 4 current, embeddings_hnsw_* and repodoc_embeddings_hnsw_* valid, simple_tsv filled 112/112 items and 3831/3831 repo docs; health 200",
+      "contract_text": "Live runs on PostgreSQL 17 with pgvector: every table, the full text and the vectors are in Postgres, searched through SQL and an HNSW index, while clients, files on disk and the S3 mirror behave as before",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on live after deploy restart of 0.20.2 (19:12 UTC) and 0.20.3 (19:55 UTC), 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "tests/contract tests/server tests/mcp",
+      "behavior_text": "route, MCP-tool parity and eval-contract tests over the Postgres store",
+      "contract_text": "API and MCP clients see no contract change: the HTTP routes, MCP tools and /api/status shape stay as they are; only the storage under them moves",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 438 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/core/test_search_hnsw.py tests/core/test_generated_columns.py",
+      "behavior_text": "index-use plans, filtered recall vs exact, pool-edge ties, per-corpus ef_search, vec_hash",
+      "contract_text": "Vectors are stored in a pgvector column with a model tag, with one HNSW index per embedding model (768 dimensions for embeddinggemma-2 today, room for 1024 for Qwen3-Embedding), and the in-process vector cache, vector_log table and its triggers are removed",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 13 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/core/test_search.py",
+      "behavior_text": "full-text ranking, prefixes, snippets, stopword-only and trailing-stopword queries (incl. 'road the ?' parity)",
+      "contract_text": "Full-text search is reimplemented on Postgres: title weighted above body, English stemming, prefix match on the last term, and highlighted snippets, for items and repo docs separately",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 43 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/core/test_feed.py tests/core/test_repodocs_concurrency.py",
+      "behavior_text": "concurrent feed appends and repo-doc pushes keep cursor order = commit order, no lost or duplicated rows",
+      "contract_text": "The feed's cursor paging never skips an event under concurrent writers: feed appends are serialised (for example a transaction-level advisory lock) so cursor order equals commit order",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 21 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/test_no_sqlite.py tests/core/test_store_pg.py",
+      "behavior_text": "AST guard against sqlite3/SQLite SQL; store, migration runner, collation and pool tests",
+      "contract_text": "SQLite-specific SQL is ported in every core module: AUTOINCREMENT + lastrowid become identity + RETURNING, integer booleans become boolean, MAX(a,b) becomes GREATEST, json_extract on TEXT becomes jsonb, INSERT OR REPLACE/IGNORE become ON CONFLICT, the feed column named cursor is quoted or renamed, and ? placeholders change",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 109 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/migrate/test_sqlite_to_pg.py",
+      "behavior_text": "copy of a source built from the real 0.19.8 schema: counts, max ids, digests, sequences, problem refusal",
+      "contract_text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 38 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o7",
+      "test_ref": "$HOME/backups/culture-library-copy-report.json (live cutover copy, 18:05 UTC)",
+      "behavior_text": "exit 0 in 42.6 s; all 23 tables equal on count and max id; text and vector digests identical (7,861 + 62,594 vectors); vector_log (4,840 rows) reported not copied",
+      "contract_text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read from the copy report written by the live cutover, 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true,
+      "seq": 31
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o8",
+      "test_ref": "tests/core/test_backup.py tests/core/test_backup_repodocs.py tests/test_cli_backup.py",
+      "behavior_text": "backup, verify, restore as the least-privilege role, target checks, comments kept",
+      "contract_text": "A restore drill rebuilds an empty Postgres and files tree from a backup with every table count identical, before the live cutover",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 41 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o8",
+      "test_ref": "t18 drill on scratch Postgres from live data (docs/operations/backup.md, 'Restore drill 2026-11-01')",
+      "behavior_text": "copy all equal; pg_dump 30 s, verify OK; restore as culture_library 52 s OK; md5 over every row of all 24 tables identical between copy and restore",
+      "contract_text": "A restore drill rebuilds an empty Postgres and files tree from a backup with every table count identical, before the live cutover",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "ran on 0.20.1 (reviewed code) before the cutover, 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true,
+      "seq": 33
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o9",
+      "test_ref": "tests/test_cli_deploy.py tests/test_deploy_files.py tests/test_deploy_s3.py",
+      "behavior_text": "restart step order, secret injection by name, live.env refusal of secrets, compose least privilege",
+      "contract_text": "deploy restart starts and checks the Postgres service too, and the database password comes from grant like every other secret, never from live.env",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 86 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o9",
+      "test_ref": "live deploy restart of 0.20.1, 0.20.2, 0.20.3",
+      "behavior_text": "postgres started healthy first; library and mcp recreated; AWS_ACCESS_KEY_ID, GATEWAY_API_KEY and CULTURE_LIBRARY_PG_PASSWORD present in the container each time",
+      "contract_text": "deploy restart starts and checks the Postgres service too, and the database password comes from grant like every other secret, never from live.env",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on live, 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o10",
+      "test_ref": "GitHub Actions run 41344240996 (Tests) and 41344241006 (Publish), main @ 57b8e16",
+      "behavior_text": "test job: 2027 passed, 15 skipped (playwright, pdftotext, ragas, culture-rules checkout and local corpora; none for a database); publish test job success",
+      "contract_text": "The full test suite passes against Postgres in CI (the test and publish jobs) with no test skipped for lack of a database",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "CI run on the merge commit of #52",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o10",
+      "test_ref": "tests/test_pg_fixture.py",
+      "behavior_text": "an unreachable or unset Postgres fails the run once with the setting named, never skips",
+      "contract_text": "The full test suite passes against Postgres in CI (the test and publish jobs) with no test skipped for lack of a database",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 11 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o11",
+      "test_ref": "tests/server/test_status_database.py",
+      "behavior_text": "database block fields and 503 health when the database is unreachable",
+      "contract_text": "/api/status reports the database: reachable or not, the applied schema version, and the vector index state, and the library refuses to serve writes if the schema version is ahead of the code",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "the named tests ran green at the named commit; 6 passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o12",
+      "test_ref": "live eval runs 90-105 (0.20.2), POST /api/eval/runs/start",
+      "behavior_text": "ID recall@5: books 0.91 with rerank, 0.82 without; newspapers 1.00 with rerank, 0.83 without; no set below its 0.19.8 baseline",
+      "contract_text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "server-side judge-free runs on live after the d20-d22 fix, 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true,
+      "seq": 39
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o12",
+      "test_ref": "live eval runs 72-89 (0.20.1)",
+      "behavior_text": "newspapers with rerank 0.917 (set 6 question 103 missed, stable over 3 runs), below the 0.95 target; books met their targets",
+      "contract_text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "first t20 pass on 0.20.1, before the trailing-stopword fix",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true,
+      "seq": 40
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o13",
+      "test_ref": "scratchpad lat.py, 40 eval questions, 3 passes on live 0.20.3; eval runs 90-105 latencies",
+      "behavior_text": "RAG retrieve rerank off p95 153-155 ms (pooled eval questions p95 166 ms on 0.20.2); /api/search items + repo docs p95 275-280 ms",
+      "contract_text": "On live after cutover, rerank-off retrieval p95 is < 300 ms for items only and < 500 ms for items plus repo docs (k=5), measured over 40 queries each",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "measured on live, warm, 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:02:23Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 41
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o7",
+      "test_ref": "$HOME/backups/culture-library-copy-report.json (live cutover copy, 18:05 UTC)",
+      "behavior_text": "exit 0 in 42.6 s; all 23 tables equal on count and max id; text and vector digests identical (7,861 + 62,594 vectors); vector_log (4,840 rows) reported not copied",
+      "contract_text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read from the copy report written by the live cutover, 2026-11-01 (corrects e8, which was stamped with the wrong run commit)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T18:06:21Z",
+        "commit": "23392ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 42
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o8",
+      "test_ref": "t18 drill on scratch Postgres from live data (docs/operations/backup.md, 'Restore drill 2026-11-01')",
+      "behavior_text": "copy all equal; pg_dump 30 s, verify OK; restore as culture_library 52 s OK; md5 over every row of all 24 tables identical between copy and restore",
+      "contract_text": "A restore drill rebuilds an empty Postgres and files tree from a backup with every table count identical, before the live cutover",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "ran on 0.20.1 (reviewed code) before the cutover, 2026-11-01 (corrects e10, which was stamped with the wrong run commit)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T17:40:00Z",
+        "commit": "23392ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 43
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o12",
+      "test_ref": "live eval runs 90-105 (0.20.2), POST /api/eval/runs/start",
+      "behavior_text": "ID recall@5: books 0.91 with rerank, 0.82 without; newspapers 1.00 with rerank, 0.83 without; no set below its 0.19.8 baseline",
+      "contract_text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "server-side judge-free runs on live after the d20-d22 fix, 2026-11-01 (corrects e16, which was stamped with the wrong run commit)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T19:25:00Z",
+        "commit": "3727bce"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 44
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o12",
+      "test_ref": "live eval runs 72-89 (0.20.1)",
+      "behavior_text": "newspapers with rerank 0.917 (set 6 question 103 missed, stable over 3 runs), below the 0.95 target; books met their targets",
+      "contract_text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "first t20 pass on 0.20.1, before the trailing-stopword fix (corrects e17, which was stamped with the wrong run commit)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-01T18:55:00Z",
+        "commit": "23392ee"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 45
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o14",
+      "test_ref": "cutover log (scratchpad cutover.log) and culture-rules rules list updated_at",
+      "behavior_text": "culture-rules' library writers were disabled at 16:30:50 UTC (not by this run) and resumed at 18:40 UTC: 2 h 10 min. Counting only this run's freeze (library and mcp stopped 18:04:28, serving again 18:06:55, writers resumed 18:40) it was 36 min; the full-corpus verify-mirror go/no-go check alone took about 20 min",
+      "contract_text": "The write freeze at cutover lasts under 30 minutes, from pausing culture-rules' push to resuming it",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed during the live cutover, 2026-11-01; library downtime itself was 2.5 min",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-01T20:05:00Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 46
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o15",
+      "test_ref": "systemctl --user list-timers --all; crontab -l; ~/.config/systemd/user (spark, 20:01 UTC)",
+      "behavior_text": "no culture-library backup timer or cron entry exists; backups before and after the cutover were run by hand (SQLite 18:04, Postgres 18:17 and 19:12, all verified OK), none scheduled",
+      "contract_text": "Backups run on a schedule on spark before cutover and after it, and the cutover is blocked until a scheduled backup has succeeded on Postgres",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "checked on spark after the cutover, 2026-11-01",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-01T20:05:00Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 47
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o16",
+      "test_ref": "scripts/verify-mirror.py --all against live during the cutover go/no-go (18:08-18:28 UTC)",
+      "behavior_text": "library and S3 each 3,815 ok, 2 missing, 6 mismatched: all 8 were files edited on disk after 18:00 UTC (after the 16:30 writer pause), not yet pushed; library and S3 agreed exactly. Table counts and max ids all matched (copy report)",
+      "contract_text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed at the cutover; the claim's literal 0/0 was not met at that moment",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-01T20:23:00Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true,
+      "seq": 48
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o16",
+      "test_ref": "scripts/verify-mirror.py --all against live 0.20.3 (20:01-20:23 UTC), after the writers resumed",
+      "behavior_text": "library and S3 each 3,823 ok, 0 missing, 0 mismatched; 0 problems",
+      "contract_text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed on live after the 18:40 resume and a repodocs-sync run, 2026-11-01",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-11-01T20:23:00Z",
+        "commit": "57b8e16"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 49
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o16",
+      "test_ref": "scripts/verify-mirror.py --all against live during the cutover go/no-go (18:08-18:28 UTC)",
+      "behavior_text": "library and S3 each 3,815 ok, 2 missing, 6 mismatched: all 8 were files edited on disk after 18:00 UTC (after the 16:30 writer pause), not yet pushed; library and S3 agreed exactly. Table counts and max ids all matched (copy report)",
+      "contract_text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "observed at the cutover; the claim's literal 0/0 was not met at that moment (corrects e25, which was stamped with the wrong run commit)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-11-01T18:28:00Z",
+        "commit": "23392ee"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 50
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "migrate sqlite-to-postgres reads past 0.19.8's vector_log (the vector cache's change log) and names it with its row count in the report, instead of refusing the live library.db",
+      "caused_by": [
+        "d15"
+      ],
+      "evidence_refs": [
+        "e7",
+        "e19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "backup restore runs as the least-privilege app role: it leaves out only the dump's COMMENT ON EXTENSION vector entry, and refuses a target without the vector extension in public or without the C collation",
+      "caused_by": [
+        "d19"
+      ],
+      "evidence_refs": [
+        "e9",
+        "e20"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "added",
+      "behavior_text": "completing an exact tie at the HNSW pool's edge looks the identical vectors up by vec_hash (migration 0003, indexed), so only the tie group is scored, not the whole corpus",
+      "caused_by": [
+        "d19"
+      ],
+      "evidence_refs": [
+        "e3"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "a query's trailing stopword matches as a prefix in the body's simple_tsv (migration 0004), so a question ending in 'with?' finds a document that says 'with', as FTS5 did; a document with no word starting with it still does not match",
+      "caused_by": [
+        "d22"
+      ],
+      "evidence_refs": [
+        "e4",
+        "e21"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "HNSW search breadth is per corpus: ef_search 100 for items, 400 for repo docs",
+      "caused_by": [
+        "d23"
+      ],
+      "evidence_refs": [
+        "e3",
+        "e18"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": [
+    {
+      "id": "s1",
+      "action": "supersede",
+      "target_ref": "e8",
+      "replacement_ref": "e19",
+      "origin": "user"
+    },
+    {
+      "id": "s2",
+      "action": "supersede",
+      "target_ref": "e10",
+      "replacement_ref": "e20",
+      "origin": "user"
+    },
+    {
+      "id": "s3",
+      "action": "supersede",
+      "target_ref": "e16",
+      "replacement_ref": "e21",
+      "origin": "user"
+    },
+    {
+      "id": "s4",
+      "action": "supersede",
+      "target_ref": "e17",
+      "replacement_ref": "e22",
+      "origin": "user"
+    },
+    {
+      "id": "s5",
+      "action": "supersede",
+      "target_ref": "e25",
+      "replacement_ref": "e27",
+      "origin": "user"
+    }
+  ]
 }

@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-11-01T19:20:38Z",
+  "updated": "2026-11-01T20:00:37Z",
   "targets": [
     {
       "id": "c1",
@@ -993,8 +993,8 @@
       "text": "HNSW recall under low-selectivity visibility filters (frame park v1) is measured only in t20; pgvector iterative scans are the first lever",
       "kind": "unknown_nonblocking",
       "task_id": "t12",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "ef_search per corpus (operator, 2026-11-01; 0.20.3, deviation d23). Measured on live 0.20.3, 40 questions, HNSW top 10 against exact scoring: items 1.000 (40/40 identical) under both the operator and the public-only filter; repo docs 0.953 (27/40 identical, min 0.70) at ef 400, was 0.853 at 100, the misses near-ties among near-duplicate chunks. A public-only key sees no repo docs (all private, c31). End to end: RAG retrieve without rerank p95 153-155 ms, search over items and repo docs p95 275-280 ms."
     },
     {
       "id": "r3",
