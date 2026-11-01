@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `migrate sqlite-to-postgres` copies the real 0.19.8 library.db: it reads past `vector_log` (the 0.19.8 vector cache's change log, which Postgres has no use for) and names it with its row count in the report, instead of refusing the file. The t18 restore drill found it (deviation d15).
 - `backup restore` works as the least-privilege `culture_library` role, as live runs it: it skips the dump's one comment (the `vector` extension's, which only the superuser may set) and requires the target to have the extension already, refusing up front with the superuser step. The t18 drill's restore failed with "must be owner of extension vector" (deviations d16, d17; lapse l6). `docs/operations/backup.md` says how to make a restore target on the live stack.
+- Search: completing a tie group at the HNSW pool's edge scores only chunks with a tied chunk's text, not the whole corpus. Repo docs tie often (one file pushed from many repos); on the t18 scratch copy of live data that step cost about 260 ms per affected query and now about 11 ms, which brings combined search under its 500 ms p95 (deviation d18).
 
 ## [0.20.0] - 2026-11-01
 

@@ -236,13 +236,18 @@ def test_semantic_hits_match_exact_best_chunk_per_item(corpus):
 def test_exact_ties_at_the_pool_edge_rank_the_same_for_every_k(store):
     """Identical vectors tie exactly; HNSW cannot order them, so the pool's LIMIT may cut a tie
     group anywhere. Ranking must still be deterministic: ties break on (corpus, id, chunk_no)
-    and every k is a prefix of a larger k, as on SQLite."""
+    and every k is a prefix of a larger k, as on SQLite. The twins share their text, as real
+    ties do (one file pushed from many repos): the completion only scores same-text chunks."""
     from tests.core.search_helpers import add, index
 
-    same = lambda texts: [es_vec(1.0, 0.0) for _ in texts]  # noqa: E731 - every chunk ties
-    items = [add(store, f"Twin {n}", f"twin body {n}\n\nmore twin text {n}") for n in range(12)]
+    shared = "twin body\n\nmore twin text"
+
+    def embed(texts):  # the shared chunk ties exactly; each title header has its own distance
+        return [es_vec(1.0, 0.0) if t == shared else es_vec(len(t) / 100, 1.0) for t in texts]
+
+    items = [add(store, f"Twin {'n' * n}", f"twin {n}") for n in range(12)]  # distinct bytes
     for item in items:
-        index(store, item, embed=same)
+        index(store, item, body=shared, embed=embed)
     q = es_vec(1.0, 0.0)
     runs = {}
     for k in (1, 2, 3, 5, 8, 13):
@@ -254,7 +259,8 @@ def test_exact_ties_at_the_pool_edge_rank_the_same_for_every_k(store):
             runs.setdefault(k, set()).add(tuple(got))
     assert all(len(v) == 1 for v in runs.values()), runs
     widest = next(iter(runs[13]))
-    assert widest == tuple(sorted(widest))
+    assert widest[:12] == tuple(sorted((item.id, 1) for item in items))  # the tie, by id
+    assert widest[12] == (items[-1].id, 0)  # then the nearest title header
     for k, v in runs.items():
         assert next(iter(v)) == widest[:k]
 

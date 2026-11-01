@@ -663,8 +663,15 @@ def _ann(conn: Any, corpus: int, q: str, flt: tuple[str, list], limit: int, pair
     if len(rows) > limit and rows[limit][0] == rows[limit - 1][0]:
         # The LIMIT cut a group of exactly tied chunks (identical vectors). HNSW cannot order
         # them, so which tied chunks made the pool is arbitrary: complete the group exactly so
-        # ties always break on (owner, chunk_no), as the SQLite scan did.
-        tied = _exact(conn, corpus, q, flt, pair, limit=None, at_dist=rows[limit - 1][0])
+        # ties always break on (owner, chunk_no), as the SQLite scan did. Identical vectors
+        # come from identical chunk text under one (model, strategy) (a file pushed from many
+        # repos), so only chunks with a tied chunk's text are scored: rescoring the whole
+        # corpus cost about 260 ms on live's 62k repo-doc chunks, this about 11 ms.
+        edge = rows[limit - 1][0]
+        texts = sorted({r[4] for r in rows if r[0] == edge})
+        where, params = flt
+        same_text = (f"{where} AND e.text = ANY(%s)", [*params, texts])
+        tied = _exact(conn, corpus, q, same_text, pair, limit=None, at_dist=edge)
         rows = sorted({(r[1], r[2], r[3]): r for r in rows + tied}.values(), key=_ann_order)
     return rows[:limit]
 
