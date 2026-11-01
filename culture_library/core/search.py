@@ -386,14 +386,18 @@ class _FtsQuery:
       re-parsed) or the stored ``tsv`` (where the last word's prefix finds ``the`` in
       ``theory``); its rank is over the simple title (weight A) and the stored ``tsv``;
     * when only the last word is a stopword (``road the``), the english query keeps the other
-      words and ranks, and the last word must still match as a simple prefix, of the title or
-      of a stored lexeme.
+      words and ranks, and the last word must still match as a prefix of a word, as in FTS5:
+      of the title, of a stored lexeme, or of a body word (``\\mwith`` in the raw body: the
+      stored ``tsv`` never holds the stopword itself, so ``... ship with?`` would otherwise
+      need a ``without`` in the doc; deviation d20). The body regex only runs on rows the
+      english query already matched.
     """
 
     cfg: str  # the text search config of ``q``: "english" or "simple"
     q: str  # to_tsquery input for matching, ranking and the headline
     last: str | None  # the simple prefix the last (stopword) word must match, if english lost it
     lexemes: tuple[str, ...]  # the query's lexemes, to place the body snippet's window
+    last_regex: str | None = None  # the same last word as a word-start regex over the raw body
 
     def where(self, a: str) -> tuple[str, list[str]]:
         tsq = f"to_tsquery('{self.cfg}', %s)"
@@ -404,8 +408,8 @@ class _FtsQuery:
         last = "to_tsquery('simple', %s)"
         return (
             f"{a}.tsv @@ {tsq} AND ({a}.tsv @@ {last}"
-            f" OR {_TITLE_SIMPLE.format(a=a)} @@ {last})",
-            [self.q, self.last, self.last],
+            f" OR {_TITLE_SIMPLE.format(a=a)} @@ {last} OR {a}.body ~* %s)",
+            [self.q, self.last, self.last, self.last_regex],
         )
 
     def rank(self, a: str) -> tuple[str, list[str]]:
@@ -429,8 +433,11 @@ def _fts_query(conn: Any, query: str) -> _FtsQuery | None:
     ).fetchone()
     if not english:
         return _FtsQuery("simple", q, None, _lexemes(simple_text))
-    last = None if last_kept else pieces[-1]
-    return _FtsQuery("english", q, last, _lexemes(eng_text))
+    if last_kept:
+        return _FtsQuery("english", q, None, _lexemes(eng_text))
+    words = re.findall(r"\w+", query.split()[-1])
+    regex = r"\m" + r"\W+".join(words)  # \w words only: nothing to escape
+    return _FtsQuery("english", q, pieces[-1], _lexemes(eng_text), regex)
 
 
 def _lexemes(tsquery: str) -> tuple[str, ...]:

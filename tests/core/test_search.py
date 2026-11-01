@@ -220,6 +220,20 @@ def test_stopword_last_word_still_matches_as_a_prefix(store):
     assert sorted(h.item_id for h in sr.fulltext(store, "road the")) == [road.id, theory.id]
 
 
+def test_trailing_stopword_matches_the_word_itself_in_the_body(store):
+    """FTS5 matched a last word as a prefix of any word, the word itself included. The english
+    tsv never stores a stopword, so a body that has "with" (and no "with..." lexeme) must
+    still match a question ending in "with?" (t20: live's set 6 question 103, deviation d20)."""
+    jetpack = add(store, "Daily newspaper", "issue 1")  # distinct bytes: one item each
+    index(store, jetpack, body="JetPack 7.0 ships CUDA 13 with TensorRT 10.13", embed=None)
+    other = add(store, "Other newspaper", "issue 2")
+    index(store, other, body="JetPack 7.0 ships CUDA and TensorRT", embed=None)  # no "with"
+    got = [
+        h.item_id for h in sr.fulltext(store, "Which CUDA and TensorRT did JetPack 7.0 ship with?")
+    ]
+    assert got == [jetpack.id]
+
+
 def test_stopword_only_query_feeds_hybrid_fulltext_rank(store):
     the_the = add(store, "The The")
     index(store, the_the)
