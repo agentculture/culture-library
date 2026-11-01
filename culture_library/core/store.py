@@ -170,7 +170,10 @@ def _check_collation(conn: Any) -> None:
         return
     if provider == "b" and locale == "C":
         return
-    shown = collate if provider == "c" else f"{locale} ({'icu' if provider == 'i' else provider})"
+    if provider == "c":
+        shown = collate
+    else:
+        shown = f"{locale} ({'icu' if provider == 'i' else provider})"
     raise DatabaseError(
         f"the library database uses the {shown} collation, not C, so text ORDER BY would "
         "differ from the library's binary ordering. Recreate it with: CREATE DATABASE <name> "
