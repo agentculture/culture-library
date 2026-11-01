@@ -18,7 +18,8 @@ def test_put_get_replace_and_meta(store):
         sources.put(conn, item.id, [])
         value, updated_at = sources.get_with_meta(conn, item.id)
     assert value == []
-    assert isinstance(updated_at, str) and updated_at
+    assert isinstance(updated_at, str)
+    assert updated_at
 
 
 def test_manifest_cascades_with_its_item(store):

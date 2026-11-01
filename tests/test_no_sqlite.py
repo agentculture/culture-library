@@ -166,7 +166,8 @@ def test_the_scan_covers_the_package_and_exempts_only_the_two_migrators() -> Non
 )
 def test_the_checker_catches(src: str, what: str) -> None:
     got = findings(src)
-    assert len(got) >= 1 and any(what.lower() in g.lower() for g in got), got
+    assert len(got) >= 1, got
+    assert any(what.lower() in g.lower() for g in got), got
 
 
 @pytest.mark.parametrize(

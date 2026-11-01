@@ -56,8 +56,9 @@ def test_embedder_space_falls_back_for_a_plain_callable():
 
 
 def test_embedder_space_failure_is_an_embedding_error():
+    failing = SpacedEmbed(fail=True)
     with pytest.raises(sr.EmbeddingError):
-        sr.embedder_space(SpacedEmbed(fail=True))
+        sr.embedder_space(failing)
 
     class Broken:
         def vector_space(self):
@@ -66,8 +67,9 @@ def test_embedder_space_failure_is_an_embedding_error():
         def __call__(self, texts):
             return []
 
+    broken = Broken()
     with pytest.raises(sr.EmbeddingError, match="boom"):
-        sr.embedder_space(Broken())
+        sr.embedder_space(broken)
 
 
 def _seed(store):
@@ -95,8 +97,9 @@ def test_hybrid_searches_the_embedders_space(store):
 
 def test_semantic_with_an_unresolvable_space_raises_and_hybrid_degrades(store):
     _seed(store)
+    failing = SpacedEmbed(fail=True)
     with pytest.raises(sr.EmbeddingError):
-        sr.semantic(store, "cat", SpacedEmbed(fail=True))
+        sr.semantic(store, "cat", failing)
     hits = sr.hybrid(store, "cats", SpacedEmbed(fail=True))
     assert {h.source for h in hits} == {"fulltext"}
 

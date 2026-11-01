@@ -134,7 +134,8 @@ def test_two_concurrent_first_pushes_make_one_doc(store, monkeypatch) -> None:
         lambda: _commit_push(docs, B, "2026-10-02T00:00:00Z"),
     )
     assert one.doc.id == two.doc.id
-    assert one.created and two.created
+    assert one.created
+    assert two.created
     monkeypatch.undo()
     _commit_push(docs, A, "2026-10-01T00:00:00Z", path="docs/specs/serial.md")
     _commit_push(docs, B, "2026-10-02T00:00:00Z", path="docs/specs/serial.md")

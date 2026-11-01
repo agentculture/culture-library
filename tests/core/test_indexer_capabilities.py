@@ -40,7 +40,8 @@ class FakeOpener:
         self.requests.append(req)
         if isinstance(self.reply, Exception):
             raise self.reply
-        assert req.get_method() == "GET" and req.full_url.endswith("/capabilities")
+        assert req.get_method() == "GET"
+        assert req.full_url.endswith("/capabilities")
         body = self.reply if isinstance(self.reply, bytes) else json.dumps(self.reply).encode()
         return io.BytesIO(body)
 
@@ -76,7 +77,9 @@ def test_vector_space_reads_the_model_from_capabilities(opener):
 
 def test_vector_space_is_cached(opener):
     emb = _embedder()
-    assert emb.vector_space() == emb.vector_space()
+    first = emb.vector_space()
+    second = emb.vector_space()
+    assert first == second
     assert len(opener.requests) == 1
 
 
@@ -104,14 +107,16 @@ def test_unreachable_capabilities_raise_and_are_not_cached(opener):
 )
 def test_an_incomplete_answer_is_never_guessed(opener, reply):
     opener.reply = reply
+    emb = _embedder()
     with pytest.raises(sr.EmbeddingError):
-        _embedder().vector_space()
+        emb.vector_space()
 
 
 def test_redirects_are_refused(opener):
     opener.reply = gw.RedirectRefusedError("refused redirect: status=302")
+    emb = _embedder()
     with pytest.raises(sr.EmbeddingError, match="redirect"):
-        _embedder().vector_space()
+        emb.vector_space()
 
 
 def test_prompts_off_makes_a_strategy_without_prompts(opener, monkeypatch):
@@ -162,7 +167,8 @@ def test_the_indexer_backs_off_while_capabilities_are_down(store, opener):
     idx = ix.Indexer(store, embed=_embedder(), now=lambda: clock[0], backoff_base=10)
     assert idx.run_once() == 0
     st = ix.status(store, now=clock[0])
-    assert st["pending"] == 1 and "capabilities" in st["last_error"]
+    assert st["pending"] == 1
+    assert "capabilities" in st["last_error"]
     with store.reader() as conn:
         assert conn.execute("SELECT count(*) FROM embeddings").fetchone()[0] == 0
     opener.reply = CAPS

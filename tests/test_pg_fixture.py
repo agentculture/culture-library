@@ -95,7 +95,8 @@ def test_unreachable_or_unset_postgres_fails_once_naming_the_setting(dsn_env):
     assert result.returncode != 0
     assert infra.TEST_DSN_ENV in out
     assert out.count("no reachable Postgres") == 1
-    assert "skipped" not in out and "passed" not in out
+    assert "skipped" not in out
+    assert "passed" not in out
 
 
 def test_run_drops_every_database_it_created(pg_admin_dsn):

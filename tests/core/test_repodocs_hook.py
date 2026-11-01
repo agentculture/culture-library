@@ -137,8 +137,9 @@ def test_forced_error_after_the_version_insert_leaves_nothing(tmp_path, commit) 
         ).fetchone()[0]
         raise Boom("after the version insert")
 
+    docs = RepoDocs(store)
     with pytest.raises(Boom):
-        _push(RepoDocs(store), commit=commit, on_write=hook)
+        _push(docs, commit=commit, on_write=hook)
     assert seen == {"rows": 1, "side": 2}  # written inside the transaction, then undone
     assert _counts(store) == dict.fromkeys(
         ("repodocs", "repodoc_versions", "repodoc_drafts", "mirror_outbox", "feed"), 0

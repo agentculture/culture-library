@@ -79,8 +79,10 @@ def test_items_hits_carry_corpus_item(store):
 def test_unknown_corpus_is_rejected(store):
     with pytest.raises(ValueError):
         sr.fulltext(store, "x", corpora=("item", "nope"))
+    qvec = fake_embed(["cat"])[0]
+    vis = sr.Vis()
     with store.reader() as conn, pytest.raises(ValueError):
-        sr.passages(conn, fake_embed(["cat"])[0], 5, "semantic", sr.Vis(), corpora=("nope",))
+        sr.passages(conn, qvec, 5, "semantic", vis, corpora=("nope",))
 
 
 # ---------------------------------------------------------------- text (criterion 1)
