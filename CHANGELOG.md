@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-11-01
+
+### Added
+
+- PostgreSQL 17 + pgvector store (plan library-on-postgres-and-pgvector, #47): psycopg 3 store with versioned migrations (core/migrations), one schema for every table, weighted tsvector full text, pgvector embeddings keyed by model id + strategy with per-pair HNSW indexes
+- culture-library migrate sqlite-to-postgres: one-shot copy of a 0.19.x library.db with ids, sequences, text and vectors preserved, a per-table verification report, and refusal of NaN/NUL/orphan rows
+- Compose postgres service (pgvector/pgvector:pg17, least-privilege role, C collation, shm_size 1gb); deploy restart starts it first; two new grant secrets CULTURE_LIBRARY_PG_PASSWORD and CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD
+- /api/status database block (reachable, schema version, vector indexes); /api/health returns 503 when the database is unreachable
+- docs/operations/cutover-postgres.md: freeze, copy, go/no-go checks and the point of no return
+
+### Changed
+
+- Backup, restore and schedule run on pg_dump/pg_restore with a consistent snapshot plus the verified files tree
+- Feed appends are serialised so cursor order equals commit order; read-then-write paths (speclinks, mirror enqueue, eval runs, key rotation, blob unlink) are race-safe under concurrent writers
+- Search and RAG ask the query embedder for its (model id, strategy); exact ties rank deterministically
+- The in-process vector cache (0.19.8) is removed; Postgres serves vector search
+- Tests run on Postgres: one database per worker, truncated per test; CI runs a pgvector service
+
+### Fixed
+
+- Code-review round on PR #49: repo-doc text drops NUL before indexing; explicit `--dsn`/`--to` take `CULTURE_LIBRARY_PG_PASSWORD`; `backup schedule` requires `--command`; purge and add/replace no longer deadlock (consistent item, blob and feed lock order); snippets read a bounded body window chosen from the stored vector; stopword-only queries match through a `simple`-config fallback; a new (model, strategy) HNSW index builds with `CREATE INDEX CONCURRENTLY`; `/capabilities` is fetched single-flight with a short failure cache; JSON from feed, sources and projects returns with sorted keys
+- A connection pool (`psycopg-pool`, `CULTURE_LIBRARY_PG_POOL_MIN`/`_MAX`) replaces a new connection per call
+- Store.write_blob temp-name collision when threads wrote the same bytes
+
 ## [0.19.8] - 2026-10-31
 
 ### Added

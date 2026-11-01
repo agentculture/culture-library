@@ -18,6 +18,11 @@ from culture_library.eval.config import JudgeConfig  # noqa: E402
 
 from .conftest import FakeAdapter, FakeJudge  # noqa: E402
 
+
+def _pad(v):  # vectors have the current strategy's 768 dimensions (decision c42)
+    return [*v, *[0.0] * (768 - len(v))]
+
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 LOCAL = JudgeConfig(url="http://127.0.0.1:9", model="m")
 
@@ -27,7 +32,7 @@ def _para(i: int) -> str:
 
 
 def _embed(texts):
-    return [[1.0, 0.0] for _ in texts]
+    return [_pad([1.0, 0.0]) for _ in texts]
 
 
 @pytest.fixture

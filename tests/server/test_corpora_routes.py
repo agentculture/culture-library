@@ -17,13 +17,14 @@ from culture_library.core import search as sr  # noqa: E402
 from culture_library.core.repodocs import RepoDocs  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
 from culture_library.server.auth import Principal, current_principal  # noqa: E402
+from tests.core.search_helpers import vec  # noqa: E402
 
 REMOTE = "https://github.com/agentculture/lobes-cli"
 SHA = "a" * 40
 
 
 def _embed(texts):
-    return [[1.0, 0.0] if "whale" in t.lower() else [0.0, 1.0] for t in texts]
+    return [vec(1.0, 0.0) if "whale" in t.lower() else vec(0.0, 1.0) for t in texts]
 
 
 @pytest.fixture

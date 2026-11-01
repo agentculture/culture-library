@@ -90,10 +90,10 @@ def visible_items(
     where: list[str] = ["archived_at IS NULL", vis]
     params: list[Any] = list(vis_params)
     if kind is not None:
-        where.append("kind = ?")
+        where.append("kind = %s")
         params.append(kind)
     cols, cond = _COLS, " AND ".join(where)
-    sql = f"SELECT {cols} FROM items WHERE {cond} ORDER BY id DESC LIMIT ? OFFSET ?"  # nosec B608
+    sql = f"SELECT {cols} FROM items WHERE {cond} ORDER BY id DESC LIMIT %s OFFSET %s"  # nosec B608
     with store.reader() as conn:
         rows = conn.execute(sql, (*params, limit, offset)).fetchall()
     return [Item(**{k: r[k] for k in r.keys()}) for r in rows]
@@ -113,13 +113,13 @@ def kind_summary(
         f"SELECT id, kind, created_at FROM items WHERE archived_at IS NULL AND {vis}"  # nosec B608
     )
     sql = (
-        f"SELECT kind, count(*) n, max(created_at) latest FROM ({visible})"  # nosec B608
+        f"SELECT kind, count(*) n, max(created_at) latest FROM ({visible}) v"  # nosec B608
         " GROUP BY kind"
     )
     replaced = (
         f"SELECT v.kind, max(f.at) latest FROM ({visible}) v "  # nosec B608
         "JOIN feed f ON f.item_id = v.id AND f.subject = 'item' "
-        "WHERE f.type = 'updated' AND json_extract(f.data, '$.replaced') = 1 GROUP BY v.kind"
+        "WHERE f.type = 'updated' AND f.data @> '{\"replaced\": true}'::jsonb GROUP BY v.kind"
     )
     with store.reader() as conn:
         rows = conn.execute(sql, params).fetchall()

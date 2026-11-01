@@ -102,4 +102,18 @@ def test_s3_extra_declared_and_base_still_empty() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text())
     assert data["project"]["dependencies"] == []
     assert any(d.startswith("boto3") for d in data["project"]["optional-dependencies"]["s3"])
-    assert ".[server,s3]" in (ROOT / "deploy/Dockerfile").read_text()
+    assert ".[server,s3,pg]" in (ROOT / "deploy/Dockerfile").read_text()
+
+
+def test_pg_extra_is_psycopg3_and_the_image_installs_it() -> None:
+    """The store's driver is the optional [pg] extra (psycopg 3), never a base dependency;
+    the server image installs it beside [server] and [s3]."""
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert data["project"]["dependencies"] == []
+    pg = data["project"]["optional-dependencies"]["pg"]
+    assert any(d.startswith("psycopg[binary]>=3") for d in pg), pg
+    install = [
+        ln for ln in (ROOT / "deploy/Dockerfile").read_text().splitlines() if "pip install" in ln
+    ]
+    assert len(install) == 1, install
+    assert '".[server,s3,pg]"' in install[0], install

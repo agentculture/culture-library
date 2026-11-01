@@ -45,13 +45,13 @@ from __future__ import annotations
 
 import hashlib
 import os
-import sqlite3
 import sys
 import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from . import feed, indexer, search, uploaders  # noqa: F401 - they register their schema
+from . import feed, indexer, search, uploaders
 from .errors import CoreError, NotFoundError, ValidationError
 from .ingest import (
     DEFAULT_LIMITS,
@@ -62,16 +62,7 @@ from .ingest import (
     ingest,
 )
 from .models import KINDS, VISIBILITIES, Item
-from .store import Store, register_schema
-
-# Backfill item_uploaders from the feed's created events (databases from before d4). Runs on
-# every Store open; INSERT OR IGNORE keeps it idempotent and never overrides a recorded row.
-register_schema("""
-INSERT OR IGNORE INTO item_uploaders (item_id, key_id)
-SELECT item_id, json_extract(data, '$.uploader') FROM feed
-WHERE type = 'created' AND data IS NOT NULL AND json_extract(data, '$.uploader') IS NOT NULL
-ORDER BY cursor
-""")
+from .store import Store
 
 RETENTION = timedelta(days=30)
 PURGE_INTERVAL_ENV = "CULTURE_LIBRARY_PURGE_INTERVAL_S"
@@ -96,16 +87,18 @@ def _now(now: datetime | None) -> datetime:
     return now or datetime.now(UTC)
 
 
-def _item(row: sqlite3.Row) -> Item:
+def _item(row: Any) -> Item:
     return Item(**{k: row[k] for k in row.keys()})
 
 
-def _row(conn: sqlite3.Connection, item_id: int) -> Item | None:
-    row = conn.execute(_SEL + " WHERE id = ?", (item_id,)).fetchone()
+def _row(conn: Any, item_id: int, *, lock: bool = False) -> Item | None:
+    """The item, or ``None``; ``lock`` takes the row lock (``FOR UPDATE``) for a writer."""
+    sql = _SEL + " WHERE id = %s" + (" FOR UPDATE" if lock else "")
+    row = conn.execute(sql, (item_id,)).fetchone()
     return _item(row) if row else None
 
 
-def _event(conn: sqlite3.Connection, etype: str, item: Item, data: dict | None = None) -> None:
+def _event(conn: Any, etype: str, item: Item, data: dict | None = None) -> None:
     feed.append(
         conn,
         {
@@ -169,15 +162,15 @@ class DuplicateContentError(CoreError):
         self.other_visibility = other_visibility
 
 
-def _announce(
-    conn: sqlite3.Connection, item: Item, uploader: str | None = None, body: str | None = None
-) -> None:
+def _announce(conn: Any, item: Item, uploader: str | None = None, body: str | None = None) -> None:
     """Index + ``created`` event, once per item (heals items stored by another path).
 
     ``uploader`` (the creating key's id) is recorded in the event's data; ``body`` (text
     already extracted by ingest) is indexed now instead of by the background indexer."""
     announced = conn.execute(
-        "SELECT 1 FROM feed WHERE item_id = ? AND type = 'created' LIMIT 1", (item.id,)
+        "SELECT 1 FROM feed WHERE item_id = %s AND type = 'created' AND subject = 'item' "
+        "LIMIT 1",
+        (item.id,),
     ).fetchone()
     if announced is None:
         indexer.index_on_add(conn, item, body)
@@ -220,11 +213,10 @@ def _reuse_existing(
             and current.kind not in writable_kinds
         ):
             raise ForbiddenKindError(f"this key cannot write kind {current.kind}")
-        if not store.blob_path(current.sha256).exists():
-            store.write_blob(data)
+        _ensure_blob(store, conn, current.sha256, data)
         _announce(conn, current)
         if current.archived_at is not None:
-            conn.execute("UPDATE items SET archived_at = NULL WHERE id = ?", (current.id,))
+            conn.execute("UPDATE items SET archived_at = NULL WHERE id = %s", (current.id,))
             _event(conn, "updated", current, {"restored": True})
             current = _row(conn, current.id) or current
     return current
@@ -263,9 +255,8 @@ def add(
 
     extracted: list[str] = []  # ingest's text, indexed in the insert (no second extraction)
 
-    def on_insert(conn: sqlite3.Connection, item: Item) -> None:
-        if not store.blob_path(item.sha256).exists():  # a racing purge removed the bytes
-            store.write_blob(data)
+    def on_insert(conn: Any, item: Item) -> None:
+        _ensure_blob(store, conn, item.sha256, data)  # a racing purge may have removed the bytes
         uploaders.record(conn, item.id, uploader)
         _announce(conn, item, uploader, extracted[-1] if extracted else None)
 
@@ -336,31 +327,33 @@ def replace(
         raise
     sha = hashlib.sha256(data).hexdigest()
     with store.connect() as conn:
-        item = _row(conn, item_id)
+        item = _row(conn, item_id, lock=True)  # two replaces of one item run one after another
         if not _visible(conn, item, include_private, False, owner):
             raise NotFoundError(f"item {item_id} not found")
+        # The blob lock before the duplicate check: an add() of these bytes takes it before
+        # its insert, so the check sees that add's committed row (lock order: item row, blob,
+        # feed).
+        lock_blob(conn, sha)
         if item.sha256 == sha:
-            if not store.blob_path(sha).exists():  # same bytes repair a lost file, as add() does
-                store.write_blob(data)
+            _ensure_blob(store, conn, sha, data)  # same bytes repair a lost file, as add() does
             return item
         other = conn.execute(
-            "SELECT id, visibility FROM items WHERE sha256 = ? AND id != ?", (sha, item_id)
+            "SELECT id, visibility FROM items WHERE sha256 = %s AND id != %s", (sha, item_id)
         ).fetchone()
         if other is not None:
             raise DuplicateContentError(other["id"], other["visibility"])
-        if not store.blob_path(sha).exists():
-            store.write_blob(data)
+        _ensure_blob(store, conn, sha, data)
         conn.execute(
-            "UPDATE items SET sha256 = ?, size = ?, format = ? WHERE id = ?",
+            "UPDATE items SET sha256 = %s, size = %s, format = %s WHERE id = %s",
             (sha, len(data), fmt, item_id),
         )
-        conn.execute("DELETE FROM embeddings WHERE item_id = ?", (item_id,))
+        conn.execute("DELETE FROM embeddings WHERE item_id = %s", (item_id,))
         updated = _row(conn, item_id)
         search.set_body(conn, updated, text)  # type: ignore[arg-type]
         indexer.enqueue(conn, item_id)
         conn.execute(
-            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0, body_done=1 "
-            "WHERE item_id = ?",
+            "UPDATE index_queue SET state='pending', attempts=0, next_attempt_at=0, "
+            "body_done = true WHERE item_id = %s",
             (item_id,),
         )
         _event(
@@ -398,21 +391,21 @@ def list_items(
     where = ["archived_at IS NULL", vis]
     params = list(params)
     if kind is not None:
-        where.append("kind = ?")
+        where.append("kind = %s")
         params.append(check_kind(kind))
     if q is not None and q.strip():
         pat = f"%{_like_escape(q.strip().lower())}%"
-        where.append("(lower(title) LIKE ? ESCAPE '\\' OR lower(author) LIKE ? ESCAPE '\\')")
+        where.append("(lower(title) LIKE %s ESCAPE '\\' OR lower(author) LIKE %s ESCAPE '\\')")
         params += [pat, pat]
     limit = max(1, min(int(limit), MAX_LIMIT))
     order = "id DESC" if newest_first else "id"
-    sql = _SEL + " WHERE " + " AND ".join(where) + f" ORDER BY {order} LIMIT ? OFFSET ?"
+    sql = _SEL + " WHERE " + " AND ".join(where) + f" ORDER BY {order} LIMIT %s OFFSET %s"
     with store.reader() as conn:
         return [_item(r) for r in conn.execute(sql, (*params, limit, max(0, int(offset))))]
 
 
 def _visible(
-    conn: sqlite3.Connection,
+    conn: Any,
     item: Item | None,
     include_private: bool,
     include_archived: bool,
@@ -462,7 +455,7 @@ def archive(
         if item.archived_at is not None:
             return item
         stamp = _iso(when)
-        conn.execute("UPDATE items SET archived_at = ? WHERE id = ?", (stamp, item_id))
+        conn.execute("UPDATE items SET archived_at = %s WHERE id = %s", (stamp, item_id))
         _event(
             conn, "archived", item, {"archived_at": stamp, "purge_after": _iso(when + RETENTION)}
         )
@@ -488,7 +481,7 @@ def restore(
             or when >= _parse(item.archived_at) + RETENTION
         ):
             raise NotFoundError(f"archived item {item_id} not found")
-        conn.execute("UPDATE items SET archived_at = NULL WHERE id = ?", (item_id,))
+        conn.execute("UPDATE items SET archived_at = NULL WHERE id = %s", (item_id,))
         _event(conn, "updated", item, {"restored": True})
         return _row(conn, item_id)  # type: ignore[return-value]
 
@@ -496,29 +489,38 @@ def restore(
 # ------------------------------------------------------------------ purge
 
 
-def _sha_tables(conn: sqlite3.Connection) -> list[str]:
-    """Tables (other than the feed log) with a ``sha256`` column: blob references."""
-    out = []
-    for (name,) in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-    ).fetchall():
-        if name == "feed":
-            continue
-        cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{name}")')}  # nosec B608
-        if "sha256" in cols:
-            out.append(name)
-    return out
+# Every table with a sha256 column that names a stored blob, other than the feed log (events
+# outlive their blobs). An explicit list replaces the old catalog scan; a migration that adds
+# such a table must add it here (tests/core/test_library_blobs.py checks the schema against it).
+BLOB_TABLES = ("items", "repodoc_versions", "repodoc_drafts", "mirror_outbox")
 
 
-def _blob_referenced(conn: sqlite3.Connection, sha: str) -> bool:
-    for name in _sha_tables(conn):
-        sql = f'SELECT 1 FROM "{name}" WHERE sha256 = ? LIMIT 1'  # nosec B608 - catalog name
+def _blob_referenced(conn: Any, sha: str) -> bool:
+    for name in BLOB_TABLES:
+        sql = f"SELECT 1 FROM {name} WHERE sha256 = %s LIMIT 1"  # nosec B608 - fixed names
         if conn.execute(sql, (sha,)).fetchone():
             return True
     return False
 
 
-_CHANGED_CHUNK = 500  # ids per query, well under SQLite's bound-parameter limit
+def lock_blob(conn: Any, sha: str) -> None:
+    """Take the transaction-scoped advisory lock that serialises one blob's file changes.
+
+    Whoever stores a blob (``add``, ``replace``, a repo-document push) calls this before it
+    checks that the file exists and re-writes it, and holds the lock until its transaction
+    commits, row included. :func:`_unlink_now` takes the same lock before it re-checks the
+    references. So the unlinker either waits for a writer's commit and then sees its row, or
+    runs first and the writer then finds the file gone and writes it again: a blob that a
+    committed row names is never left without its file.
+    """
+    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"blob:{sha}",))
+
+
+def _ensure_blob(store: Store, conn: Any, sha: str, data: bytes) -> None:
+    """Under the blob's lock, write the file if it is missing."""
+    lock_blob(conn, sha)
+    if not store.blob_path(sha).exists():
+        store.write_blob(data)
 
 
 def file_changed_at(store: Store, item_ids: Iterable[int]) -> dict[int, str]:
@@ -529,19 +531,15 @@ def file_changed_at(store: Store, item_ids: Iterable[int]) -> dict[int, str]:
     time, so a reader that syncs by date takes the later of the two (OPDS, WebDAV).
     """
     ids = sorted({int(i) for i in item_ids})
-    out: dict[int, str] = {}
+    if not ids:
+        return {}
     with store.reader() as conn:
-        for start in range(0, len(ids), _CHANGED_CHUNK):
-            chunk = ids[start : start + _CHANGED_CHUNK]
-            marks = ",".join("?" * len(chunk))
-            rows = conn.execute(
-                "SELECT item_id, max(at) FROM feed WHERE type = 'updated' "  # nosec B608
-                f"AND json_extract(data, '$.replaced') = 1 AND item_id IN ({marks}) "
-                "GROUP BY item_id",
-                chunk,
-            ).fetchall()
-            out.update({row[0]: row[1] for row in rows})
-    return out
+        rows = conn.execute(
+            "SELECT item_id, max(at) FROM feed WHERE type = 'updated' AND subject = 'item' "
+            "AND data @> '{\"replaced\": true}'::jsonb AND item_id = ANY(%s) GROUP BY item_id",
+            (ids,),
+        ).fetchall()
+    return {row[0]: row[1] for row in rows}
 
 
 def _unlink_unreferenced(store: Store, shas: list[str]) -> None:
@@ -550,24 +548,25 @@ def _unlink_unreferenced(store: Store, shas: list[str]) -> None:
     The caller passes only blobs that were unreferenced at its commit, so the common case
     (bytes still named elsewhere) costs nothing. Unlinking inside that transaction would let
     other connections see the committed old row pointing at a deleted file until COMMIT.
-    Here a fresh write transaction re-checks the references under the lock: every writer
-    that stores a blob (``add``, ``replace``, ``RepoDocs.push``) re-writes a missing one
-    inside its own transaction, so bytes that came back meanwhile are kept or restored.
+    Here a fresh transaction takes each blob's advisory lock (:func:`lock_blob`) and
+    re-checks the references: every writer that stores a blob re-writes a missing one under
+    the same lock, so bytes that came back meanwhile are kept or restored.
 
-    Best-effort: the change has already committed, so a busy database or an I/O error here
-    is reported on stderr and leaves an orphan file, never fails the caller.
+    Best-effort: the change has already committed, so an unreachable database or an I/O
+    error here is reported on stderr and leaves an orphan file, never fails the caller.
     """
     if not shas:
         return
     try:
         _unlink_now(store, shas)
-    except (sqlite3.Error, OSError) as exc:
+    except (store._psycopg.Error, CoreError, OSError) as exc:
         sys.stderr.write(f"culture-library: could not remove unreferenced blobs {shas}: {exc}\n")
 
 
 def _unlink_now(store: Store, shas: list[str]) -> None:
     with store.connect() as conn:
         for sha in shas:
+            lock_blob(conn, sha)
             if not _blob_referenced(conn, sha):
                 store.blob_path(sha).unlink(missing_ok=True)
 
@@ -575,27 +574,37 @@ def _unlink_now(store: Store, shas: list[str]) -> None:
 def purge_expired(store: Store, now: datetime | None = None) -> list[int]:
     """Permanently remove items archived at least :data:`RETENTION` ago; return their ids.
 
-    One transaction: delete the rows (index queue and embeddings cascade, the FTS row is
-    deleted here) and append ``purged`` events. Then each blob no other row names is
-    unlinked by :func:`_unlink_unreferenced`, after the commit and under a fresh write lock;
-    :func:`add` re-writes a missing blob inside its own write transaction, so a same-bytes
-    upload racing a purge keeps its bytes.
+    One transaction: delete the rows (index queue, text and embeddings cascade) and append
+    ``purged`` events. Then each blob no other row names is unlinked by
+    :func:`_unlink_unreferenced`, after the commit and under the blob's advisory lock;
+    :func:`add` re-writes a missing blob under the same lock inside its own transaction, so a
+    same-bytes upload racing a purge keeps its bytes.
     """
     cutoff = _now(now) - RETENTION
     purged: list[int] = []
     dropped: list[str] = []
+    removed: list[Item] = []
     with store.connect() as conn:
         rows = conn.execute(_SEL + " WHERE archived_at IS NOT NULL ORDER BY id").fetchall()
         for row in rows:
             item = _item(row)
             if _parse(item.archived_at) > cutoff:  # type: ignore[arg-type]
                 continue
-            conn.execute("DELETE FROM search_fts WHERE rowid = ?", (item.id,))
-            conn.execute("DELETE FROM items WHERE id = ?", (item.id,))
-            _event(conn, "purged", item, {"archived_at": item.archived_at})
+            # Re-check archived_at: a writer that un-archived the row while we waited on its
+            # lock must keep it. No feed event here: appending takes the global feed lock and
+            # the next DELETE may wait on an item row lock, the opposite order from writers.
+            gone = conn.execute(
+                "DELETE FROM items WHERE id = %s AND archived_at IS NOT NULL RETURNING id",
+                (item.id,),
+            )
+            if gone.fetchone() is None:  # a concurrent purge or un-archive got it first
+                continue
             if not _blob_referenced(conn, item.sha256):
                 dropped.append(item.sha256)
+            removed.append(item)
             purged.append(item.id)
+        for item in removed:  # events last: the feed lock is taken only after every row lock
+            _event(conn, "purged", item, {"archived_at": item.archived_at})
     _unlink_unreferenced(store, dropped)
     return purged
 

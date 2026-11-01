@@ -1,28 +1,40 @@
 # Backups and restore drill
 
-The library is a SQLite database (`library.db`, WAL) plus a content-addressed files
-tree (`files/<aa>/<sha256>`) under `CULTURE_LIBRARY_DATA_DIR`. `culture-library backup`
-copies both to a second location and can restore them onto a clean directory.
+The library is a Postgres database plus a content-addressed files tree
+(`files/<aa>/<sha256>`) under `CULTURE_LIBRARY_DATA_DIR`. `culture-library backup`
+copies both to a second location and can restore them onto an empty database and
+an empty directory.
 
 ## What a backup is
 
 ```text
-<backup>/files/<aa>/<sha256>                  shared blobs, copied only when missing
-<backup>/snapshots/<UTC stamp>/library.db     consistent copy (SQLite online backup API)
-<backup>/snapshots/<UTC stamp>/manifest.json  ids, sha256, visibility, counts, created_at
+<backup>/files/<aa>/<sha256>                   shared blobs, copied only when missing
+<backup>/snapshots/<UTC stamp>/library.dump    pg_dump custom-format dump of the database
+<backup>/snapshots/<UTC stamp>/manifest.json   ids, sha256, visibility, per-table row counts,
+                                               blob list, dump sha256, created_at
 ```
 
-- The database is copied with the SQLite online backup API, so it is consistent while
-  the server is writing. No need to stop the service.
+- The dump and the manifest come from one exported transaction snapshot
+  (`pg_export_snapshot` and `pg_dump --snapshot`), so they agree while the server
+  keeps writing. No need to stop the service.
 - Blobs are immutable and named by their hash, so each run copies only new ones and
   re-hashes every copy.
-- "Every blob" means every sha256 named by a table with a `sha256` column: catalog
-  items and repo-document versions (`repodoc_versions`). The `feed` log is skipped,
-  since it also names blobs of purged items. The manifest lists repo-document versions
-  and counts them (`repodoc_count`, `repodoc_version_count`).
+- "Every blob" means every sha256 named by a public table with a `sha256` column:
+  catalog items, repo-document versions and drafts, the mirror outbox and any later
+  table. The `feed` log is skipped, since it also names blobs of purged items.
 - `--keep N` (default 7) prunes old snapshots. Blobs are never pruned, so a backup
   location only grows; clear it by hand if items were deleted and space matters.
 - The backup location must be outside the data directory, ideally another disk or host.
+- The database comes from the `CULTURE_LIBRARY_PG_*` settings the server uses
+  (`--dsn` overrides them).
+
+## Client tools
+
+`backup` needs `pg_dump` and `pg_restore` of PostgreSQL 17. The library image installs
+them (PGDG `postgresql-client-17`), so on the live stack run the backup inside the
+library container, against the `postgres` service. Elsewhere, put them on `PATH` or
+set `CULTURE_LIBRARY_PG_BIN_DIR` to the directory that holds both. A missing tool is an
+error (exit 2) that names this setting; nothing is skipped.
 
 ## Commands
 
@@ -32,31 +44,83 @@ export CULTURE_LIBRARY_BACKUP_DIR=/mnt/second-disk/culture-library-backup
 
 culture-library backup run                      # or: --to DIR --keep 14
 culture-library backup verify <snapshot-dir>
-culture-library backup restore --from <snapshot-dir> --to <empty-dir>
+culture-library backup restore --from <snapshot-dir> --to <empty-dir> --dsn <empty-db-dsn>
+culture-library backup overview                 # verbs, plus the last successful backup
 ```
 
-`restore` refuses a non-empty target, checks the snapshot first, restores the database
-and blobs, then re-verifies every item's and repo-document version's id, sha256 and
-visibility against the manifest, and re-hashes every referenced blob. A snapshot taken
-before repo documents were covered fails verify for the repo-document blobs it lacks.
-Exit code 1 means a check failed or the target was not empty.
+`verify` needs no database. It checks the dump file against the manifest's sha256,
+runs `pg_restore --list` to confirm every manifest table is in the dump, and re-hashes
+every blob the manifest names.
+
+`restore` refuses a non-empty files target and a database that already has tables. It
+verifies the snapshot first, loads the dump with `pg_restore --single-transaction`,
+copies the blobs back, then checks the restored database: every table's row count, and
+every item's and repo-document version's id, sha256 and visibility, against the
+manifest, and re-hashes every blob. The target database must exist, be empty, and use
+the C collation (the same rule the server enforces); the `vector` extension is created
+by the dump, so the role needs the privilege to do that. Exit code 1 means a check
+failed or a target was not empty.
 
 ## Schedule
 
-`backup schedule --print` prints a daily schedule and installs nothing:
+`backup schedule` writes a daily systemd user timer and service and enables nothing.
+`--command` is required to write units: the database password is a grant secret that is
+never in `live.env` and Postgres publishes no port, so a bare `culture-library backup run`
+cannot reach the database from a timer (see "On the live stack" below for the command):
 
 ```bash
-culture-library backup schedule --print --kind systemd --data-dir /srv/culture-library --to /mnt/second-disk/culture-library-backup
-culture-library backup schedule --print --kind cron --data-dir /srv/culture-library --to /mnt/second-disk/culture-library-backup
+culture-library backup schedule --command "<the live-stack backup command>" \
+  --to /mnt/second-disk/culture-library-backup
 ```
 
-For systemd, save the two units from the output as
-`culture-library-backup.service` and `.timer` in your systemd user unit
-directory (see `man systemd.unit`), then
-`systemctl --user enable --now culture-library-backup.timer`. Check it with
-`systemctl --user list-timers` and by confirming a new snapshot each day.
+Without `--command` it refuses and exits 1; `backup schedule --print` still prints a
+template. It writes `culture-library-backup.service` and `.timer` into
+`$HOME/.config/systemd/user/` (`--unit-dir` changes that) and prints the commands to run
+yourself:
 
-## Restore drill (spark, 2026-10-24)
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now culture-library-backup.timer
+systemctl --user list-timers
+```
+
+### On the live stack
+
+`postgres` publishes no port and the host has no PostgreSQL 17 client tools, so the dump
+has to run inside a container built from the library image (which has `pg_dump`). The
+compose file mounts only the files volume into `library`, so a backup needs a one-off
+container that also mounts the backup directory and gets the app role's password from
+grant. The backup directory must be writable by uid 10001 (the image's user):
+
+```bash
+B=/mnt/second-disk/culture-library-backup; mkdir -p "$B"; chmod o+w "$B"
+grant run --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD -- \
+  docker compose -p culture-library -f deploy/compose.yaml \
+  --env-file "$HOME/.config/culture-library/live.env" run --rm --no-deps \
+  -v "$B":/backup library culture-library backup run --to /backup
+```
+
+For the timer, pass that same command as `--command` (systemd needs absolute paths for the
+first word, and no shell is involved unless you write `/bin/sh -c '...'`):
+
+```bash
+culture-library backup schedule --data-dir /data --to "$B" \
+  --command "/bin/sh -c '<the grant run ... command above>'"
+```
+
+This form is written from the code and the compose file; run it once by hand and check
+`backup overview` before trusting the timer.
+
+The service reads `$HOME/.config/culture-library/live.env` if it exists. `backup schedule
+--print [--kind systemd|cron]` only prints the text. `backup overview` shows the last
+successful backup (the newest snapshot with a manifest), so a missed day is visible.
+
+## Restore drill (spark, 2026-10-24; SQLite era)
+
+This is the drill from before the move to Postgres, kept as a record. It exercised the
+old SQLite backup and is not how a backup is taken or restored now. The Postgres restore
+drill is plan task t18 (restore a snapshot into an empty database and an empty files
+directory, then compare against the manifest); its result goes in the delivery summary.
 
 Run on spark before any teardown. Scratch space only; all copies deleted afterwards.
 The live xteink service was only read: `docker cp xteink-api-1:/data` copies out of the
@@ -103,5 +167,4 @@ Result: 17/17 ids, sha256 and visibility reproduced on a clean directory. The sa
 is covered by `tests/core/test_backup.py` and `tests/test_cli_backup.py`.
 
 Not yet drilled: restoring from a second host, and a restore of a snapshot taken while
-the HTTP server is under write load (the unit test holds an open write transaction, but
-that is not a load test). Repeat the drill after the first real deployment.
+the HTTP server is under write load. Repeat the drill on the Postgres stack (t18).

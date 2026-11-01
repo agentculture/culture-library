@@ -37,72 +37,25 @@ tombstones and the design kind for the devague-work plan task t1. ``push`` and `
 take an optional ``on_write(conn, result)`` hook that runs inside their transaction, so a
 caller's side rows (the mirror outbox, the feed event) commit or roll back with the push
 (deviation d6, task t10).
+
+On Postgres (plan library-on-postgres-and-pgvector, task t11) writers run in parallel under
+READ COMMITTED, so every push and tombstone first locks its doc row (``SELECT ... FOR
+UPDATE``; a new doc is created with ``INSERT ... ON CONFLICT DO NOTHING``). Writes to one doc
+then run one at a time, as SQLite's ``BEGIN IMMEDIATE`` ran them, and end as a serial run
+would. The tables come from ``core/migrations/0001_initial.sql``.
 """
 
 from __future__ import annotations
 
 import re
-import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from .errors import NotFoundError, ValidationError
 from .models import VISIBILITIES
-from .store import Store, now, register_migration, register_schema
-
-_VIS_SQL = ", ".join(f"'{v}'" for v in VISIBILITIES)
-
-register_schema(f"""
-CREATE TABLE IF NOT EXISTS repodocs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    repo TEXT NOT NULL,
-    path TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ({_VIS_SQL})),
-    current_version_id INTEGER,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    removed_at TEXT,
-    removed_commit TEXT,
-    UNIQUE (repo, path)
-);
-CREATE TABLE IF NOT EXISTS repodoc_versions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    doc_id INTEGER NOT NULL REFERENCES repodocs(id),
-    commit_sha TEXT NOT NULL,
-    committed_at TEXT NOT NULL,
-    on_default_branch INTEGER NOT NULL DEFAULT 0,
-    visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ({_VIS_SQL})),
-    sha256 TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    pushed_at TEXT NOT NULL,
-    UNIQUE (doc_id, commit_sha)
-);
-CREATE INDEX IF NOT EXISTS repodoc_versions_doc ON repodoc_versions (doc_id);
-CREATE TABLE IF NOT EXISTS repodoc_drafts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    doc_id INTEGER NOT NULL UNIQUE REFERENCES repodocs(id),
-    visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ({_VIS_SQL})),
-    sha256 TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    pushed_at TEXT NOT NULL
-);
-""")
-
-# Columns added to repodocs after it shipped. Existing databases get them with ALTER TABLE ADD
-# COLUMN (never a rebuild), so ids and rows are untouched.
-_ADDED_DOC_COLUMNS = (("removed_at", "TEXT"), ("removed_commit", "TEXT"))
-
-
-def _ensure_doc_columns(conn: sqlite3.Connection) -> None:
-    have = {r[1] for r in conn.execute("PRAGMA table_info(repodocs)")}
-    for name, decl in _ADDED_DOC_COLUMNS:
-        if name not in have:
-            conn.execute(f"ALTER TABLE repodocs ADD COLUMN {name} {decl}")  # nosec B608
-
-
-register_migration(_ensure_doc_columns)
+from .store import Store, now
 
 WORKING = "working"
 
@@ -280,7 +233,7 @@ class PushResult:
     draft: RepoDocDraft | None = None  # set for a working push
 
 
-_BY_ID = " WHERE d.id = ?"
+_BY_ID = " WHERE d.id = %s"
 _DOC_SELECT = """
 SELECT d.id, d.repo, d.path, d.kind, d.visibility, v.commit_sha AS current_commit,
        d.created_at, d.updated_at, d.removed_at, d.removed_commit
@@ -288,11 +241,11 @@ FROM repodocs d LEFT JOIN repodoc_versions v ON v.id = d.current_version_id
 """
 
 
-def _doc(row: sqlite3.Row) -> RepoDoc:
+def _doc(row: Any) -> RepoDoc:
     return RepoDoc(**dict(row))
 
 
-def _version(row: sqlite3.Row) -> RepoDocVersion:
+def _version(row: Any) -> RepoDocVersion:
     return RepoDocVersion(
         commit=row["commit_sha"],
         committed_at=row["committed_at"],
@@ -312,35 +265,55 @@ def _content_bytes(content: str | bytes) -> bytes:
     raise ValidationError("content must be text or bytes")
 
 
-def _find_or_create_doc(
-    conn: sqlite3.Connection, repo: str, rel: str, vis: str, stamp: str
-) -> tuple[int, int | None]:
-    """``(doc_id, current_version_id before this push)``; creates the doc when new."""
-    row = conn.execute(
-        "SELECT id, current_version_id FROM repodocs WHERE repo = ? AND path = ?",
+def _lock_blob(conn: Any, sha: str) -> None:
+    """The per-blob transaction advisory lock of ``core/library.py``'s ``lock_blob`` (same key,
+    ``'blob:' || sha`` through ``hashtextextended(..., 0)``), inlined because importing
+    ``library`` here would be circular. Held until commit, it keeps an unlink of an
+    unreferenced blob from deleting the file this push is about to reference."""
+    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('blob:' || %s, 0))", (sha,))
+
+
+def _lock_doc(conn: Any, repo: str, rel: str) -> Any:
+    """The doc's ``(id, current_version_id)`` row, locked until this transaction ends."""
+    return conn.execute(
+        "SELECT id, current_version_id FROM repodocs WHERE repo = %s AND path = %s FOR UPDATE",
         (repo, rel),
     ).fetchone()
+
+
+def _find_or_create_doc(
+    conn: Any, repo: str, rel: str, vis: str, stamp: str
+) -> tuple[int, int | None]:
+    """``(doc_id, current_version_id before this push)``; creates the doc when new.
+
+    The doc row stays locked until the push commits, so concurrent pushes of one doc run one
+    after the other. Looking first keeps a re-push from consuming an identity value; a
+    concurrent first push of the same doc makes the insert a no-op, and the second look then
+    waits for that push to commit.
+    """
+    row = _lock_doc(conn, repo, rel)
     if row is not None:
         return row["id"], row["current_version_id"]
-    cur = conn.execute(
+    row = conn.execute(
         "INSERT INTO repodocs (repo, path, kind, visibility, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+        " VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (repo, path) DO NOTHING RETURNING id",
         (repo, rel, infer_kind(rel), vis, stamp, stamp),
-    )
-    return cur.lastrowid, None
+    ).fetchone()
+    if row is not None:
+        return row["id"], None
+    row = _lock_doc(conn, repo, rel)
+    return row["id"], row["current_version_id"]
 
 
-def _touch_version(
-    conn: sqlite3.Connection, existing: sqlite3.Row, vis: str, on_default: bool
-) -> None:
+def _touch_version(conn: Any, existing: Any, vis: str, on_default: bool) -> None:
     """Re-push of the same commit: same bytes, so only add the default-branch flag and
     tighten visibility, never loosen it."""
     tighten = vis == "private" and existing["visibility"] != "private"
     conn.execute(
-        "UPDATE repodoc_versions SET on_default_branch = MAX(on_default_branch, ?),"
-        " visibility = CASE WHEN ? THEN 'private' ELSE visibility END"
-        " WHERE id = ?",
-        (int(on_default), int(tighten), existing["id"]),
+        "UPDATE repodoc_versions SET on_default_branch = GREATEST(on_default_branch, %s),"
+        " visibility = CASE WHEN %s THEN 'private' ELSE visibility END"
+        " WHERE id = %s",
+        (on_default, tighten, existing["id"]),
     )
 
 
@@ -360,7 +333,7 @@ class RepoDocs:
         default_branch_head: str | None = None,
         content: str | bytes,
         visibility: str | None = None,
-        on_write: Callable[[sqlite3.Connection, PushResult], None] | None = None,
+        on_write: Callable[[Any, PushResult], None] | None = None,
     ) -> PushResult:
         """Store a committed version, or with ``commit="working"`` the doc's working draft.
 
@@ -382,6 +355,7 @@ class RepoDocs:
         blob = self.store.write_blob(data)
         stamp = now()
         with self.store.connect() as conn:
+            _lock_blob(conn, blob)  # before the re-check; held until the version row commits
             if not self.store.blob_path(blob).exists():  # a replace/purge cleanup raced us
                 self.store.write_blob(data)
             doc_id, old_current = _find_or_create_doc(conn, repo, rel, vis, stamp)
@@ -391,7 +365,7 @@ class RepoDocs:
                     on_write(conn, result)
                 return result
             existing = conn.execute(
-                "SELECT * FROM repodoc_versions WHERE doc_id = ? AND commit_sha = ?",
+                "SELECT * FROM repodoc_versions WHERE doc_id = %s AND commit_sha = %s",
                 (doc_id, sha),
             ).fetchone()
             created = existing is None
@@ -400,15 +374,15 @@ class RepoDocs:
                 conn.execute(
                     "INSERT INTO repodoc_versions (doc_id, commit_sha, committed_at,"
                     " on_default_branch, visibility, sha256, size, pushed_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (doc_id, sha, when, int(on_default), vis, blob, len(data), stamp),
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (doc_id, sha, when, on_default, vis, blob, len(data), stamp),
                 )
                 self._restore(conn, doc_id)
             else:
                 _touch_version(conn, existing, vis, on_default)
             new_current = self._recompute(conn, doc_id, stamp)
             version = conn.execute(
-                "SELECT * FROM repodoc_versions WHERE doc_id = ? AND commit_sha = ?",
+                "SELECT * FROM repodoc_versions WHERE doc_id = %s AND commit_sha = %s",
                 (doc_id, sha),
             ).fetchone()
             doc = conn.execute(_DOC_SELECT + _BY_ID, (doc_id,)).fetchone()
@@ -418,51 +392,51 @@ class RepoDocs:
         return result
 
     def _push_working(
-        self, conn: sqlite3.Connection, doc_id: int, blob: str, size: int, vis: str, stamp: str
+        self, conn: Any, doc_id: int, blob: str, size: int, vis: str, stamp: str
     ) -> PushResult:
         """Upsert the doc's one draft; ``created`` is False when its bytes are unchanged."""
         old = conn.execute(
-            "SELECT sha256 FROM repodoc_drafts WHERE doc_id = ?", (doc_id,)
+            "SELECT sha256 FROM repodoc_drafts WHERE doc_id = %s", (doc_id,)
         ).fetchone()
         conn.execute(
             "INSERT INTO repodoc_drafts (doc_id, visibility, sha256, size, pushed_at)"
-            " VALUES (?, ?, ?, ?, ?) ON CONFLICT (doc_id) DO UPDATE SET"
+            " VALUES (%s, %s, %s, %s, %s) ON CONFLICT (doc_id) DO UPDATE SET"
             " visibility = excluded.visibility, sha256 = excluded.sha256,"
             " size = excluded.size, pushed_at = excluded.pushed_at",
             (doc_id, vis, blob, size, stamp),
         )
         self._restore(conn, doc_id)
         has_version = conn.execute(
-            "SELECT 1 FROM repodoc_versions WHERE doc_id = ? LIMIT 1", (doc_id,)
+            "SELECT 1 FROM repodoc_versions WHERE doc_id = %s LIMIT 1", (doc_id,)
         ).fetchone()
         if has_version is None:  # a draft-only doc takes its draft's visibility
             conn.execute(
-                "UPDATE repodocs SET visibility = ?, updated_at = ? WHERE id = ?",
+                "UPDATE repodocs SET visibility = %s, updated_at = %s WHERE id = %s",
                 (vis, stamp, doc_id),
             )
         else:
-            conn.execute("UPDATE repodocs SET updated_at = ? WHERE id = ?", (stamp, doc_id))
+            conn.execute("UPDATE repodocs SET updated_at = %s WHERE id = %s", (stamp, doc_id))
         doc = conn.execute(_DOC_SELECT + _BY_ID, (doc_id,)).fetchone()
         draft = self._draft_row(conn, doc_id)
         created = old is None or old["sha256"] != blob
         return PushResult(_doc(doc), None, created, False, draft)
 
     @staticmethod
-    def _restore(conn: sqlite3.Connection, doc_id: int) -> None:
+    def _restore(conn: Any, doc_id: int) -> None:
         conn.execute(
-            "UPDATE repodocs SET removed_at = NULL, removed_commit = NULL WHERE id = ?", (doc_id,)
+            "UPDATE repodocs SET removed_at = NULL, removed_commit = NULL WHERE id = %s", (doc_id,)
         )
 
     @staticmethod
-    def _draft_row(conn: sqlite3.Connection, doc_id: int) -> RepoDocDraft | None:
+    def _draft_row(conn: Any, doc_id: int) -> RepoDocDraft | None:
         row = conn.execute(
-            "SELECT visibility, sha256, size, pushed_at FROM repodoc_drafts WHERE doc_id = ?",
+            "SELECT visibility, sha256, size, pushed_at FROM repodoc_drafts WHERE doc_id = %s",
             (doc_id,),
         ).fetchone()
         if row is None:
             return None
         newest = conn.execute(
-            "SELECT sha256 FROM repodoc_versions WHERE doc_id = ?"
+            "SELECT sha256 FROM repodoc_versions WHERE doc_id = %s"
             " ORDER BY committed_at DESC, id DESC LIMIT 1",
             (doc_id,),
         ).fetchone()
@@ -481,7 +455,7 @@ class RepoDocs:
         path: str,
         commit: str,
         *,
-        on_write: Callable[[sqlite3.Connection, RepoDoc], None] | None = None,
+        on_write: Callable[[Any, RepoDoc], None] | None = None,
     ) -> RepoDoc:
         """Mark ``(repo, path)`` removed at ``commit`` (a sha, or ``working``).
 
@@ -495,15 +469,13 @@ class RepoDocs:
         sha = _commit_or_working(commit)
         stamp = now()
         with self.store.connect() as conn:
-            row = conn.execute(
-                "SELECT id FROM repodocs WHERE repo = ? AND path = ?", (rid, rel)
-            ).fetchone()
+            row = _lock_doc(conn, rid, rel)
             if row is None:
                 raise NotFoundError(f"repo doc {rid}:{rel} not found")
-            conn.execute("DELETE FROM repodoc_drafts WHERE doc_id = ?", (row["id"],))
+            conn.execute("DELETE FROM repodoc_drafts WHERE doc_id = %s", (row["id"],))
             conn.execute(
-                "UPDATE repodocs SET removed_at = ?, removed_commit = ?, updated_at = ?"
-                " WHERE id = ?",
+                "UPDATE repodocs SET removed_at = %s, removed_commit = %s, updated_at = %s"
+                " WHERE id = %s",
                 (stamp, sha, stamp, row["id"]),
             )
             doc = _doc(conn.execute(_DOC_SELECT + _BY_ID, (row["id"],)).fetchone())
@@ -512,24 +484,24 @@ class RepoDocs:
         return doc
 
     @staticmethod
-    def _recompute(conn: sqlite3.Connection, doc_id: int, stamp: str) -> int | None:
+    def _recompute(conn: Any, doc_id: int, stamp: str) -> int | None:
         best = conn.execute(
-            "SELECT id, visibility FROM repodoc_versions WHERE doc_id = ? AND on_default_branch"
+            "SELECT id, visibility FROM repodoc_versions WHERE doc_id = %s AND on_default_branch"
             " ORDER BY committed_at DESC, id DESC LIMIT 1",
             (doc_id,),
         ).fetchone()
         basis = (
             best
             or conn.execute(
-                "SELECT id, visibility FROM repodoc_versions WHERE doc_id = ?"
+                "SELECT id, visibility FROM repodoc_versions WHERE doc_id = %s"
                 " ORDER BY committed_at DESC, id DESC LIMIT 1",
                 (doc_id,),
             ).fetchone()
         )
         current = best["id"] if best else None
         conn.execute(
-            "UPDATE repodocs SET current_version_id = ?, visibility = ?, updated_at = ?"
-            " WHERE id = ?",
+            "UPDATE repodocs SET current_version_id = %s, visibility = %s, updated_at = %s"
+            " WHERE id = %s",
             (current, basis["visibility"], stamp, doc_id),
         )
         return current
@@ -565,10 +537,10 @@ class RepoDocs:
         """Docs in (repo, path) order; removed (tombstoned) docs only with include_removed."""
         where, params = [], []
         if repo is not None:
-            where.append("d.repo = ?")
+            where.append("d.repo = %s")
             params.append(repo_filter_id(repo))
         if path is not None:
-            where.append("d.path = ?")
+            where.append("d.path = %s")
             params.append(normalize_path(path))
         if not include_private:
             where.append("d.visibility = 'public'")
@@ -583,7 +555,7 @@ class RepoDocs:
         """Newest first. Empty when the doc is absent or not visible."""
         if self.get(doc_id, include_private=include_private) is None:
             return []
-        sql = "SELECT * FROM repodoc_versions WHERE doc_id = ?"
+        sql = "SELECT * FROM repodoc_versions WHERE doc_id = %s"
         if not include_private:
             sql += " AND visibility = 'public'"
         with self.store.reader() as conn:

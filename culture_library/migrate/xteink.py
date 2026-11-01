@@ -1,6 +1,7 @@
 """Migrate items from an xteink data directory (``library.db`` + ``files/<aa>/<sha256>``).
 
-The xteink source is only ever opened read-only (``mode=ro``); nothing is written to it.
+The xteink source is only ever opened read-only (``mode=ro``) with the stdlib ``sqlite3``
+module; nothing is written to it. The destination is the Postgres :class:`Store`.
 Items keep their id, sha256 and created_at. Existing identical items are reported as
 unchanged; a clashing id or sha256 is a conflict and never overwritten.
 """
@@ -85,15 +86,14 @@ def _read_source(source: Path) -> list[sqlite3.Row]:
 
 
 def _dest_lookup(dest: Path) -> tuple[dict[int, str], dict[str, int]]:
-    """Existing ids/shas in the destination without creating it (read-only)."""
-    db = dest / "library.db"
-    if not db.is_file():
-        return {}, {}
-    conn = sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)
-    try:
-        rows = conn.execute("SELECT id, sha256 FROM items").fetchall()
-    finally:
-        conn.close()
+    """Existing ids/shas in the destination, read through the Postgres :class:`Store`.
+
+    The store is the one ``dest`` names as its data dir, on the database the
+    ``CULTURE_LIBRARY_PG_*`` settings name. Opening it applies pending migrations (as any
+    open does) and creates ``dest/files``; the lookup itself is a read-only transaction.
+    """
+    with Store(dest).reader() as conn:
+        rows = [(r[0], r[1]) for r in conn.execute("SELECT id, sha256 FROM items")]
     return dict(rows), {s: i for i, s in rows}
 
 

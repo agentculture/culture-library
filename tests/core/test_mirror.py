@@ -18,7 +18,6 @@ from culture_library.core.mirror import (
     pending_stats,
     reconcile,
 )
-from culture_library.core.repodocs import RepoDocs
 
 A = "a" * 40
 REMOTE = "https://github.com/agentculture/lobes-cli"
@@ -29,6 +28,8 @@ def _sha(data: bytes) -> str:
 
 
 def _push(store: Store, path: str, content: bytes, commit: str = A):
+    from culture_library.core.repodocs import RepoDocs  # imported late: ported separately
+
     return RepoDocs(store).push(
         remote=REMOTE,
         path=path,
@@ -148,24 +149,13 @@ def test_reconcile_versions(store: Store):
     assert reconcile(store, backend) == 1
 
 
-def test_reconcile_without_drafts_table(store: Store):
-    # the repodoc_drafts table does not exist on this branch; reconcile must skip it cleanly
-    _push(store, "docs/a.md", b"# a")
-    assert reconcile(store, FakeBackend()) == 1
-
-
 def test_reconcile_covers_drafts(store: Store):
     r = _push(store, "docs/a.md", b"# a")
     doc_id = r.doc.id
     sha = store.write_blob(b"draft body")
     with store.connect() as conn:
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS repodoc_drafts (id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            " doc_id INTEGER NOT NULL UNIQUE, sha256 TEXT NOT NULL, size INTEGER NOT NULL,"
-            " pushed_at TEXT NOT NULL)"
-        )
-        conn.execute(
-            "INSERT INTO repodoc_drafts (doc_id, sha256, size, pushed_at) VALUES (?,?,?,?)",
+            "INSERT INTO repodoc_drafts (doc_id, sha256, size, pushed_at) VALUES (%s, %s, %s, %s)",
             (doc_id, sha, 10, "2026-10-02T00:00:00+00:00"),
         )
     backend = FakeBackend()
@@ -244,27 +234,66 @@ def test_enqueue_same_sha_requeues_a_parked_row(store: Store):
     assert (row["state"], row["attempts"]) == ("pending", 0)
 
 
-def test_old_outbox_check_is_widened_on_open(tmp_path):
-    """A database from before parking (CHECK pending/done only) accepts 'failed'."""
-    import sqlite3
+def test_two_concurrent_enqueues_of_one_key_leave_one_row(store: Store):
+    """Acceptance 1: enqueue is one INSERT ... ON CONFLICT (key), so a race cannot duplicate."""
+    import threading
 
-    data = tmp_path / "data"
-    data.mkdir()
-    conn = sqlite3.connect(data / "library.db")
-    conn.executescript(
-        "CREATE TABLE mirror_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        " key TEXT NOT NULL UNIQUE, sha256 TEXT NOT NULL,"
-        " content_type TEXT NOT NULL DEFAULT 'application/octet-stream',"
-        " state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done')),"
-        " attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',"
-        " enqueued_at TEXT NOT NULL, done_at TEXT);"
-        "INSERT INTO mirror_outbox (key, sha256, enqueued_at) VALUES ('k', 'x', 't');"
-    )
-    conn.commit()
-    conn.close()
-    store = Store(data)
-    with store.connect() as c:
-        c.execute("UPDATE mirror_outbox SET state = 'failed' WHERE key = 'k'")
-    assert [(r["key"], r["state"], r["id"]) for r in _rows(store)] == [("k", "failed", 1)]
-    Store(data)  # idempotent
-    assert len(_rows(store)) == 1
+    sha = store.write_blob(b"race")
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker():
+        try:
+            with store.connect() as conn:
+                barrier.wait(timeout=10)
+                enqueue(conn, "same-key", sha, "text/plain")
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    rows = _rows(store)
+    assert [(r["key"], r["state"]) for r in rows] == [("same-key", "pending")]
+
+
+def test_outbox_check_needs_no_widening_migration():
+    from culture_library.core import mirror
+
+    assert not hasattr(mirror, "widen_outbox_state")
+    assert not hasattr(mirror, "register_schema")
+
+
+def test_has_table_uses_the_catalog(store: Store):
+    from culture_library.core.mirror import _has_table
+
+    with store.reader() as conn:
+        assert _has_table(conn, "mirror_outbox")
+        assert not _has_table(conn, "no_such_table")
+
+
+def test_reconcile_reads_versions_and_drafts_without_repodocs_module(store: Store):
+    sha_v, sha_d = store.write_blob(b"# v"), store.write_blob(b"draft")
+    with store.connect() as conn:
+        doc_id = conn.execute(
+            "INSERT INTO repodocs (repo, path, kind, created_at, updated_at)"
+            " VALUES ('r', 'docs/a.md', 'spec', 't', 't') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO repodoc_versions (doc_id, commit_sha, committed_at, sha256, size,"
+            " pushed_at) VALUES (%s, %s, 't', %s, 3, 't')",
+            (doc_id, A, sha_v),
+        )
+        conn.execute(
+            "INSERT INTO repodoc_drafts (doc_id, sha256, size, pushed_at) VALUES (%s, %s, 5, 't')",
+            (doc_id, sha_d),
+        )
+    backend = FakeBackend()
+    assert reconcile(store, backend) == 2
+    assert drain(store, backend)["done"] == 2
+    assert backend.objects[f"r/docs/a.md@{A}"][0] == b"# v"
+    assert backend.objects["r/docs/a.md@working"][0] == b"draft"
+    assert reconcile(store, backend) == 0

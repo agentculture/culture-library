@@ -28,6 +28,7 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 - `culture-library cli overview` — describe the CLI surface.
 - `culture-library server serve` — run the HTTP server (`[server]` extra).
 - `culture-library migrate from-xteink` — copy an xteink library in.
+- `culture-library migrate sqlite-to-postgres` — copy a SQLite library.db into Postgres.
 
 ## Exit-code policy
 
@@ -216,6 +217,15 @@ One-off migrations into the catalog.
   or sha256 is an error (exit 1), never an overwrite. A `--data-dir` without
   `library.db` is refused with a hint. The destination is `--dest`, else
   `CULTURE_LIBRARY_DATA_DIR`.
+- `culture-library migrate sqlite-to-postgres --from <library.db> [--to DSN]
+  [--gateway-url U] [--embed-model M] [--drop-stale-vectors] [--verify-only]` — copy a
+  0.19.x SQLite `library.db` (opened read-only) into an empty Postgres in one
+  transaction, then compare every table (counts, max ids, digests). It refuses a
+  non-empty target, NaN/Infinity/NUL values, orphan rows and unknown columns, and
+  writes nothing in those cases. It makes no embedding call: `model_id` and `strategy`
+  come from the gateway's `/capabilities`. `--verify-only` compares an already copied
+  target again. Exit 0 ok, 1 problems or a mismatch, 2 gateway or database error.
+  Runbook: `docs/operations/cutover-postgres.md`.
 - `culture-library migrate overview` — describe this noun.
 """
 
@@ -224,16 +234,23 @@ _BACKUP = """\
 
 Back up the library to a second location and prove it restores.
 
-- `backup run [--data-dir D] [--to B] [--keep N]` — copy a consistent SQLite snapshot
-  (online backup API, safe while the server writes) to `B/snapshots/<UTC stamp>/` with a
-  `manifest.json` (item and repo-document ids, sha256, visibility, counts), and copy only
-  missing blobs (items' and repo documents') into `B/files/`. Keeps the last N snapshots
-  (default 7). `B` defaults to `CULTURE_LIBRARY_BACKUP_DIR`.
-- `backup verify <snapshot>` — check the database against the manifest and re-hash every blob.
-- `backup restore --from <snapshot> --to <dir>` — restore into an empty directory (a
-  non-empty one is refused) and verify ids, sha256 and visibility.
-- `backup schedule --print [--kind systemd|cron]` — print a daily schedule; installs nothing.
-- `backup overview` — describe this noun.
+- `backup run [--data-dir D] [--to B] [--keep N] [--dsn DSN]` — `pg_dump` the database
+  (custom format, one exported snapshot, safe while the server writes) to
+  `B/snapshots/<UTC stamp>/library.dump` with a `manifest.json` (item and repo-document ids,
+  sha256, visibility, per-table row counts, blob list, dump sha256), and copy only missing
+  blobs into `B/files/`. Keeps the last N snapshots (default 7). `B` defaults to
+  `CULTURE_LIBRARY_BACKUP_DIR`. Needs `pg_dump`/`pg_restore` 17 on PATH or in
+  `CULTURE_LIBRARY_PG_BIN_DIR`.
+- `backup verify <snapshot>` — check the dump file and its tables against the manifest and
+  re-hash every blob.
+- `backup restore --from <snapshot> --to <dir> [--dsn DSN]` — `pg_restore` into an empty
+  database and an empty files tree (non-empty ones are refused), then verify row counts,
+  ids, sha256 and visibility.
+- `backup schedule --command C [--to B] [--unit-dir U]` — write a daily systemd user timer
+  and service (`--command` is required: a bare `backup run` cannot reach the database);
+  prints the `systemctl --user` commands and enables nothing. `--print [--kind systemd|cron]`
+  only prints.
+- `backup overview [--to B]` — describe this noun and show the last successful backup.
 """
 
 _MIRROR = """\
@@ -342,6 +359,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("server", "overview"): _SERVER,
     ("migrate",): _MIGRATE,
     ("migrate", "from-xteink"): _MIGRATE,
+    ("migrate", "sqlite-to-postgres"): _MIGRATE,
     ("migrate", "overview"): _MIGRATE,
     ("eval",): _EVAL,
     ("eval", "generate"): _EVAL,

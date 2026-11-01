@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-
+import psycopg
 import pytest
 
-from culture_library.core import Store, eval_store, sources
+from culture_library.core import Store, eval_store
 from culture_library.core.errors import NotFoundError, ValidationError
-from tests.core.test_store_migration import _make_old_db
 
 NEW_TABLES = (
-    "item_sources",
     "eval_sets",
     "eval_samples",
     "eval_runs",
@@ -20,8 +17,7 @@ NEW_TABLES = (
 
 
 def _seed(conn, item_id: int, sha: str) -> tuple[int, int]:
-    """One manifest, one set with two samples, one run with two run-samples."""
-    sources.put(conn, item_id, {"urls": ["https://example.test/a"]})
+    """One set with two samples, one run with two run-samples."""
     set_id = eval_store.create_set(
         conn, item_id, sha, chunker={"size": 5}, adapter="md", adapter_version="1", generator={}
     )
@@ -58,10 +54,6 @@ def test_roundtrip_and_json_decoding(tmp_path):
     item = _item(store)
     with store.connect() as conn:
         set_id, run_id = _seed(conn, item.id, item.sha256)
-        assert sources.get(conn, item.id) == {"urls": ["https://example.test/a"]}
-        assert sources.get(conn, 999) is None
-        sources.put(conn, item.id, {"urls": []})
-        assert sources.get(conn, item.id) == {"urls": []}
         s = eval_store.get_set(conn, set_id)
         assert s["chunker_json"] == {"size": 5}
         assert s["version"] == 1
@@ -85,10 +77,10 @@ def test_aggregates_only_for_complete_runs(tmp_path):
             eval_store.create_run(conn, set_id, status="bogus", config={}, total=0, completed=0)
         run = eval_store.create_run(conn, set_id, status="partial", config={}, total=2, completed=1)
         assert eval_store.get_run(conn, run)["aggregates_json"] is None
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
                 "INSERT INTO eval_runs (set_id, set_version, status, config_json, aggregates_json,"
-                " created_at) VALUES (?, 1, 'failed', '{}', '{}', 'x')",
+                " created_at) VALUES (%s, 1, 'failed', '{}', '{}', 'x')",
                 (set_id,),
             )
 
@@ -122,9 +114,9 @@ def test_visibility_filtering(tmp_path):
     with store.connect() as conn:
         _seed(conn, pub.id, pub.sha256)
         _seed(conn, priv.id, priv.sha256)
-        from culture_library.core import uploaders
-
-        uploaders.record(conn, priv.id, "key-a")
+        conn.execute(
+            "INSERT INTO item_uploaders (item_id, key_id) VALUES (%s, %s)", (priv.id, "key-a")
+        )
     with store.connect() as conn:
         assert [s["item_id"] for s in eval_store.list_sets(conn)] == [pub.id]
         assert len(eval_store.list_sets(conn, include_private=True)) == 2
@@ -144,7 +136,7 @@ def test_item_delete_cascades_everything(tmp_path):
     with store.connect() as conn:
         _seed(conn, item.id, item.sha256)
         assert all(n > 0 for n in _counts(conn).values())
-        conn.execute("DELETE FROM items WHERE id = ?", (item.id,))
+        conn.execute("DELETE FROM items WHERE id = %s", (item.id,))
         assert _counts(conn) == dict.fromkeys(NEW_TABLES, 0)
 
 
@@ -163,37 +155,12 @@ def test_purge_leaves_no_rows(tmp_path):
         assert _counts(conn) == dict.fromkeys(NEW_TABLES, 0)
 
 
-def test_kinds_rebuild_keeps_new_tables(tmp_path):
-    data = tmp_path / "data"
-    db = _make_old_db(data, n_items=3)
-    Store(data)  # first open rebuilds (old CHECK) and creates the new tables
-    conn = sqlite3.connect(db)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.row_factory = sqlite3.Row
-    for i in (1, 2, 3):
-        _seed(conn, i, f"{i:064x}")
-    conn.commit()
-    before = _counts(conn)
-    assert all(n > 0 for n in before.values())
-    # Force another kinds rebuild: reinstate an old-style kind CHECK on items.
-    sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'items'").fetchone()[0]
-    conn.execute("PRAGMA foreign_keys = OFF")
-    conn.execute("PRAGMA writable_schema = ON")
-    conn.execute(
-        "UPDATE sqlite_master SET sql = ? WHERE name = 'items'", (sql.replace("'todo'", "'zzz'"),)
-    )
-    conn.execute("PRAGMA writable_schema = OFF")
-    conn.close()
+def test_sources_sidecar_roundtrip(tmp_path):
+    from culture_library.core import sources  # owned by the library port, not this module
 
-    Store(data)
-
-    conn = sqlite3.connect(db)
-    try:
-        assert (
-            "'todo'"
-            in conn.execute("SELECT sql FROM sqlite_master WHERE name='items'").fetchone()[0]
-        )
-        assert _counts(conn) == before
-        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-    finally:
-        conn.close()
+    store = Store(tmp_path)
+    item = _item(store)
+    with store.connect() as conn:
+        sources.put(conn, item.id, {"urls": ["https://example.test/a"]})
+        assert sources.get(conn, item.id) == {"urls": ["https://example.test/a"]}
+        assert sources.get(conn, 999) is None

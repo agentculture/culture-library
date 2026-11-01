@@ -79,7 +79,7 @@ def test_stdlib_only() -> None:
             mods |= {a.name.split(".")[0] for a in node.names}
         elif isinstance(node, ast.ImportFrom) and not node.level:
             mods.add((node.module or "").split(".")[0])
-    assert mods <= {"__future__", "json", "sqlite3", "typing"}
+    assert mods <= {"__future__", "json", "typing"}
 
 
 def test_org_repo_shorthand_means_github(projects: Projects) -> None:
@@ -90,6 +90,6 @@ def test_org_repo_shorthand_means_github(projects: Projects) -> None:
     assert _norm("agentculture/daria.git") == DARIA
     assert _norm("gitlab.com/agentculture/daria") == "gitlab.com/agentculture/daria"
     assert _norm("example.org/daria") == "example.org/daria"
-    assert _norm("spark:/home/spark/git/x") == "spark:/home/spark/git/x"
+    assert _norm("spark:/srv/git/x") == "spark:/srv/git/x"
     projects.upsert(LIB, [], ["agentculture/daria"])
     assert projects.get(LIB)["connected"] == [DARIA]

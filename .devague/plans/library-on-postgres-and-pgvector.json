@@ -1,0 +1,1041 @@
+{
+  "slug": "library-on-postgres-and-pgvector",
+  "title": "Library on Postgres and pgvector",
+  "frame_slug": "library-on-postgres-and-pgvector",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-31T20:02:04Z",
+  "updated": "2026-11-01T04:38:15Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The library runs on PostgreSQL with pgvector on spark: documents, repo documents, full text and vectors live in one self-hosted database with a real vector index, API and MCP clients see no contract change, and retrieval quality is re-baselined at cutover",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "After cutover, the library container's database settings point at Postgres and no library.db is opened by the running service",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "boundary",
+      "text": "API and MCP clients see no contract change: the HTTP routes, MCP tools and /api/status shape stay as they are; only the storage under them moves",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "tests/contract and the MCP parity tests pass unchanged against the Postgres build, and /api/status returns the same top-level keys and nested shape",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "boundary",
+      "text": "Sibling clients (culture-rules, Gwen, xteink) keep using the HTTP API on 127.0.0.1:8796 with their API keys; nothing outside the library reads the database",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "No sibling repo or deploy script opens library.db; a grep of culture-rules, Gwen and xteink deploys for library.db finds nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "boundary",
+      "text": "Item and repo-doc file bytes stay on the filesystem under `data/files/<aa>/<sha256>`, and the private S3 mirror (outbox, worker, bucket) keeps working unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "After cutover every item's sha256 still resolves to `data/files/<aa>/<sha256>`, and the mirror outbox drains new rows to the same bucket keys",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "Embedding and reranking stay on the local lobes gateway (gemma2-embed, reranker); no document text goes to a third-party service, so MongoDB-style automated embedding via a cloud API is out",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "No code path sends document text to any host other than the configured lobes gateway; vectors stored in Postgres are the gateway's 768-dimension outputs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Documents, repo documents, full text, vectors and every other library table live in one self-hosted PostgreSQL database with the pgvector extension, run as a service in the spark compose stack",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A fresh deploy brings up a healthy postgres service with the pgvector extension, and every library table exists in it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Vectors are stored in a pgvector column with a model tag, with one HNSW index per embedding model (768 dimensions for embeddinggemma-2 today, room for 1024 for Qwen3-Embedding), and the in-process vector cache, vector_log table and its triggers are removed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Semantic retrieval queries use the pgvector operator on an HNSW index (EXPLAIN shows the index), and core/vector_cache.py, vector_log and its triggers no longer exist",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Full-text search is reimplemented on Postgres: title weighted above body, English stemming, prefix match on the last term, and highlighted snippets, for items and repo docs separately",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Title matches outrank body-only matches, stemmed forms match (cats finds cat), the last query term matches as a prefix, and snippets mark hits with [ ]",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The push transaction stays atomic in Postgres: a repo-doc version or draft, its feed event and its mirror outbox row commit together on one connection, as do tombstones",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h39",
+      "kind": "honesty",
+      "text": "Within one push, a failure after the version insert leaves no version, feed event or outbox row behind (a forced error in on_write rolls all three back)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "SQLite-only locking workarounds get Postgres equivalents: the unlink-after-commit of unreferenced blobs, and API-key last_used stamping that never waits on a writer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Concurrent unlinks never delete a blob a committed row references, and an API request is never delayed by more than 100 ms waiting to stamp last_used",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "SQLite-specific SQL is ported in every core module: AUTOINCREMENT + lastrowid become identity + RETURNING, integer booleans become boolean, MAX(a,b) becomes GREATEST, json_extract on TEXT becomes jsonb, INSERT OR REPLACE/IGNORE become ON CONFLICT, the feed column named cursor is quoted or renamed, and ? placeholders change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "No SQL in culture_library/ uses AUTOINCREMENT, lastrowid, json_extract, INSERT OR REPLACE/IGNORE, sqlite_master, PRAGMA or ? placeholders, checked by a grep test",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Schema changes run through a one-time, versioned migration runner instead of DDL and migrations re-applied on every open",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Each schema change is applied exactly once and recorded with a version; reopening the store runs no DDL",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "For every table, count(*) and max(id) in Postgres equal the final SQLite snapshot, and identity sequences continue above the copied max ids",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Backup and restore are rebuilt on pg_dump/pg_restore plus the existing verified blob copy and manifest, with a restore drill before cutover",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "A backup taken from live restores into an empty Postgres and files tree with identical table counts and passing blob sha checks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "deploy restart starts and checks the Postgres service too, and the database password comes from grant like every other secret, never from live.env",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "live.env contains no database password, deploy restart refuses one if added, and restart brings postgres up healthy before library and mcp",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Tests run against Postgres in CI and locally, with an isolated database or schema per xdist worker, and the SQLite-coupled tests are rewritten",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The CI test and publish jobs start a pgvector service, and the full suite runs with -n auto without workers sharing a database",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Runbooks and agent docs describe the Postgres stack: deploy.md (what runs, backups, restart, schema upgrades, rollback), backup.md, and CLAUDE.md and its sibling harness files",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "No runbook or agent doc still describes library.db, WAL, FTS5 or sqlite3 commands as the current stack",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "audience",
+      "text": "The operator who runs spark, the machine clients that call the library (culture-rules, Gwen, xteink, mesh agents over MCP), and people browsing library.culture.dev",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "Each named client keeps working through cutover without a code or configuration change on its side",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "before_state",
+      "text": "Today one 419 MB SQLite file holds everything; full text is FTS5 bm25 and the ~70k 768-dimension vectors are scanned by brute force in Python (0.19.8 cache: items ~74 ms, items + repo docs ~730 ms median per query), with no storage interface: 68 functions take a raw sqlite3 connection",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The before-state figures match measurements taken on live 0.19.8 on 2026-10-31",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "why_it_matters",
+      "text": "The repo-doc corpus is meant to grow into one corpus describing the whole org; vector search in a real database is a solved problem, so the library moves before more effort goes into optimising exhaustive scans",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The operator decided on 2026-10-31 to migrate before further SQLite optimisation",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "after_state",
+      "text": "Live runs on PostgreSQL 17 with pgvector: every table, the full text and the vectors are in Postgres, searched through SQL and an HNSW index, while clients, files on disk and the S3 mirror behave as before",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "The running library has no code path that opens SQLite for library data, and all reads and writes go to Postgres",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "success_signal",
+      "text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "The found@5 means are computed from complete server-side runs on Postgres for all eight sets, rerank on and off",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "success_signal",
+      "text": "On live after cutover, rerank-off retrieval p95 is < 300 ms for items only and < 500 ms for items plus repo docs (k=5), measured over 40 queries each",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "Latency is measured on live spark, not a dev machine, with the timing script recorded alongside the numbers",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "success_signal",
+      "text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "The count comparison covers every table the SQLite store had, and verify-mirror covers every top-level repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "success_signal",
+      "text": "The full test suite passes against Postgres in CI (the test and publish jobs) with no test skipped for lack of a database",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "The CI jobs run the same test selection as today, with no skip markers added for Postgres",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "success_signal",
+      "text": "A restore drill rebuilds an empty Postgres and files tree from a backup with every table count identical, before the live cutover",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "The drill is run on spark against a real live backup, not a fixture",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "success_signal",
+      "text": "The write freeze at cutover lasts under 30 minutes, from pausing culture-rules' push to resuming it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "The freeze start and end times come from the culture-rules rule pause and resume, recorded in the delivery summary",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "The feed's cursor paging never skips an event under concurrent writers: feed appends are serialised (for example a transaction-level advisory lock) so cursor order equals commit order",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "A test with two concurrent writers and a reader paging by cursor sees every event exactly once, in cursor order",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "Read-then-write code paths that relied on SQLite's single writer are made safe under Postgres concurrency: speclinks.record, mirror.enqueue, library._reuse_existing, eval_store.close_running_runs and purge_expired use ON CONFLICT, row locks or advisory locks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "Each named path has a test that runs two concurrent callers and ends with exactly the rows a serial run would produce",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "The Postgres database uses the C collation, so every ORDER BY on text (titles, repo, path) returns the same order as SQLite's binary ordering",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "For each text-ordered API listing, the order on Postgres matches the SQLite order for the same live data",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Cutover copies stored text and vectors as they are: full-text bodies from search_fts and repodoc_fts, and every embedding blob, with no re-extraction and no re-embedding",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "After the copy, every item and repo doc has the same full-text body and the same vectors (byte for byte) as in SQLite, and the gateway receives no embedding calls during cutover",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "boundary",
+      "text": "Rollback to SQLite is only offered before writes resume on Postgres; once clients write to Postgres, problems are fixed forward, because nothing copies Postgres writes back to SQLite",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "The cutover runbook names the point of no return (resuming writes) and the go/no-go checks that must pass before it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "requirement",
+      "text": "Postgres runs with least privilege: no published port outside the compose network, an application role that owns only the library schema (not a superuser), and the role password from grant",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "From the host, nothing listens on 5432 except inside the compose network, and the library's role cannot create roles or databases",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "/api/status reports the database: reachable or not, the applied schema version, and the vector index state, and the library refuses to serve writes if the schema version is ahead of the code",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "With Postgres stopped, /api/status still answers and says the database is unreachable, and the health check fails",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "Backups run on a schedule on spark before cutover and after it, and the cutover is blocked until a scheduled backup has succeeded on Postgres",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "A systemd timer (or equivalent) runs the backup daily and its last success is visible; a probe on 2026-10-31 found no scheduled culture-library backup on spark",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "Every stored vector records its model id (the real model, e.g. `google/embeddinggemma-2`, not the gateway role name) and its embedding strategy: the document and query prompt names, the chunker and its max_chars, the dimension and the normalisation. Each per-model HNSW index, every search and every eval run selects vectors by (model id, strategy), so vectors from two strategies never mix",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "A query never scores vectors from a different model id or strategy than the one it embedded with, shown by a test that stores two strategies side by side, and the cutover fills model id and strategy for all existing vectors from the gateway's /capabilities (embeddinggemma-2, 768, l2, Retrieval-document/Retrieval-query, max_chars 1000)",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Postgres store foundation: connection handling and a versioned migration runner",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "core/store.py opens psycopg 3 connections from CULTURE_LIBRARY_PG_* settings plus a password env var; connect() is one transaction committed on success and rolled back on error, reader() never takes row locks",
+        "core/migrations/ applies numbered SQL files once each, records them in schema_version, and a second Store() open runs no DDL (asserted by counting statements)",
+        "Store() refuses to open a database whose collation is not C or whose schema_version is ahead of the code, with a CoreError naming the fix",
+        "rows support both index and column-name access, so callers written for sqlite3.Row keep working; psycopg is imported lazily so the CLI still imports without the extra"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h12",
+        "c36",
+        "h30"
+      ],
+      "instruction": "Replace sqlite3 in core/store.py with psycopg 3 (sync, dict-capable row factory that also supports index access). Keep Store(data_dir) for the files tree and add the DB settings beside it. Move items CRUD SQL in store.py to Postgres (RETURNING instead of lastrowid). register_schema/register_migration go away; modules ship SQL in core/migrations/NNNN_*.sql. Write tests first in tests/core/test_store_pg.py."
+    },
+    {
+      "id": "t2",
+      "summary": "Test infrastructure on Postgres: one database per test worker, in CI and locally",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a root tests/conftest.py fixture creates an isolated database per xdist worker from a migrated template and drops it after the session",
+        ".github/workflows/tests.yml (test job) and publish.yml (test job) run a pgvector/pgvector:pg17 service and pass its DSN to pytest",
+        "with no reachable Postgres the suite fails at collection with one clear error naming the setting to set, never by silently skipping tests"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "h16"
+      ],
+      "instruction": "Add a session-scoped template database (migrations applied once) and per-worker clones (CREATE DATABASE ... TEMPLATE). Read the DSN from CULTURE_LIBRARY_TEST_PG_DSN; document a one-line docker run for local use. Do not touch module tests; t5-t13 port them."
+    },
+    {
+      "id": "t3",
+      "summary": "Compose and deploy: a least-privilege pgvector service started by deploy restart",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "deploy/compose.yaml has a postgres service on pgvector/pgvector:pg17 with its own volume, a pg_isready healthcheck and no published port; library depends on it being healthy",
+        "an init script creates the library database with the C collation and the vector extension, and an application role that owns it but cannot create roles or databases",
+        "deploy restart injects the database password from a grant secret, refuses a live.env that sets it, and brings postgres up healthy before library and mcp (dry-run output shows the order)"
+      ],
+      "deps": [],
+      "covers": [
+        "c17",
+        "h15",
+        "c39",
+        "h33",
+        "c7",
+        "h6"
+      ],
+      "instruction": "Files: deploy/compose.yaml, deploy/postgres-init/*.sql, culture_library/cli/_commands/deploy.py and its tests. Grant secret name CULTURE_LIBRARY_PG_PASSWORD. Remove --no-deps or add postgres to SERVICES. Keep scan-secrets clean (no non-localhost DSNs committed)."
+    },
+    {
+      "id": "t4",
+      "summary": "Initial Postgres schema: every library table, typed for Postgres",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "core/migrations/0001_initial.sql creates every table the SQLite store has, with identity ids, boolean flags, jsonb for JSON columns and the same TEXT ISO timestamps, and a test lists the tables and columns against the SQLite schema",
+        "items and repo docs have weighted tsvector columns (title A, body B, english config) with GIN indexes",
+        "embedding tables hold a dimensionless vector column plus model_id and strategy columns, with an HNSW cosine index for (google/embeddinggemma-2, the current strategy) on vec::vector(768)",
+        "the feed's cursor column is created under a name that needs no quoting, and the API still returns it as cursor"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c7",
+        "h6",
+        "c8",
+        "h7",
+        "c42",
+        "h37"
+      ],
+      "instruction": "Derive the table list from the current register_schema fragments. Keep timestamps as TEXT so API values stay byte-identical. Strategy is a stable string or jsonb key: document and query prompt names, chunker and max_chars, dimension, normalisation."
+    },
+    {
+      "id": "t5",
+      "summary": "Port core/library.py, uploaders.py and sources.py to Postgres",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "library.py uses an explicit list of sha256-bearing tables instead of sqlite_master; json_extract becomes jsonb operators; blob unlink after commit runs under a transaction advisory lock and a concurrent-unlink test never deletes a referenced blob",
+        "tests/core/test_library*.py, test_uploader*.py and test_sources*.py pass on Postgres; uploaders.visible_sql returns %s-style fragments"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c12",
+        "h10",
+        "c4",
+        "h4",
+        "h38"
+      ],
+      "instruction": "Own culture_library/core/library.py, uploaders.py, sources.py, ingest.py on_insert and their tests."
+    },
+    {
+      "id": "t6",
+      "summary": "Port core/feed.py and server/routes_feed.py with commit-ordered cursors",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "feed appends take a transaction-level advisory lock, so a test with two concurrent writers and a cursor-paging reader sees every event exactly once in cursor order",
+        "the /api/feed response shape, including the cursor field name, is unchanged (existing feed tests pass)"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c34",
+        "h28"
+      ],
+      "instruction": "Own core/feed.py, server/routes_feed.py and their tests."
+    },
+    {
+      "id": "t7",
+      "summary": "Port core/keys.py with non-blocking last_used stamping",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "authenticate never waits more than 100 ms on a writer to stamp last_used (lock_timeout or SKIP LOCKED), shown by a test holding a row lock",
+        "key mint, rotate, revoke and scope checks pass unchanged on Postgres"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c12",
+        "h10"
+      ],
+      "instruction": "Own core/keys.py and tests/core/test_keys.py; drop the raw sqlite3 side connection and the 'no such table' string match."
+    },
+    {
+      "id": "t8",
+      "summary": "Port core/mirror.py, server/routes_mirror.py and the mirror CLI",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "mirror.enqueue is one INSERT ... ON CONFLICT (key) and two concurrent enqueues of one key leave one row (test)",
+        "the outbox CHECK-widening migration is gone, _has_table uses to_regclass, and drained rows still upload to the same bucket keys (existing mirror tests pass on the fake backend)"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c35",
+        "h29",
+        "c4",
+        "h4",
+        "h38"
+      ],
+      "instruction": "Own core/mirror.py, server/routes_mirror.py, culture_library/cli/_commands/mirror.py and their tests."
+    },
+    {
+      "id": "t9",
+      "summary": "Port core/eval_store.py, eval_reanchor.py, eval_radar.py and the eval routes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "INSERT OR REPLACE becomes ON CONFLICT DO UPDATE and close_running_runs is safe against a concurrent run start (test)",
+        "tests/core/test_eval_store*.py, tests/eval and tests/contract/test_eval_contract.py pass on Postgres unchanged"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c35",
+        "h29"
+      ],
+      "instruction": "Own core/eval_store.py, eval_reanchor.py, eval_radar.py, server/routes_eval*.py and their tests."
+    },
+    {
+      "id": "t10",
+      "summary": "Port the remaining server routes and add the database block to /api/status",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "/api/status gains a database block (reachable, schema version, vector index state) and still answers with the database stopped, while /api/health fails",
+        "routes_status, routes_read, routes_opds, routes_send and routes_sources run their SQL on Postgres and every existing status key keeps its shape"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c40",
+        "h34",
+        "c2",
+        "h2"
+      ],
+      "instruction": "Own server/routes_status.py, routes_read.py, routes_opds.py, routes_send.py, routes_sources.py and their tests."
+    },
+    {
+      "id": "t11",
+      "summary": "Port core/repodocs.py, projects.py, speclinks.py and server/routes_repodocs.py to Postgres",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a forced error in on_write leaves no version, draft, feed event or outbox row (test)",
+        "scalar MAX becomes GREATEST, integer booleans become boolean, lastrowid becomes RETURNING; speclinks.record is race-free under two concurrent pushes (test)"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c11",
+        "c35",
+        "h29",
+        "h39"
+      ],
+      "instruction": "Own those four files and tests/core/test_repodocs*.py, test_projects.py, test_speclinks.py, tests/server/test_routes_repodocs*.py. Keep the on_write hook inside the push transaction (d6)."
+    },
+    {
+      "id": "t12",
+      "summary": "Port core/search.py to Postgres full text and pgvector, and remove the vector cache",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "full text ranks with ts_rank over the weighted tsvector: title matches outrank body-only matches, cats finds cat, the last term matches as a prefix, and snippets use ts_headline with [ ] markers and about 12 words (tests)",
+        "semantic and hybrid retrieval order by the pgvector cosine operator through the HNSW index for the query's (model id, strategy), shown by EXPLAIN in a test, and never score rows of another model or strategy",
+        "visibility, owner, kind, item_ids and archived filters apply as before, ties break on (corpus, id, chunk_no), and hybrid keeps reciprocal-rank fusion with k=60",
+        "core/vector_cache.py, the vector_log table and its triggers are deleted, and no code sends document text anywhere but the configured gateway"
+      ],
+      "deps": [
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c9",
+        "h8",
+        "c8",
+        "h7",
+        "c42",
+        "h37",
+        "c5",
+        "h5"
+      ],
+      "instruction": "Own culture_library/core/search.py, delete core/vector_cache.py and tests/core/test_vector_cache.py, and port tests/core/test_search.py, test_passages.py, test_repodoc_index.py. Rewrite tests that pinned exact bm25 floats to assert orderings instead. Tests that pin exact scores (test_item_ranking_unchanged_by_indexed_repodocs) are re-expressed as ordering checks."
+    },
+    {
+      "id": "t13",
+      "summary": "Port core/indexer.py: queues, dirty marks as Postgres triggers, and model id plus strategy on every vector",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "repodoc_dirty is fed by plpgsql triggers that mark only changed shown columns, and the #39 tests (idle tick reads no repodocs rows) pass on Postgres",
+        "every vector the indexer writes carries the real model id from the gateway's /capabilities and the strategy (prompts, chunker and max_chars, dimension, normalisation), and the first vector of a new (model, strategy) creates its HNSW index",
+        "index_queue and repodoc_index_queue keep their state machine, priority, retries and backoff (existing indexer tests pass)"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c42",
+        "h37",
+        "c8",
+        "h7"
+      ],
+      "instruction": "Own culture_library/core/indexer.py, culture_library/gateway.py (capabilities lookup) and tests/core/test_indexer*.py, test_repodoc_dirty.py. Trigger DDL goes in a numbered migration."
+    },
+    {
+      "id": "t14",
+      "summary": "One-shot SQLite-to-Postgres copy command with a verification report",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-library migrate sqlite-to-postgres --from `<library.db>` copies every table with its ids, sets each identity sequence above the copied max id, and is refused on a non-empty target",
+        "full-text bodies are copied from search_fts and repodoc_fts and vectors byte for byte, with model id and strategy filled from the gateway's /capabilities; the command makes no embedding call (test with a gateway stub that fails on embed)",
+        "it prints and returns a per-table report of count(*) and max(id) on both sides and exits non-zero on any difference",
+        "migrate/xteink.py still reads its xteink source with sqlite3 and looks up destinations through the Postgres store"
+      ],
+      "deps": [
+        "t13",
+        "t11",
+        "t6",
+        "t7",
+        "t8",
+        "t9",
+        "t10"
+      ],
+      "covers": [
+        "c42",
+        "h37",
+        "c15",
+        "h13",
+        "c37",
+        "h31",
+        "c26",
+        "h24"
+      ],
+      "instruction": "New module culture_library/migrate/sqlite_to_pg.py plus a verb in cli/_commands/migrate.py; the SQLite source is read with the stdlib sqlite3 module (the one allowed use besides xteink). Test against a fixture SQLite built by the 0.19.8 code path (keep a frozen copy of the old schema in tests/migrate/fixtures)."
+    },
+    {
+      "id": "t15",
+      "summary": "Backup, restore and schedule on pg_dump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-library backup run writes `snapshots/<stamp>/` with a pg_dump custom-format dump plus manifest.json, keeping the verified shared files tree; verify checks the manifest against the dump and the blobs",
+        "backup restore into an empty database and files tree reproduces every table count and passes blob sha checks (test against the CI Postgres)",
+        "backup schedule installs a systemd user timer that runs the backup daily, and backup overview shows the last success",
+        "deploy/Dockerfile installs the PostgreSQL 17 client tools needed for pg_dump and pg_restore"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c16",
+        "h14",
+        "c41",
+        "h35"
+      ],
+      "instruction": "Own culture_library/core/backup.py, culture_library/cli/_commands/backup.py, deploy/Dockerfile and tests/core/test_backup.py. Snapshot dirs keep the same layout so prune and --keep work as today."
+    },
+    {
+      "id": "t16",
+      "summary": "Remove the remaining SQLite from the package and pass the full suite on Postgres",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test greps culture_library/ and fails on AUTOINCREMENT, lastrowid, json_extract, INSERT OR REPLACE/IGNORE, sqlite_master, PRAGMA, ? placeholders or import sqlite3 outside migrate/xteink.py and migrate/sqlite_to_pg.py",
+        "pyproject.toml has a pg extra with psycopg 3, the server image installs it, base dependencies stay empty and tests/test_zero_deps.py passes",
+        "the full suite, including tests/contract and the MCP parity tests unchanged, passes in CI's test and publish jobs on Postgres with no new skip markers"
+      ],
+      "deps": [
+        "t14",
+        "t15",
+        "t3"
+      ],
+      "covers": [
+        "c13",
+        "h11",
+        "c27",
+        "h25",
+        "c2",
+        "h2",
+        "c4",
+        "h4",
+        "h38"
+      ],
+      "instruction": "Last code task before docs. Fix whatever the grep test still finds; do not change tests/contract or the parity tables. Update test_zero_deps.py's Dockerfile assertion for the new extra."
+    },
+    {
+      "id": "t17",
+      "summary": "Runbooks and agent docs for the Postgres stack, with the cutover runbook",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/operations/deploy.md and backup.md describe Postgres (what runs, restart, backups, schema upgrades, rollback) and no longer present library.db, WAL, FTS5 or sqlite3 commands as current",
+        "a cutover runbook names the freeze steps, the go/no-go checks and the point of no return (resuming writes), after which problems are fixed forward",
+        "CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md and README describe the Postgres store and record the operator's 2026-10-31 decision to migrate before further SQLite optimisation; markdownlint passes"
+      ],
+      "deps": [
+        "t16"
+      ],
+      "covers": [
+        "c19",
+        "h17",
+        "c38",
+        "h32",
+        "c22",
+        "h20"
+      ],
+      "instruction": "Own docs/operations/*.md, CLAUDE.md and the sibling harness files, README.md. Keep the harness-smoke facts true."
+    },
+    {
+      "id": "t18",
+      "summary": "Live: restore drill and pre-cutover baseline on spark (operator present)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a snapshot taken by the new backup code from a scratch Postgres migrated from a live SQLite backup restores into an empty scratch Postgres with identical counts",
+        "the before-state figures (sizes, counts, latencies on 0.19.8) are re-measured on live and recorded as evidence"
+      ],
+      "deps": [
+        "t17"
+      ],
+      "covers": [
+        "c28",
+        "h26",
+        "c21",
+        "h19"
+      ],
+      "instruction": "Operator-gated. Use a scratch database and directory, never the live volume. Record commands and outputs for the delivery summary."
+    },
+    {
+      "id": "t19",
+      "summary": "Live: one-shot cutover to Postgres (operator present)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the freeze pauses culture-rules' writer rules, a final SQLite backup is verified, the copy's report shows every table count and max id equal, and writes resume within 30 minutes of the pause",
+        "after cutover the library serves from Postgres (no library.db opened), /api/status shows the database block healthy, and verify-mirror --all reports 0 missing and 0 mismatched",
+        "a scheduled Postgres backup succeeds, and culture-rules, Gwen and xteink requests succeed with no change on their side"
+      ],
+      "deps": [
+        "t18"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c23",
+        "h21",
+        "c7",
+        "h6",
+        "c26",
+        "h24",
+        "c29",
+        "h27",
+        "c40",
+        "h34",
+        "c41",
+        "h35",
+        "c20",
+        "h18",
+        "c3",
+        "h3",
+        "c5",
+        "h5",
+        "c38",
+        "h32"
+      ],
+      "instruction": "Operator-gated, following the t17 runbook. Go/no-go before resuming writes; before that point rollback is the SQLite snapshot plus the old image."
+    },
+    {
+      "id": "t20",
+      "summary": "Live: re-baseline evals and latency on Postgres (operator present)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "complete server-side runs for eval sets 1-8 with rerank on and off show books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank, or the shortfall is reported",
+        "40-query timings on live give rerank-off p95 < 300 ms for items only and < 500 ms for items plus repo docs, or the shortfall is reported"
+      ],
+      "deps": [
+        "t19"
+      ],
+      "covers": [
+        "c24",
+        "h22",
+        "c25",
+        "h23"
+      ],
+      "instruction": "Use a temporary write key and revoke it after; record runs as the new baseline."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Rankings move with ts_rank; if recall falls below the c24 margin, a BM25 extension is the fallback (decision q3)",
+      "kind": "follow_up",
+      "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "HNSW recall under low-selectivity visibility filters (frame park v1) is measured only in t20; pgvector iterative scans are the first lever",
+      "kind": "unknown_nonblocking",
+      "task_id": "t12",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "jsonb does not keep JSON object key order, so key order inside JSON values in API responses may differ from SQLite's sort_keys text; the contract tests in t16 must confirm no client depends on it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t16",
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. Fixed in the review round: feed, sources and projects return jsonb with keys sorted at every depth (core/jsonvalues.sorted_keys); eval_store already did"
+    },
+    {
+      "id": "r4",
+      "text": "jsonb and text reject NaN, Infinity and NUL bytes that SQLite TEXT accepted; the t14 copy must detect and report such values rather than fail midway",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14",
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. The copy refuses NaN, Infinity, NUL and invalid JSON before writing and reports table, column and row; the indexer strips NUL from repo-doc text"
+    },
+    {
+      "id": "r5",
+      "text": "Postgres full text keeps a path such as core/search.py as one token where SQLite FTS5 unicode61 split it into core, search and py, so a body-only path no longer matches its parts; t13's migration should index punctuation-split words too",
+      "kind": "follow_up",
+      "task_id": "t13",
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. Migration 0002 adds the punctuation-split words to the tsvector; 'search' finds core/search.py"
+    },
+    {
+      "id": "r6",
+      "text": "Search and RAG routes query CURRENT_MODEL_ID / CURRENT_STRATEGY as constants; if /capabilities reports another model the indexer writes vectors under the new pair while queries ask for the old one. Routes should use the query embedder's vector_space()",
+      "kind": "follow_up",
+      "task_id": "t16",
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. Search and RAG ask the query embedder for its vector space (search.embedder_space); t16"
+    },
+    {
+      "id": "r7",
+      "text": "The compose postgres service has no shm_size (Docker default 64 MB); a parallel HNSW build fails with DiskFull on shared memory. Set shm_size for the postgres service before cutover",
+      "kind": "follow_up",
+      "task_id": "t19",
+      "resolved": true,
+      "resolution": "deploy/compose.yaml sets shm_size: 1gb on the postgres service, with tests/test_deploy_files.py::test_postgres_has_room_for_parallel_index_builds"
+    }
+  ],
+  "obligations": []
+}

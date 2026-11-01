@@ -87,3 +87,103 @@ def test_validation(sl):
         sl.set_links(1, code_paths=["a.py"], at_commit="c", at_committed_at="yesterday")
     with pytest.raises(ValidationError):
         sl.set_links(1, code_paths="a.py", at_commit="c", at_committed_at=T1)
+
+
+# --- concurrency (plan library-on-postgres-and-pgvector, task t11) --------------------
+
+
+def _race(store: Store, monkeypatch, first, second) -> list:
+    """``second`` runs while ``first`` sleeps inside its transaction, after one statement."""
+    import threading
+    import time
+    from contextlib import contextmanager
+
+    real = store.connect
+    started = threading.Event()
+    owner: list[threading.Thread] = []
+
+    class Pausing:
+        def __init__(self, conn) -> None:
+            self._conn, self._fired = conn, False
+
+        def execute(self, *args, **kwargs):
+            cur = self._conn.execute(*args, **kwargs)
+            if not self._fired:
+                self._fired = True
+                started.set()
+                time.sleep(0.5)
+            return cur
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    @contextmanager
+    def connect():
+        with real() as conn:
+            yield Pausing(conn) if threading.current_thread() is owner[0] else conn
+
+    monkeypatch.setattr(store, "connect", connect)
+    results: list = [None, None]
+
+    def run(i, fn):
+        try:
+            results[i] = fn()
+        except BaseException as exc:  # re-raised on the test thread
+            results[i] = exc
+
+    t1 = threading.Thread(target=run, args=(0, first))
+    owner.append(t1)
+    t2 = threading.Thread(target=lambda: (started.wait(10), run(1, second)))
+    t1.start()
+    t2.start()
+    t1.join(30)
+    t2.join(30)
+    for got in results:
+        if isinstance(got, BaseException):
+            raise got
+    monkeypatch.undo()
+    return results
+
+
+def _rows(store: Store) -> list:
+    with store.reader() as conn:
+        return [
+            tuple(r)
+            for r in conn.execute(
+                "SELECT doc_id, pr_url, pr_number, merge_commit, code_paths_json, at_commit,"
+                " at_committed_at, trailer_commits_json FROM spec_links ORDER BY doc_id"
+            )
+        ]
+
+
+def test_two_concurrent_records_end_as_a_serial_run(store, monkeypatch):
+    """Criterion 2 (t11): two pushes for one spec at once leave exactly the serial rows."""
+    sl = SpecLinks(store)
+    newer = dict(pr=5, code_paths=["new.py"], at_commit="c2", at_committed_at=T2)
+    older = dict(merge_commit="m", code_paths=["old.py"], at_commit="c1", at_committed_at=T1)
+    (first, applied_first), (second, applied_second) = _race(
+        store, monkeypatch, lambda: sl.record(1, **newer), lambda: sl.record(1, **older)
+    )
+    assert (applied_first, applied_second) == (True, False)
+    assert second["code_paths"] == ["new.py"]
+    sl.record(2, **newer)
+    sl.record(2, **older)
+    raced, serial = _rows(store)
+    assert raced[1:] == serial[1:]
+    assert raced[4] == ["new.py"]  # jsonb comes back as a list
+
+
+def test_two_concurrent_first_records_both_apply(store, monkeypatch):
+    sl = SpecLinks(store)
+    one, two = _race(
+        store,
+        monkeypatch,
+        lambda: sl.record(1, pr=7),
+        lambda: sl.record(1, code_paths=["a.py"], at_commit="c", at_committed_at=T1),
+    )
+    assert one[1]
+    assert two[1]
+    got = sl.links(1)
+    assert got["pr"] == {"url": None, "number": 7}
+    assert got["code_paths"] == ["a.py"]
+    assert len(_rows(store)) == 1

@@ -11,12 +11,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     # Promote SONAR_TOKEN to job env so the SonarCloud step can gate on
     # `env.SONAR_TOKEN != ''` — `secrets.*` isn't allowed in `if:`. This
     # makes the step a no-op on fork PRs (where the secret isn't injected)
     # and on any repo that hasn't configured the token yet.
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_THROWAWAY: "1"  # throwaway CI database: fsync off
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -26,6 +41,15 @@ jobs:
       - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
 
       - run: uv python install 3.12
+
+      - name: PostgreSQL 17 client tools (pg_dump, pg_restore for the backup tests)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
 
       - run: uv sync
 
@@ -94,6 +118,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_THROWAWAY: "1"  # throwaway CI database: fsync off
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -217,6 +257,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_THROWAWAY: "1"  # throwaway CI database: fsync off
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

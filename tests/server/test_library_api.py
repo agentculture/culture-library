@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from culture_library.core import Store, library  # noqa: E402
+from culture_library.core import Store, library, mirror  # noqa: E402
 from culture_library.core import search as core_search  # noqa: E402
 from culture_library.core.feed import read_since  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
@@ -369,12 +369,14 @@ def test_purge_removes_only_expired_archives(tmp_path):
     with store.reader() as conn:
         assert (
             conn.execute(
-                "SELECT count(*) FROM index_queue WHERE item_id = ?", (old.id,)
+                "SELECT count(*) FROM index_queue WHERE item_id = %s", (old.id,)
             ).fetchone()[0]
             == 0
         )
         assert (
-            conn.execute("SELECT count(*) FROM search_fts WHERE rowid = ?", (old.id,)).fetchone()[0]
+            conn.execute("SELECT count(*) FROM item_text WHERE item_id = %s", (old.id,)).fetchone()[
+                0
+            ]
             == 0
         )
     purged = [e for e in _events(store) if e["type"] == "purged"]
@@ -387,12 +389,23 @@ def test_purge_removes_only_expired_archives(tmp_path):
 def test_purge_keeps_blob_shared_with_another_table(tmp_path):
     store = Store(tmp_path / "d")
     item = _add(store, b"shared bytes", title="shared")
-    with store.connect() as conn:
-        conn.execute("CREATE TABLE other_refs (sha256 TEXT NOT NULL)")
-        conn.execute("INSERT INTO other_refs VALUES (?)", (item.sha256,))
+    with store.connect() as conn:  # a pending mirror upload of the same bytes
+        mirror.enqueue(conn, "x/docs/shared.md@working", item.sha256, "text/markdown")
     library.archive(store, item.id, include_private=True, now=T0)
     assert library.purge_expired(store, now=T0 + timedelta(days=31)) == [item.id]
     assert store.blob_path(item.sha256).exists()
+
+
+def test_blob_tables_name_every_table_that_stores_a_blob_sha(tmp_path):
+    """purge consults library.BLOB_TABLES, a fixed list: every ``sha256`` column in the schema
+    names a stored blob except the feed's, which is history (an event keeps no file alive)."""
+    store = Store(tmp_path / "d")
+    with store.reader() as conn:
+        rows = conn.execute(
+            "SELECT table_name FROM information_schema.columns"
+            " WHERE table_schema = current_schema() AND column_name = 'sha256'"
+        ).fetchall()
+    assert {r[0] for r in rows} - {"feed"} == set(library.BLOB_TABLES)
 
 
 def test_restore_refused_after_window(tmp_path):
@@ -674,9 +687,11 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
     item = api.upload(b"# Memo\n\nthe **okapi** grazes", "m.md").json()["item"]
     assert len(calls) == 1
     with api.store.reader() as conn:
-        body = conn.execute("SELECT body FROM search_fts WHERE rowid=?", (item["id"],)).fetchone()
+        body = conn.execute(
+            "SELECT body FROM item_text WHERE item_id = %s", (item["id"],)
+        ).fetchone()
         done = conn.execute(
-            "SELECT body_done FROM index_queue WHERE item_id=?", (item["id"],)
+            "SELECT body_done FROM index_queue WHERE item_id = %s", (item["id"],)
         ).fetchone()
     assert body[0] == real(b"# Memo\n\nthe **okapi** grazes", "md").text
     assert done[0] == 1
@@ -691,9 +706,49 @@ def test_upload_indexes_the_extracted_body_so_the_indexer_only_embeds(api, monke
 
     def embed(texts):
         embedded.extend(texts)
-        return [[0.0]] * len(texts)
+        return [[1.0] + [0.0] * 767 for _ in texts]  # the current strategy's 768 dimensions
 
     ix = core_indexer.Indexer(api.store, embed, text_for=never)
     assert ix.run_once() == 1
     assert any("okapi" in t for t in embedded)
     assert len(calls) == 1
+
+
+def test_purge_concurrent_with_unarchive_does_not_deadlock(tmp_path):
+    """Purge must not hold the feed lock while it waits on an item row lock, because an
+    un-archiving writer locks the row first and appends (feed lock) second."""
+    import threading
+    import time
+
+    store = Store(tmp_path / "d")
+    first = _add(store, b"first", title="first")
+    second = _add(store, b"second", title="second")
+    for item in (first, second):
+        library.archive(store, item.id, include_private=True, now=T0)
+    locked, errors, result = threading.Event(), [], []
+
+    def reupload():
+        try:
+            with store.connect() as conn:
+                conn.execute("UPDATE items SET archived_at = NULL WHERE id = %s", (second.id,))
+                locked.set()
+                time.sleep(1.0)  # purge is now past the first item and waiting on this row
+                library._event(conn, "updated", second, {"restored": True})
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    def purge():
+        try:
+            locked.wait(5)
+            result.extend(library.purge_expired(store, now=T0 + timedelta(days=31)))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=reupload), threading.Thread(target=purge)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert errors == []
+    assert result == [first.id]
+    assert store.get_item(second.id) is not None

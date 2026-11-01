@@ -13,12 +13,10 @@ bucket. :func:`reconcile` re-queues a parked key whose object is still missing o
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
-from . import repodocs as _repodocs  # noqa: F401  (registers the tables reconcile reads)
-from .store import Store, now, register_migration, register_schema
+from .store import Store, now
 
 WORKING = "working"
 PENDING = "pending"
@@ -26,51 +24,6 @@ DONE = "done"
 FAILED = "failed"
 MAX_ATTEMPTS = 8  # failed uploads before a row is parked as FAILED
 _MAX_ERROR = 500
-
-register_schema("""
-CREATE TABLE IF NOT EXISTS mirror_outbox (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT NOT NULL UNIQUE,
-    sha256 TEXT NOT NULL,
-    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'failed')),
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT NOT NULL DEFAULT '',
-    enqueued_at TEXT NOT NULL,
-    done_at TEXT
-);
-CREATE INDEX IF NOT EXISTS mirror_outbox_state ON mirror_outbox (state)
-""")
-
-_OUTBOX_COLUMNS = "id, key, sha256, content_type, state, attempts, last_error, enqueued_at, done_at"
-
-
-def widen_outbox_state(conn: sqlite3.Connection) -> None:
-    """Rebuild a ``mirror_outbox`` whose state CHECK predates ``failed`` (idempotent).
-
-    Only builds of this branch before parking created that table, and nothing references it,
-    so the rebuild is a plain copy (ids and the AUTOINCREMENT sequence are kept).
-    """
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mirror_outbox'"
-    ).fetchone()
-    if row is None or "'failed'" in row[0]:
-        return
-    new_sql = row[0].replace("('pending', 'done')", "('pending', 'done', 'failed')", 1)
-    if "'failed'" not in new_sql:
-        return  # an unrecognised shape: leave it alone rather than guess
-    conn.execute("ALTER TABLE mirror_outbox RENAME TO mirror_outbox_old")
-    conn.execute("DROP INDEX IF EXISTS mirror_outbox_state")
-    conn.execute(new_sql)
-    conn.execute(
-        f"INSERT INTO mirror_outbox ({_OUTBOX_COLUMNS})"  # nosec B608 - fixed column list
-        f" SELECT {_OUTBOX_COLUMNS} FROM mirror_outbox_old"
-    )
-    conn.execute("DROP TABLE mirror_outbox_old")
-    conn.execute("CREATE INDEX IF NOT EXISTS mirror_outbox_state ON mirror_outbox (state)")
-
-
-register_migration(widen_outbox_state)
 
 
 class MirrorBackend(Protocol):
@@ -112,7 +65,7 @@ def _content_type(path: str) -> str:
 
 
 def enqueue(
-    conn: sqlite3.Connection,
+    conn: Any,
     key: str,
     sha256: str,
     content_type: str = "application/octet-stream",
@@ -122,19 +75,16 @@ def enqueue(
     """Queue ``key`` on the caller's connection. Same sha already queued/done is a no-op
     unless ``force`` (the backend lost it); a different sha, or a parked (``failed``) row,
     re-queues the key as pending with its attempts reset."""
-    row = conn.execute("SELECT sha256, state FROM mirror_outbox WHERE key = ?", (key,)).fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO mirror_outbox (key, sha256, content_type, enqueued_at)"
-            " VALUES (?, ?, ?, ?)",
-            (key, sha256, content_type, now()),
-        )
-    elif force or row[0] != sha256 or row[1] == FAILED:
-        conn.execute(
-            "UPDATE mirror_outbox SET sha256 = ?, content_type = ?, state = 'pending',"
-            " attempts = 0, last_error = '', enqueued_at = ?, done_at = NULL WHERE key = ?",
-            (sha256, content_type, now(), key),
-        )
+    conn.execute(
+        "INSERT INTO mirror_outbox (key, sha256, content_type, enqueued_at)"
+        " VALUES (%(key)s, %(sha)s, %(ctype)s, %(at)s)"
+        " ON CONFLICT (key) DO UPDATE SET sha256 = EXCLUDED.sha256,"
+        " content_type = EXCLUDED.content_type, state = 'pending', attempts = 0,"
+        " last_error = '', enqueued_at = EXCLUDED.enqueued_at, done_at = NULL"
+        " WHERE %(force)s OR mirror_outbox.sha256 <> EXCLUDED.sha256"
+        " OR mirror_outbox.state = 'failed'",
+        {"key": key, "sha": sha256, "ctype": content_type, "at": now(), "force": force},
+    )
 
 
 def drain(store: Store, backend: MirrorBackend) -> dict[str, int]:
@@ -163,13 +113,13 @@ def drain(store: Store, backend: MirrorBackend) -> dict[str, int]:
             msg = f"{type(exc).__name__}: {exc}"[:_MAX_ERROR]
             with store.connect() as conn:
                 conn.execute(
-                    "UPDATE mirror_outbox SET attempts = attempts + 1, last_error = ?,"
-                    " state = CASE WHEN attempts + 1 >= ? THEN 'failed' ELSE state END"
-                    " WHERE key = ? AND sha256 = ? AND state = 'pending'",
+                    "UPDATE mirror_outbox SET attempts = attempts + 1, last_error = %s,"
+                    " state = CASE WHEN attempts + 1 >= %s THEN 'failed' ELSE state END"
+                    " WHERE key = %s AND sha256 = %s AND state = 'pending'",
                     (msg, MAX_ATTEMPTS, key, sha),
                 )
                 state = conn.execute(
-                    "SELECT state FROM mirror_outbox WHERE key = ?", (key,)
+                    "SELECT state FROM mirror_outbox WHERE key = %s", (key,)
                 ).fetchone()
             if state is not None and state[0] == FAILED:
                 parked += 1
@@ -178,19 +128,14 @@ def drain(store: Store, backend: MirrorBackend) -> dict[str, int]:
             with store.connect() as conn:
                 conn.execute(
                     "UPDATE mirror_outbox SET state = 'done', attempts = attempts + 1,"
-                    " last_error = '', done_at = ? WHERE key = ? AND sha256 = ?",
+                    " last_error = '', done_at = %s WHERE key = %s AND sha256 = %s",
                     (now(), key, sha),
                 )
     return {"done": done, "failed": failed, "parked": parked, "retry": failed - parked}
 
 
-def _has_table(conn: sqlite3.Connection, name: str) -> bool:
-    return (
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
-        ).fetchone()
-        is not None
-    )
+def _has_table(conn: Any, name: str) -> bool:
+    return conn.execute("SELECT to_regclass(%s) IS NOT NULL", (name,)).fetchone()[0]
 
 
 def reconcile(store: Store, backend: MirrorBackend) -> int:

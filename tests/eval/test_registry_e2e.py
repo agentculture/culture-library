@@ -12,6 +12,11 @@ from culture_library.eval.suites import HIGHER, Metric, SuiteScore
 
 from .conftest import FakeAdapter
 
+
+def _pad(v):  # vectors have the current strategy's 768 dimensions (decision c42)
+    return [*v, *[0.0] * (768 - len(v))]
+
+
 AXIS = "t15_shape"
 
 
@@ -30,7 +35,7 @@ def posted(library):
     from culture_library.core.indexer import Indexer, enqueue
 
     def embed(texts):
-        return [[1.0, 0.0] for _ in texts]
+        return [_pad([1.0, 0.0]) for _ in texts]
 
     library.app.state.query_embedder = embed
     library.app.state.reranker = None

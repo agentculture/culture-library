@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
@@ -532,11 +531,8 @@ def _clip(text: str, n: int = EXCERPT_CHARS) -> str:
 
 
 def _indexed_body(store: Store, item_id: int) -> str:
-    try:
-        with store.reader() as conn:
-            row = conn.execute("SELECT body FROM search_fts WHERE rowid = ?", (item_id,)).fetchone()
-    except sqlite3.Error:  # no search index table yet: fall back to extraction
-        return ""
+    with store.reader() as conn:
+        row = conn.execute("SELECT body FROM item_text WHERE item_id = %s", (item_id,)).fetchone()
     return row[0] if row and row[0] else ""
 
 

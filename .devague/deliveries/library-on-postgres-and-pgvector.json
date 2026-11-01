@@ -1,0 +1,190 @@
+{
+  "plan_slug": "library-on-postgres-and-pgvector",
+  "schema_version": 2,
+  "created": "2026-10-31T20:53:04Z",
+  "updated": "2026-11-01T04:38:15Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t2 also added the pgvector service and test DSN to the visual and ragas CI jobs, and added psycopg[binary] to the dev dependency group",
+      "task_ref": "t2",
+      "reason": "both jobs run pytest and load the root conftest, so without a database they would fail at session start; no driver was installed for the fixture before t1 adds the pg extra",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "deploy restart starts postgres in its own step (up -d --no-deps --wait postgres) before the library and mcp step, instead of dropping --no-deps or adding postgres to SERVICES; mcp gets no database credentials",
+      "task_ref": "t3",
+      "reason": "--wait blocks until postgres is healthy so the order is explicit in dry-run, and mcp reaches the library only over HTTP, so least privilege leaves it without database credentials",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t1 also edited core/__init__.py (dropped side-effect imports of unported modules and the SCHEMA/register_schema exports), put the items table in 0001_initial.sql for t4 to extend, fixed a temp-name collision in Store.write_blob, and deleted tests/core/test_store.py and test_store_migration.py (moving two kind tests to test_todo_kind.py)",
+      "task_ref": "t1",
+      "reason": "without the __init__ edit no core module imports at all; t4's criterion names 0001_initial.sql as the single initial schema; the concurrent-add test exposed the write_blob race; the deleted tests covered the SQLite store and the kind-CHECK rebuild that no longer exist",
+      "affects": [
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "t4 added culture_library/core/embedding_strategy.py (the canonical strategy key, model id and HNSW index name and SQL), a CHECK that each vector's dimension equals its strategy's, and named the chunker paragraph-pack",
+      "task_ref": "t4",
+      "reason": "one producer of the strategy key keeps index predicates and queries matching exactly; the CHECK stops a vector of the wrong size reaching a typed HNSW index",
+      "affects": [
+        "t12",
+        "t13",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "keys._live selects the old key row FOR UPDATE, so a rotate or confirm cannot race another one",
+      "task_ref": "t7",
+      "reason": "under Postgres concurrency two rotations of one key could both read it live and both mint replacements; SQLite's single writer prevented that",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t5's library tests were verified only against scratch stand-ins for feed, indexer, search and repodocs, because library.py imports indexer and search (plan waves 3-4); t5 also dropped the item_uploaders backfill (t14 copies the rows) and added library.lock_blob, which every blob writer must take",
+      "task_ref": "t5",
+      "reason": "the plan put t5 in wave 2, but library.py cannot import until t12/t13 port search and indexer; the backfill only served SQLite databases that predate item_uploaders",
+      "affects": [
+        "t11",
+        "t13",
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t10 left /api/health (server/app.py, outside its files) unchanged; the main agent added the database check there: SELECT 1 through the store, 503 with status error when the database is unreachable, body unchanged when it answers. t10 also ported core/sources.py, which t5 owns; t5's version was kept at merge",
+      "task_ref": "t10",
+      "reason": "criterion 1 needs /api/health to fail with the database stopped, and app.py belonged to no wave-2 task; the duplicate sources.py port conflicted with t5's",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "t12: hybrid passages fuse over a pool (per corpus the nearest max(2k,50) chunks plus the nearest k chunks of each of the top max(2k,50) full-text matches) instead of every chunk; zero vectors are refused at write; pack_vec, unpack_vec and cosine_scorer are removed; set_repodoc_text indexes the title plus the words of the path; 22 indexer tests are parked with skip markers until t13",
+      "task_ref": "t12",
+      "reason": "scanning every chunk defeats the HNSW index; pgvector's cosine HNSW index cannot find zero vectors; the helpers only served the removed Python scorer; Postgres keeps a path as one token; the indexer is ported in t13",
+      "affects": [
+        "t13",
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "risky",
+      "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "t13 edited server/routes_search.py (removed the label-based requeue_stale_model call; the indexer requeues stale (model, strategy) itself), padded fake embedders in waiting-list tests to 768 dimensions, moved test_review_fixes test 8 to the (model id, strategy) API, and fixed r5 by adding a vector of only the punctuation-containing tokens split on [[:punct:]] instead of concatenating split text",
+      "task_ref": "t13",
+      "reason": "a label passed as a model id would reopen the whole corpus each start; t12 requires 768-d vectors; the label column is gone; full concatenation changed every tsvector and ts_delete broke underscore phrases",
+      "affects": [
+        "t16"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "t16 (SQLite-free sweep) starts in parallel with t14 instead of after it, limited to files outside culture_library/migrate/ and tests/migrate/; its full-suite criterion is checked after t14 merges",
+      "task_ref": "t16",
+      "reason": "the 31 remaining failures outside migrate/ (old 2-d fakes, leftover sqlite3 tests, routes using a fixed vector pair, the pg extra) touch no t14 file, so running them together shortens the critical path without file overlap",
+      "affects": [
+        "t14"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "t16 is built by an opus subagent instead of the main agent named in the split plan; the main agent keeps the final full-suite verification and merge",
+      "task_ref": "t16",
+      "reason": "the main agent's context is long after waves 0-4; the sweep is a bounded, file-listed task with a grep test and a known failure list, so delegating it keeps the integration check with the main agent",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "t14 added --drop-stale-vectors and --verify-only, sets identities to max(max id, sqlite_sequence), drops the HNSW indexes for the copy and rebuilds them serially (maintenance_work_mem 1GB, no parallel workers), lets the xteink dry run open Store(dest) (applies migrations, creates dest/files), and imports two private store helpers",
+      "task_ref": "t14",
+      "reason": "stale labels must be skippable rather than block cutover; SQLite AUTOINCREMENT never reuses ids, so neither may Postgres; inserting 70k distinct vectors with the index in place took over 215 s, and a parallel build exhausted Docker's 64 MB shared memory",
+      "affects": [
+        "t17",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "Main-agent integration after t14 and t16: (1) the per-test reset in tests/conftest.py now drops any public index a test created, so an HNSW index for a new (model, strategy) pair no longer leaks into later tests; (2) search._ann completes a group of exactly tied chunks the pool LIMIT cut (fetch limit+1; on a tie at the edge, score that distance exactly), so ties break on (owner, chunk_no) and every k is a prefix of a larger k",
+      "task_ref": "t16",
+      "reason": "both caused intermittent full-suite failures; the tie case is real on live, where many repo docs are byte-identical (.devague/current), and SQLite's exhaustive scan always ordered ties the same way",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "t17 documents the live backup timer and the cutover copy as 'grant run ... docker compose run --rm --no-deps -v <dir>:/backup library culture-library ...' instead of 'docker exec', and trimmed QWEN.md to stay under its 145-line cap",
+      "task_ref": "t17",
+      "reason": "compose mounts no backup directory into the library container, so a docker exec backup would have nowhere to write; test_harness_files_stay_in_step enforces the QWEN.md cap",
+      "affects": [
+        "t18",
+        "t19"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 14
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

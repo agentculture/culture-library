@@ -1,11 +1,15 @@
-"""``culture-library deploy`` — recreate the live stack's library and mcp containers.
+"""``culture-library deploy`` — recreate the live stack's postgres, library and mcp containers.
 
 ``deploy restart`` is the CLI seam for the runbook's "Restart the live stack"
 (``docs/operations/deploy.md``): it checks the host env file first (every required
 setting present, no placeholder, send targets that parse), then runs, with a fixed argv
 and no shell::
 
-    grant run --inject TUNNEL_TOKEN=<secret> --inject GATEWAY_API_KEY=<secret> -- \\
+    grant run --inject POSTGRES_PASSWORD=<secret> \\
+      --inject CULTURE_LIBRARY_PG_PASSWORD=<secret> -- \\
+      docker compose -f deploy/compose.yaml --env-file <env file> up -d --no-deps --wait postgres
+    grant run --inject TUNNEL_TOKEN=<secret> --inject CULTURE_LIBRARY_PG_PASSWORD=<secret> \\
+      --inject GATEWAY_API_KEY=<secret> -- \\
       docker compose -f deploy/compose.yaml --env-file <env file> --profile remote \\
       up -d --no-deps library mcp
 
@@ -14,6 +18,10 @@ When the env file names an S3 bucket (``CULTURE_LIBRARY_S3_BUCKET``) it also inj
 grant; those never enter the env file either.
 
 ``deploy check-bucket`` audits the mirror bucket's safety settings (see ``cmd_check_bucket``).
+
+Postgres starts first (``--wait`` for its healthcheck). Two grant secrets cover it: the app
+role's password (also given to library) and the superuser's (postgres only). Neither may be
+in the env file.
 
 It checks ``/api/health`` and the send targets inside the new container. ``--build``
 rebuilds the image first; ``--dry-run`` prints the commands and runs nothing. The tunnel
@@ -52,7 +60,15 @@ S3_BUCKET_ENV = "CULTURE_LIBRARY_S3_BUCKET"
 # Optional S3 settings: empty/absent means "off"/default, but a placeholder is refused.
 S3_SETTINGS = (S3_BUCKET_ENV, "CULTURE_LIBRARY_S3_REGION", "CULTURE_LIBRARY_S3_PREFIX")
 AWS_SESSION_ENV = "AWS_SESSION_TOKEN"
+# Postgres: two grant secrets, so the library never holds the superuser password. The app
+# role's password (library + the init script) and the superuser's (postgres only).
+DEFAULT_PG_PASSWORD_SECRET = "CULTURE_LIBRARY_PG_PASSWORD"  # nosec B105
+DEFAULT_PG_SUPERUSER_SECRET = "CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD"  # nosec B105
+PG_PASSWORD_ENV = "CULTURE_LIBRARY_PG_PASSWORD"  # nosec B105
+PG_SUPERUSER_ENV = "POSTGRES_PASSWORD"  # nosec B105
 SECRET_SETTINGS = {
+    PG_PASSWORD_ENV: DEFAULT_PG_PASSWORD_SECRET,
+    PG_SUPERUSER_ENV: DEFAULT_PG_SUPERUSER_SECRET,
     "TUNNEL_TOKEN": DEFAULT_TUNNEL_SECRET,
     "GATEWAY_API_KEY": DEFAULT_GATEWAY_SECRET,
     "AWS_ACCESS_KEY_ID": DEFAULT_AWS_KEY_ID_SECRET,
@@ -66,6 +82,7 @@ REQUIRED_SETTINGS = (
     "CULTURE_LIBRARY_ACCESS_AUD",
     send.TARGETS_ENV,
 )
+DB_SERVICE = "postgres"
 SERVICES = ("library", "mcp")
 _EXPORT = "export "
 DEFAULT_PORT = "8796"
@@ -233,12 +250,31 @@ def plan(
     build: bool,
     gateway_secret: str | None = DEFAULT_GATEWAY_SECRET,
     aws_secrets: dict[str, str] | None = None,
+    pg_secret: str = DEFAULT_PG_PASSWORD_SECRET,
+    pg_superuser_secret: str = DEFAULT_PG_SUPERUSER_SECRET,
 ) -> list[list[str]]:
-    """The commands ``restart`` runs, in order. Secrets are injected by name from grant."""
+    """The commands ``restart`` runs, in order. Secrets are injected by name from grant.
+
+    Postgres comes up first and ``--wait`` blocks until its healthcheck passes, so library
+    and mcp (started ``--no-deps``) never race the database.
+    """
     base = _compose_base(compose, env_file)
     steps = [base + ["build", "library"]] if build else []
+    db_up = base + ["up", "-d", "--no-deps", "--wait", DB_SERVICE]
+    steps.append(
+        [
+            "grant",
+            "run",
+            "--inject",
+            f"{PG_SUPERUSER_ENV}={pg_superuser_secret}",
+            "--inject",
+            f"{PG_PASSWORD_ENV}={pg_secret}",
+            "--",
+            *db_up,
+        ]
+    )
     up = base + ["--profile", "remote", "up", "-d", "--no-deps", *SERVICES]
-    inject = ["--inject", f"TUNNEL_TOKEN={secret}"]
+    inject = ["--inject", f"TUNNEL_TOKEN={secret}", "--inject", f"{PG_PASSWORD_ENV}={pg_secret}"]
     if gateway_secret:
         inject += ["--inject", f"GATEWAY_API_KEY={gateway_secret}"]
     for var, name in (aws_secrets or {}).items():
@@ -255,14 +291,21 @@ def _grant_secret_exists(name: str, env: dict[str, str]) -> bool:
 
 
 def _check_grant_secrets(
-    names: list[str], env: dict[str, str], aws_names: list[str] | None = None
+    names: list[str],
+    env: dict[str, str],
+    aws_names: list[str] | None = None,
+    pg_names: list[str] | None = None,
 ) -> None:
     """Refuse, before compose runs, when a grant secret to inject does not exist."""
     if _which("grant") is None:
         raise CliError(EXIT_ENV_ERROR, "grant is not on PATH", "install grant")
     for name in names:
         if not _grant_secret_exists(name, env):
-            if name == DEFAULT_TUNNEL_SECRET:
+            if name in (DEFAULT_PG_PASSWORD_SECRET, DEFAULT_PG_SUPERUSER_SECRET) or (
+                pg_names and name in pg_names
+            ):
+                hint = "add it with 'grant set NAME - --hidden' (the library database passwords)"
+            elif name == DEFAULT_TUNNEL_SECRET:
                 hint = "store the tunnel token with 'cultureflare --grant'"
             elif name in (DEFAULT_AWS_KEY_ID_SECRET, DEFAULT_AWS_SECRET_KEY_SECRET) or (
                 aws_names and name in aws_names
@@ -359,6 +402,8 @@ def _inputs(args: argparse.Namespace) -> tuple[Path, Path]:
     for flag, name in (
         ("--tunnel-secret", args.tunnel_secret),
         ("--gateway-secret", args.gateway_secret),
+        ("--pg-password-secret", args.pg_password_secret),
+        ("--pg-superuser-secret", args.pg_superuser_secret),
         ("--aws-key-id-secret", args.aws_key_id_secret),
         ("--aws-secret-key-secret", args.aws_secret_key_secret),
     ):
@@ -376,6 +421,8 @@ def cmd_restart(args: argparse.Namespace) -> int:
         **SECRET_SETTINGS,
         "TUNNEL_TOKEN": args.tunnel_secret,
         "GATEWAY_API_KEY": args.gateway_secret,
+        PG_PASSWORD_ENV: args.pg_password_secret,
+        PG_SUPERUSER_ENV: args.pg_superuser_secret,
         "AWS_ACCESS_KEY_ID": args.aws_key_id_secret,
         "AWS_SECRET_ACCESS_KEY": args.aws_secret_key_secret,
     }
@@ -397,6 +444,8 @@ def cmd_restart(args: argparse.Namespace) -> int:
         build=args.build,
         gateway_secret=gateway,
         aws_secrets=aws,
+        pg_secret=args.pg_password_secret,
+        pg_superuser_secret=args.pg_superuser_secret,
     )
     if args.dry_run:
         emit_result(
@@ -411,9 +460,16 @@ def cmd_restart(args: argparse.Namespace) -> int:
     env = _child_env(values)
     verbose = not _json(args)
     _check_grant_secrets(
-        [args.tunnel_secret, *([gateway] if gateway else []), *aws.values()],
+        [
+            args.tunnel_secret,
+            args.pg_password_secret,
+            args.pg_superuser_secret,
+            *([gateway] if gateway else []),
+            *aws.values(),
+        ],
         env,
         aws_names=list(aws.values()),
+        pg_names=[args.pg_password_secret, args.pg_superuser_secret],
     )
     for argv in steps:
         _step(argv, env, verbose=verbose)
@@ -620,6 +676,10 @@ def cmd_overview(args: argparse.Namespace) -> int:
                     "$HOME/.config/culture-library/live.env)",
                     "--compose (default deploy/compose.yaml in this checkout)",
                     f"--tunnel-secret (grant secret name, default {DEFAULT_TUNNEL_SECRET})",
+                    f"--pg-password-secret (grant secret injected as {PG_PASSWORD_ENV}, default "
+                    f"{DEFAULT_PG_PASSWORD_SECRET}); --pg-superuser-secret (injected as "
+                    f"{PG_SUPERUSER_ENV} for the postgres container only, default "
+                    f"{DEFAULT_PG_SUPERUSER_SECRET})",
                     f"--gateway-secret (grant secret injected as GATEWAY_API_KEY, default "
                     f"{DEFAULT_GATEWAY_SECRET}); --no-gateway-key skips it",
                     f"--aws-key-id-secret / --aws-secret-key-secret (grant secrets injected as "
@@ -645,6 +705,16 @@ def register(sub: argparse._SubParsersAction) -> None:
     rs.add_argument("--compose", help="Compose file (default deploy/compose.yaml).")
     rs.add_argument(
         "--tunnel-secret", default=DEFAULT_TUNNEL_SECRET, help="grant secret holding the token."
+    )
+    rs.add_argument(
+        "--pg-password-secret",
+        default=DEFAULT_PG_PASSWORD_SECRET,
+        help="grant secret injected as CULTURE_LIBRARY_PG_PASSWORD (the app role's password).",
+    )
+    rs.add_argument(
+        "--pg-superuser-secret",
+        default=DEFAULT_PG_SUPERUSER_SECRET,
+        help="grant secret injected as POSTGRES_PASSWORD (postgres container only).",
     )
     gw = rs.add_mutually_exclusive_group()
     gw.add_argument(

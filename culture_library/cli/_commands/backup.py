@@ -8,7 +8,7 @@ import os
 from culture_library.cli._commands.overview import emit_overview
 from culture_library.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_library.cli._output import emit_result
-from culture_library.core.backup import BACKUP_DIR_ENV, DEFAULT_KEEP
+from culture_library.core.backup import BACKUP_DIR_ENV, DEFAULT_KEEP, PG_BIN_DIR_ENV
 from culture_library.core.store import DATA_DIR_ENV, DEFAULT_DATA_DIR
 
 
@@ -31,6 +31,30 @@ def _dest(args: argparse.Namespace) -> str:
     return dest
 
 
+_LAST_SUCCESS = "Last success"
+
+
+def _last_success_section(args: argparse.Namespace) -> dict:
+    from culture_library.core import backup
+
+    dest = args.to or os.environ.get(BACKUP_DIR_ENV)
+    if not dest:
+        return {
+            "title": _LAST_SUCCESS,
+            "items": [f"no backup location (--to or ${BACKUP_DIR_ENV})"],
+        }
+    last = backup.last_success(dest)
+    if last is None:
+        return {"title": _LAST_SUCCESS, "items": [f"none yet in {dest}"]}
+    return {
+        "title": _LAST_SUCCESS,
+        "items": [
+            f"{last['created_at']} - {last['snapshot']} ({last['items']} items; "
+            f"{last['snapshots_kept']} snapshots kept)"
+        ],
+    }
+
+
 def cmd_overview(args: argparse.Namespace) -> int:
     emit_overview(
         "culture-library backup",
@@ -38,22 +62,25 @@ def cmd_overview(args: argparse.Namespace) -> int:
             {
                 "title": "Verbs",
                 "items": [
-                    "run [--to D] [--keep N] — consistent SQLite snapshot + incremental "
-                    "files copy to a second location",
-                    "verify <snapshot> — check the snapshot against its manifest and sha256s",
-                    "restore --from <snapshot> --to <empty dir> — restore and verify",
-                    "schedule --print [--kind systemd|cron] — print a daily schedule "
-                    "(installs nothing)",
-                    "overview — this description",
+                    "run [--to D] [--keep N] - pg_dump snapshot + incremental files copy to a "
+                    "second location",
+                    "verify <snapshot> - check the dump, manifest and every blob's sha256",
+                    "restore --from <snapshot> --to <empty dir> [--dsn DSN] - pg_restore into "
+                    "an empty database and files tree, then verify",
+                    "schedule --command C [--to D] [--unit-dir U] - write a daily systemd user "
+                    "timer running C (enables nothing); --print only prints (systemd or cron)",
+                    "overview [--to D] - this description and the last successful backup",
                 ],
             },
             {
                 "title": "Safety",
                 "items": [
-                    "safe while the server writes (SQLite online backup API, WAL)",
-                    "restore refuses a non-empty target and never overwrites",
+                    "safe while the server writes (one exported Postgres snapshot)",
+                    "restore refuses a non-empty database or files target and never overwrites",
+                    "needs pg_dump / pg_restore 17 on PATH or in $CULTURE_LIBRARY_PG_BIN_DIR",
                 ],
             },
+            _last_success_section(args),
         ],
         json_mode=_json(args),
     )
@@ -61,11 +88,18 @@ def cmd_overview(args: argparse.Namespace) -> int:
 
 
 def _wrap(fn, *a, **kw):
-    from culture_library.core.backup import BackupError
+    from culture_library.core.backup import PgToolMissing
+    from culture_library.core.errors import CoreError
 
     try:
         return fn(*a, **kw)
-    except BackupError as exc:
+    except PgToolMissing as exc:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            str(exc),
+            f"install the PostgreSQL 17 client tools or set {PG_BIN_DIR_ENV}",
+        ) from None
+    except CoreError as exc:
         raise CliError(EXIT_USER_ERROR, str(exc), "see 'culture-library explain backup'") from None
     except OSError as exc:
         raise CliError(
@@ -82,7 +116,7 @@ def _render_report(rep, verb: str) -> str:
 def cmd_run(args: argparse.Namespace) -> int:
     from culture_library.core import backup
 
-    snap = _wrap(backup.run_backup, _data_dir(args), _dest(args), keep=args.keep)
+    snap = _wrap(backup.run_backup, _data_dir(args), _dest(args), keep=args.keep, dsn=args.dsn)
     text = (
         f"snapshot {snap.path} ({snap.manifest['item_count']} items, "
         f"{snap.blobs_copied} new blobs of {snap.blobs_total}; pruned {len(snap.pruned)})"
@@ -105,28 +139,57 @@ def cmd_verify(args: argparse.Namespace) -> int:
 def cmd_restore(args: argparse.Namespace) -> int:
     from culture_library.core import backup
 
-    return _report_cmd(args, _wrap(backup.restore, args.source, args.to), "restore")
+    return _report_cmd(args, _wrap(backup.restore, args.source, args.to, dsn=args.dsn), "restore")
 
 
 def cmd_schedule(args: argparse.Namespace) -> int:
     from culture_library.core import backup
 
-    if not args.print_only:
+    if args.print_only:
+        text = _wrap(
+            backup.schedule_text,
+            _data_dir(args),
+            args.to or f"${BACKUP_DIR_ENV}",
+            kind=args.kind,
+            command=args.exec_command,
+        )
+        emit_result(
+            {"kind": args.kind, "text": text} if _json(args) else text, json_mode=_json(args)
+        )
+        return 0
+    if args.kind != "systemd":
         raise CliError(
             EXIT_USER_ERROR,
-            "schedule only prints; it never installs anything",
-            "re-run with --print and install the output yourself",
+            "only systemd units can be written; cron is print-only",
+            "use --print --kind cron and install the line yourself",
         )
-    text = _wrap(
-        backup.schedule_text, _data_dir(args), args.to or f"${BACKUP_DIR_ENV}", kind=args.kind
+    if not args.exec_command:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "backup schedule writes units only with --command: the default 'culture-library "
+            "backup run' cannot reach the live database (its password is a grant secret, "
+            "never in live.env, and postgres publishes no port)",
+            "pass --command with the grant run ... docker compose run ... wrapper from "
+            'docs/operations/backup.md ("On the live stack"), or --print to see the units',
+        )
+    res = _wrap(
+        backup.install_units,
+        _data_dir(args),
+        _dest(args),
+        unit_dir=args.unit_dir,
+        command=args.exec_command,
     )
-    emit_result({"kind": args.kind, "text": text} if _json(args) else text, json_mode=_json(args))
+    lines = [f"wrote {path}" for path in res["written"]]
+    lines += ["enable it yourself (nothing was enabled or started):"]
+    lines += [f"  {cmd}" for cmd in res["next"]]
+    emit_result(res if _json(args) else "\n".join(lines), json_mode=_json(args))
     return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("backup", help="Backups (see 'culture-library backup overview').")
     p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--to", help=f"Backup location (default ${BACKUP_DIR_ENV}).")
     p.set_defaults(func=cmd_overview, json=False)
     nsub = p.add_subparsers(dest="backup_command", parser_class=type(p))
 
@@ -137,6 +200,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument("--data-dir", help=f"Library data dir (default ${DATA_DIR_ENV}).")
     r.add_argument("--to", help=f"Backup location (default ${BACKUP_DIR_ENV}).")
     r.add_argument("--keep", type=int, default=DEFAULT_KEEP, help="Snapshots to keep (7).")
+    r.add_argument(
+        "--dsn",
+        help="Library database DSN (default: the CULTURE_LIBRARY_PG_* env). Keep the "
+        "password in CULTURE_LIBRARY_PG_PASSWORD, not here.",
+    )
     common(r)
     r.set_defaults(func=cmd_run)
 
@@ -147,18 +215,31 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     rs = nsub.add_parser("restore", help="Restore a snapshot into an empty directory.")
     rs.add_argument("--from", dest="source", required=True, help="Snapshot directory.")
-    rs.add_argument("--to", required=True, help="Empty target data directory.")
+    rs.add_argument("--to", required=True, help="Empty target data directory (files tree).")
+    rs.add_argument(
+        "--dsn",
+        help="EMPTY database to restore into (default: the PG env); the password comes "
+        "from CULTURE_LIBRARY_PG_PASSWORD.",
+    )
     common(rs)
     rs.set_defaults(func=cmd_restore)
 
-    s = nsub.add_parser("schedule", help="Print a daily backup schedule.")
-    s.add_argument("--print", dest="print_only", action="store_true", help="Print (required).")
+    s = nsub.add_parser("schedule", help="Write a daily systemd user timer for the backup.")
+    s.add_argument("--print", dest="print_only", action="store_true", help="Print, write nothing.")
+    s.add_argument("--unit-dir", help="Where to write the units (~/.config/systemd/user).")
+    s.add_argument(
+        "--command",
+        dest="exec_command",
+        help="ExecStart command; required to write units (the grant run ... wrapper in "
+        "docs/operations/backup.md). --print without it shows 'culture-library backup run'.",
+    )
     s.add_argument("--kind", choices=("systemd", "cron"), default="systemd")
     s.add_argument("--data-dir", help=f"Library data dir (default ${DATA_DIR_ENV}).")
     s.add_argument("--to", help="Backup location to embed.")
     common(s)
     s.set_defaults(func=cmd_schedule)
 
-    ov = nsub.add_parser("overview", help="Describe the backup noun.")
+    ov = nsub.add_parser("overview", help="Describe the backup noun and its last success.")
+    ov.add_argument("--to", help=f"Backup location (default ${BACKUP_DIR_ENV}).")
     common(ov)
     ov.set_defaults(func=cmd_overview)

@@ -24,6 +24,13 @@ rerank_score, source, corpus}]}``. ``corpora`` (``["item"]`` by default, or ``["
 (pending|done|failed|none), embed_model (or null), chunks: [{chunk_no, chunk_sha, text,
 is_header}]}`` for sample generators; an invisible, archived or missing item is 404
 ``not_found``. Chunk 0 is the indexer's title header (``is_header: true``).
+
+Both routes select the vectors of one (model id, strategy), :func:`query_space`: the query
+embedder's stated space (the pair the indexer writes), or the current pair for a query
+embedder that states none or when none is configured (chunk listing only). When the space
+cannot be resolved (the gateway's ``/capabilities`` is unreachable) both answer 503
+``rag_unavailable``. ``embed_model`` is that pair's model id when the item has chunks under
+it, else null.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from culture_library.core import KINDS, library
 from culture_library.core import search as sr
+from culture_library.core.embedding_strategy import Strategy
 from culture_library.core.errors import NotFoundError
 from culture_library.gateway import GatewayEmbedder, GatewayReranker
 from culture_library.server.auth import Principal, check, current_principal, get_store
@@ -71,6 +79,14 @@ def _query_embedder(request: Request) -> sr.Embedder | None:
     if not hasattr(state, "query_embedder"):  # no lifespan ran (e.g. TestClient without with)
         state.query_embedder = GatewayEmbedder.from_env("query")
     return state.query_embedder
+
+
+def query_space(request: Request) -> tuple[str, Strategy]:
+    """The (model id, strategy) a query or chunk listing selects (plan risk r6): the query
+    embedder's :func:`~culture_library.core.search.embedder_space`, the pair the indexer
+    writes; the current pair without a query embedder. Raises ``EmbeddingError`` when the
+    embedder cannot say (``/capabilities`` unreachable)."""
+    return sr.embedder_space(_query_embedder(request))
 
 
 def _reranker(request: Request):
@@ -136,6 +152,7 @@ def retrieve(
     if embed is None:
         raise _unavailable("no query embedder is configured")
     try:
+        model_id, strategy = sr.embedder_space(embed)
         qvec = sr._embed(embed, [body.query])[0]
     except (sr.EmbeddingError, IndexError):
         raise _unavailable("the embedding gateway is unavailable") from None
@@ -156,6 +173,8 @@ def retrieve(
                 body.item_ids,
                 query=body.query,
                 corpora=tuple(dict.fromkeys(body.corpora)),
+                model_id=model_id,
+                strategy=strategy,
             )
     except ValueError as exc:
         raise HTTPException(
@@ -180,7 +199,10 @@ def retrieve(
 @router.get(
     "/api/rag/items/{item_id}/chunks",
     tags=["rag"],
-    responses={404: {"description": "item missing, archived or not visible"}},
+    responses={
+        404: {"description": "item missing, archived or not visible"},
+        503: {"description": "the query embedder cannot state its vector space"},
+    },
 )
 def item_chunks(
     item_id: int,
@@ -196,19 +218,20 @@ def item_chunks(
         raise HTTPException(
             status_code=404, detail={"detail": f"item {item_id} not found", "code": "not_found"}
         ) from None
+    try:
+        model_id, strategy = query_space(request)
+    except sr.EmbeddingError:
+        raise _unavailable("the embedding gateway is unavailable") from None
     with store.reader() as conn:
-        chunks = sr.item_chunks(conn, item.id, vis)
+        chunks = sr.item_chunks(conn, item.id, vis, model_id=model_id, strategy=strategy)
         state = conn.execute(
-            "SELECT state FROM index_queue WHERE item_id = ?", (item.id,)
-        ).fetchone()
-        model = conn.execute(
-            "SELECT model FROM embeddings WHERE item_id = ? ORDER BY chunk_no LIMIT 1", (item.id,)
+            "SELECT state FROM index_queue WHERE item_id = %s", (item.id,)
         ).fetchone()
     return {
         "item_id": item.id,
         "item_sha256": item.sha256,
         "index_state": state[0] if state else "none",
-        "embed_model": model[0] if model else None,
+        "embed_model": model_id if chunks else None,
         "chunks": [
             {
                 "chunk_no": c.chunk_no,

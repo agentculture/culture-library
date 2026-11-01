@@ -109,3 +109,46 @@ def test_doc_verification_steps():
     doc = DOC.read_text(encoding="utf-8")
     for needle in ("401", "302", "/api/health", "keys mint --name ops --scope admin", "grant run"):
         assert needle in doc, needle
+
+
+INIT_SQL = ROOT / "deploy" / "postgres-init" / "01-library.sql"
+
+
+def test_postgres_service(compose):
+    pg = compose["services"]["postgres"]
+    assert pg["image"] == "pgvector/pgvector:pg17"
+    assert "ports" not in pg
+    assert pg["restart"] == "unless-stopped"
+    assert any("culture-library-pgdata" in str(v) for v in pg["volumes"])
+    assert "culture-library-pgdata" in compose["volumes"]
+    assert "pg_isready" in " ".join(pg["healthcheck"]["test"])
+    assert "127.0.0.1" in " ".join(pg["healthcheck"]["test"])  # not the init-time socket
+
+
+def test_postgres_has_room_for_parallel_index_builds(compose):
+    # Docker's default /dev/shm is 64 MB; a parallel HNSW build over the live vectors needs
+    # about 1 GB of shared memory and fails with DiskFull without it (plan risk r7).
+    shm = str(compose["services"]["postgres"].get("shm_size", ""))
+    assert shm.lower() in {"1g", "1gb", "2g", "2gb"}
+
+
+def test_library_waits_for_healthy_postgres(compose):
+    dep = compose["services"]["library"]["depends_on"]["postgres"]
+    assert dep["condition"] == "service_healthy"
+    env = compose["services"]["library"]["environment"]
+    assert env["CULTURE_LIBRARY_PG_HOST"] == "postgres"
+    assert env["CULTURE_LIBRARY_PG_DATABASE"] == "culture_library"
+    assert env["CULTURE_LIBRARY_PG_USER"] == "culture_library"
+    assert "POSTGRES_PASSWORD" not in env  # the library never gets the superuser password
+
+
+def test_postgres_init_script_shape():
+    sql = INIT_SQL.read_text(encoding="utf-8")
+    assert "NOSUPERUSER" in sql
+    assert "NOCREATEROLE" in sql
+    assert "NOCREATEDB" in sql
+    assert "LC_COLLATE 'C'" in sql
+    assert "OWNER culture_library" in sql
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
+    assert ":'apppw'" in sql
+    assert "\\getenv apppw CULTURE_LIBRARY_PG_PASSWORD" in sql

@@ -15,6 +15,7 @@ from culture_library.server import ServerConfig  # noqa: E402
 from culture_library.server import routes_search  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
 from culture_library.server.auth import Principal, current_principal  # noqa: E402
+from tests.core.search_helpers import PAIR, vec  # noqa: E402
 
 
 @pytest.fixture
@@ -87,7 +88,7 @@ def test_lifespan_keeps_injected_query_embedder_and_reranker(gateway_env):
 
 
 def _vec(text):
-    return [1.0, 0.0] if "whale" in text else [0.0, 1.0]
+    return vec(1.0, 0.0) if "whale" in text else vec(0.0, 1.0)
 
 
 def test_search_semantic_uses_query_embedder(tmp_path):
@@ -103,7 +104,7 @@ def test_search_semantic_uses_query_embedder(tmp_path):
     app.dependency_overrides[current_principal] = lambda: Principal("k", frozenset({"read"}))
     res = store.add_item(b"whale", kind="book", title="Moby", format="txt", visibility="public")
     with store.connect() as conn:
-        sr.set_embeddings(conn, res.item.id, ["a whale"], [[1.0, 0.0]], "m")
+        sr.set_embeddings(conn, res.item.id, ["a whale"], [vec(1.0, 0.0)], **PAIR)
     r = TestClient(app).get("/api/search?q=whale&mode=semantic")
     assert r.status_code == 200
     assert [h["title"] for h in r.json()["hits"]] == ["Moby"]

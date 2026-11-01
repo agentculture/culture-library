@@ -327,7 +327,6 @@ def test_doc_has_s3_section_and_key_table():
         "Gwen",
         "xteink",
         "spec, plan, devague-record, design",
-        "'design' kind",
         deploy.DEFAULT_AWS_KEY_ID_SECRET,
     ):
         assert needle in doc, needle

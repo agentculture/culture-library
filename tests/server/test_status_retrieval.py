@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from culture_library.core import Store  # noqa: E402
 from culture_library.core import search as sr  # noqa: E402
+from culture_library.core.embedding_strategy import CURRENT_STRATEGY  # noqa: E402
 from culture_library.server import app as server_app  # noqa: E402
 from culture_library.server.auth import Principal, current_principal  # noqa: E402
 
@@ -37,11 +38,20 @@ def _client(tmp_path, principal=None, **state):
 
 
 def _index(store, title, visibility, model, chunks):
+    """Store ``chunks`` as vectors whose model id is ``model`` (the status lists model ids)."""
     res = store.add_item(
         title.encode(), kind="book", title=title, format="txt", visibility=visibility
     )
+    vec = [1.0] + [0.0] * (CURRENT_STRATEGY.dimension - 1)
     with store.connect() as conn:
-        sr.set_embeddings(conn, res.item.id, chunks, [[1.0, 0.0]] * len(chunks), model)
+        sr.set_embeddings(
+            conn,
+            res.item.id,
+            chunks,
+            [vec] * len(chunks),
+            model_id=model,
+            strategy=CURRENT_STRATEGY,
+        )
 
 
 def _retrieval(store_client):

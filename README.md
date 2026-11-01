@@ -21,6 +21,13 @@ library is in `culture_library/`. It has:
 - RAG passage retrieval and retrieval evals;
 - the site.
 
+Storage is PostgreSQL 17 with pgvector (compose service `postgres`; the driver is the
+optional `[pg]` extra). That is what is on disk; the live library on spark still runs the
+SQLite 0.19.x release until the cutover, which has a runbook in
+[`docs/operations/cutover-postgres.md`](docs/operations/cutover-postgres.md). On
+2026-10-31 the operator decided to migrate to Postgres before any further SQLite
+optimisation (issue #47).
+
 It was specified and built with devague: spec in `docs/specs/`, plan in
 `docs/plans/`, the run's record in `docs/deliveries/`. Deploy files are in
 `deploy/`, and runbooks in `docs/operations/`. What is still open is in the

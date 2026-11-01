@@ -1326,7 +1326,7 @@ Response 200:
 }
 ```
 
-Status codes: 200; 401, 403, 404 `not_found`, 409 `not_indexed` (the item has no indexed chunks yet), 409 `index_pending` (the item is being re-indexed; re-anchor when that is done).
+Status codes: 200; 401, 403, 404 `not_found`, 409 `not_indexed` (the item has no indexed chunks yet), 409 `index_pending` (the item is being re-indexed; re-anchor when that is done), 503 `rag_unavailable` (the query embedder cannot state which vectors it reads).
 
 ## Errors
 

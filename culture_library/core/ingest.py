@@ -32,7 +32,6 @@ import logging
 import os
 import re
 import shutil
-import sqlite3
 import subprocess  # nosec B404 - shell=False, fixed argv (pdftotext / pandoc)
 import tempfile
 import zipfile
@@ -41,7 +40,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .errors import ValidationError
 from .models import Item
@@ -398,7 +397,7 @@ def ingest(
     author: str = "",
     visibility: str | None = None,
     limits: IngestLimits = DEFAULT_LIMITS,
-    on_insert: Callable[[sqlite3.Connection, Item], None] | None = None,
+    on_insert: Callable[[Any, Item], None] | None = None,
     on_text: Callable[[str], None] | None = None,
 ) -> tuple[Item, bool, str]:
     """Validate and store an upload as-is; return ``(item, created, extracted_text)``.

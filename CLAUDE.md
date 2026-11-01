@@ -16,6 +16,15 @@ with the private S3 mirror on) as of 2026-10-31, with embeddings and the
 reranker on. Machine clients reach it on spark's loopback
 (`127.0.0.1:8796` for the API and site, `:8797` for MCP).
 
+**Postgres: on disk, not live yet.** The code in this tree stores everything in
+PostgreSQL 17 with pgvector (`pgvector/pgvector:pg17`, compose service `postgres`,
+volume `culture-library-pgdata`). **Live on spark still runs the SQLite 0.19.x
+release** until the cutover (plan task t19, runbook
+`docs/operations/cutover-postgres.md`). On 2026-10-31 the operator decided to migrate
+to Postgres before any further SQLite optimisation (issue #47); do not tune the SQLite
+store. Until the cutover, anything about live (sizes, timings, the running version)
+describes SQLite, and anything about `culture_library/` describes Postgres.
+
 - **Spec, plan and evidence.** The library was specified with devague:
   - spec: `docs/specs/2026-10-23-library-culture-dev.md`;
   - plan: `docs/plans/2026-10-24-library-culture-dev.md`;
@@ -24,7 +33,11 @@ reranker on. Machine clients reach it on spark's loopback
   It replaces xteink's ebooks.culture.dev library and ebooks-cli's intended
   purpose.
 - **Code layout.** All library code lives under `culture_library/`:
-  - `core/`: stdlib-only and network-free. It holds the SQLite WAL store,
+  - `core/`: network-free (the only third-party import is the optional `[pg]`
+    driver, psycopg 3, used by the store). It holds the Postgres store (versioned
+    migrations in `core/migrations/NNNN_*.sql`, applied once on open under an advisory
+    lock and recorded in `schema_version`; the database must use the `C` collation;
+    pgvector HNSW indexes for semantic search, Postgres full-text for keyword search),
     ingest, keys, feed, search and indexer, repo documents, library rules,
     send events, backup, and the uploaders table.
     Kinds are `book`, `article`, `newspaper`, `document`, `transcript`,
@@ -168,9 +181,13 @@ reranker on. Machine clients reach it on spark's loopback
       default stays items only), and the site's
       `#projects` and `#domains` views. The reader shows the working draft
       by default with a "working" badge.
-  - `migrate/`: the xteink migration.
-  - `cli/_commands/deploy.py`: `culture-library deploy restart` recreates the live
-    `library` and `mcp` containers from the host env file
+  - `migrate/`: the xteink migration, and `sqlite_to_postgres.py`, the one-shot
+    verified copy of a 0.19.x `library.db` into an empty Postgres
+    (`culture-library migrate sqlite-to-postgres`; it makes no embedding call and
+    refuses a non-empty target). It exists for the cutover and is not a sync.
+  - `cli/_commands/deploy.py`: `culture-library deploy restart` starts `postgres`
+    (waiting for its healthcheck), then recreates the live `library` and `mcp`
+    containers from the host env file
     (`$HOME/.config/culture-library/live.env`), after refusing a missing or placeholder
     setting, then checks health and the send targets.
 - **Site design.** `docs/design/library-site.md` is the contract. 30
@@ -194,6 +211,7 @@ reranker on. Machine clients reach it on spark's loopback
   The run's delivery summary is
   `docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`.
 - **Not done yet:**
+  - the cutover to Postgres on live (t19; runbook `docs/operations/cutover-postgres.md`);
   - the question review queue (#30);
   - runs 1-22 predate recorded suites, so the Evals overview's suite cards
     count only newer runs;
@@ -201,10 +219,10 @@ reranker on. Machine clients reach it on spark's loopback
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - culture-rules 0.38.1 pushes drafts from one owner clone per origin (d26); the
     full-corpus mirror check passed once on 2026-10-31, which #35 needs before removal;
-  - retrieval is still too slow for Gwen's turn path (#25): about 0.3 s without rerank
-    on 0.19.7 (`math.sumprod` scoring), and `core/vector_cache.py` keeps the unpacked
-    vectors in memory. Stdlib scoring tops out near 7 µs per vector; going further needs
-    a vectorised library or another store (#47);
+  - retrieval is still too slow for Gwen's turn path (#25) on live: about 0.3 s without
+    rerank on 0.19.7 (`math.sumprod` scoring over an in-process vector cache). The
+    Postgres port (#47) replaces both with pgvector HNSW queries (`core/search.py`; the
+    cache, `vector_log` and its triggers are gone), measured only on test data so far;
   - in-progress items (#22);
   - the Project Gutenberg header and licence are still indexed and
     retrievable (#27);
@@ -298,6 +316,17 @@ The pieces that span files:
   remediation}]}`; descriptive verbs never hard-fail on a bad target. Any noun
   with action verbs must also expose an `overview` verb
   (`teken cli doctor --strict` checks this).
+
+**The `[pg]` extra (decision).** The store's driver is `psycopg[binary]` 3 with
+`psycopg-pool` (one pool per process and database, `CULTURE_LIBRARY_PG_POOL_MIN`/`_MAX`,
+defaults 1/10), an optional `pg` extra; base `dependencies` stays empty and the production image installs
+`.[server,s3,pg]`. The database comes from `CULTURE_LIBRARY_PG_HOST`, `_PORT`, `_DATABASE`,
+`_USER` and `_PASSWORD` (the password is a grant secret that `deploy restart` injects;
+it is never in `live.env`). Postgres tests need a server:
+`CULTURE_LIBRARY_TEST_PG_DSN=postgresql://postgres@127.0.0.1:55432/postgres`. Backups
+use `pg_dump` and `pg_restore` 17 (`CULTURE_LIBRARY_PG_BIN_DIR`); see
+`docs/operations/backup.md`. `/api/status` has a `database` block and `/api/health`
+returns 503 when the database is unreachable.
 
 **The `[server]` extra (decision).** The HTTP server lives in
 `culture_library/server/` and its dependencies (fastapi, uvicorn, `mcp>=1.2,<2`,

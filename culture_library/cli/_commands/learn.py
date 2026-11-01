@@ -32,6 +32,7 @@ Commands
   culture-library server serve       Start the HTTP server (needs culture-library[server]).
   culture-library server overview    Describe the server noun.
   culture-library migrate from-xteink  Copy an xteink library in (dry run unless --apply).
+  culture-library migrate sqlite-to-postgres  Copy a SQLite library.db into Postgres (verified).
   culture-library migrate overview   Describe the migrate noun.
   culture-library keys mint          Mint an API key (shown once).
   culture-library keys rotate ID     Replace a key (then --confirm NEW_ID revokes ID).
@@ -83,6 +84,10 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["server", "serve"], "summary": "Start the HTTP server ([server] extra)."},
             {"path": ["server", "overview"], "summary": "Describe the server noun."},
             {"path": ["migrate", "from-xteink"], "summary": "Migrate xteink items (--apply)."},
+            {
+                "path": ["migrate", "sqlite-to-postgres"],
+                "summary": "Copy a SQLite library.db into an empty Postgres, verified.",
+            },
             {"path": ["migrate", "overview"], "summary": "Describe the migrate noun."},
             {"path": ["keys", "mint"], "summary": "Mint an API key (shown once)."},
             {"path": ["keys", "rotate"], "summary": "Replace a key; --confirm revokes old."},

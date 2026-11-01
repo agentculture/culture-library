@@ -6,6 +6,7 @@ import pytest
 
 from culture_library.core import eval_reanchor as ra
 from culture_library.core import search as sr
+from culture_library.core.embedding_strategy import CURRENT_MODEL_ID, CURRENT_STRATEGY
 from culture_library.core.search import Chunk
 
 STORY = ["Call me Ishmael. Some years ago I went to sea.", "The whale surfaced at dawn."]
@@ -66,10 +67,16 @@ def test_reanchor_samples_stale_when_any_context_missing_or_no_context():
 pytest.importorskip("fastapi")
 
 
+# A stored vector names its model id and strategy (decision c42); the routes read the
+# current pair's chunks, and a vector has the strategy's 768 dimensions.
+_PAIR = {"model_id": CURRENT_MODEL_ID, "strategy": CURRENT_STRATEGY}
+_VEC = [1.0] + [0.0] * (CURRENT_STRATEGY.dimension - 1)
+
+
 def _index_item(library, texts):
     item = library.add_item("\n\n".join(texts).encode(), title="Moby")
     with library.store.connect() as conn:
-        sr.set_embeddings(conn, item.id, texts, [[1.0, 0.0]] * len(texts), "m")
+        sr.set_embeddings(conn, item.id, texts, [_VEC] * len(texts), **_PAIR)
     return item
 
 
@@ -104,7 +111,7 @@ def test_reanchor_after_licence_removed(library):
     # re-chunk: licence gone, story re-split so story0 is now inside a bigger chunk
     after = ["Moby\nHerman", STORY[0] + "\n\n" + STORY[1]]
     with library.store.connect() as conn:
-        sr.set_embeddings(conn, item.id, after, [[1.0, 0.0]] * len(after), "m")
+        sr.set_embeddings(conn, item.id, after, [_VEC] * len(after), **_PAIR)
     new = _chunks(after)
 
     r = library.http.post(f"/api/eval/sets/{s['id']}/reanchor")
@@ -169,7 +176,7 @@ def test_full_reanchor_moves_the_set_to_the_items_current_bytes(library):
     item = _index_item(library, texts)
     s = _build_set(library, item, _chunks(texts)[1:])
     with library.store.connect() as conn:
-        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = %s", (s["id"],))
     body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
     assert body["could_not_re_anchor"] == []
     assert body["note"]["item_sha256"] == item.sha256
@@ -181,10 +188,10 @@ def test_partial_reanchor_keeps_the_old_set_sha(library):
     item = _index_item(library, before)
     s = _build_set(library, item, _chunks(before)[1:])
     with library.store.connect() as conn:
-        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = %s", (s["id"],))
     after = ["Moby\nHerman", STORY[0] + "\n\n" + STORY[1]]
     with library.store.connect() as conn:
-        sr.set_embeddings(conn, item.id, after, [[1.0, 0.0]] * len(after), "m")
+        sr.set_embeddings(conn, item.id, after, [_VEC] * len(after), **_PAIR)
     body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
     assert body["could_not_re_anchor"]  # the licence question is stale
     assert _set_sha(library, s["id"]) == "old"
@@ -196,10 +203,11 @@ def test_reanchor_waits_while_the_item_is_being_re_indexed(library):
     item = _index_item(library, texts)
     s = _build_set(library, item, _chunks(texts)[1:])
     with library.store.connect() as conn:
-        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = %s", (s["id"],))
         conn.execute(
-            "INSERT OR REPLACE INTO index_queue (item_id, state, enqueued_at) "
-            "VALUES (?, 'pending', 0)",
+            "INSERT INTO index_queue (item_id, state, enqueued_at) VALUES (%s, 'pending', 0)"
+            " ON CONFLICT (item_id) DO UPDATE SET state = excluded.state,"
+            " enqueued_at = excluded.enqueued_at",
             (item.id,),
         )
     r = library.http.post(f"/api/eval/sets/{s['id']}/reanchor")
@@ -214,7 +222,7 @@ def test_moving_the_set_sha_bumps_the_version_even_with_no_reference_change(libr
     item = _index_item(library, texts)
     s = _build_set(library, item, _chunks(texts)[1:])
     with library.store.connect() as conn:
-        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = ?", (s["id"],))
+        conn.execute("UPDATE eval_sets SET item_sha256 = 'old' WHERE id = %s", (s["id"],))
     body = library.http.post(f"/api/eval/sets/{s['id']}/reanchor").json()
     assert body["note"]["changed"] == 0
     assert body["version"] == 2

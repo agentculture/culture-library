@@ -33,8 +33,15 @@ def pytest_collection_modifyitems(config, items) -> None:
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _pg_isolation(pg_dsn):
+    """Visual tests share one session-scoped, seeded site; the root conftest's per-test
+    truncate would empty it before the second view, so it is switched off here."""
+    return
+
+
 @pytest.fixture(scope="session")
-def site() -> Site:
+def site(pg_dsn) -> Site:
     pytest.importorskip("playwright")
     pytest.importorskip("PIL")
     with tempfile.TemporaryDirectory(prefix="culture-library-visual-") as tmp:

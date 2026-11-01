@@ -123,9 +123,7 @@ def test_each_version_and_draft_enqueues_and_appends_one_event(client, app) -> N
     assert [e["item_id"] for e in events] == [v["doc"]["id"]] * 2
     assert [e["sha256"] for e in events] == [v["version"]["sha256"], d["draft"]["sha256"]]
     assert all(e["visibility"] == "private" and e["kind"] == "spec" for e in events)
-    import json
-
-    assert [json.loads(e["data"])["commit"] for e in events] == [A, "working"]
+    assert [e["data"]["commit"] for e in events] == [A, "working"]  # jsonb: a dict
 
 
 def test_feed_event_is_readable_via_the_feed_route(client) -> None:
@@ -334,9 +332,9 @@ def test_every_push_is_private_whatever_the_body_says(app, client) -> None:
 
 def test_two_checkout_paths_yield_one_doc_and_one_version(client, app) -> None:
     clone = _body(remote="git@github.com:agentculture/devague.git")
-    clone["checkout"] = "/home/spark/git/devague"
+    clone["checkout"] = "/srv/git/devague"
     worktree = _body(remote="https://github.com/agentculture/devague.git")
-    worktree["checkout"] = "/home/spark/git/.worktrees.devague/t1"
+    worktree["checkout"] = "/srv/git/.worktrees.devague/t1"
     first = _ok(client.post("/api/repodocs", json=clone))
     second = _ok(client.post("/api/repodocs", json=worktree))
     assert first["doc"]["id"] == second["doc"]["id"]

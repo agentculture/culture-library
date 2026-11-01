@@ -7,98 +7,22 @@ behind. ``version`` counts regenerations of a set's samples; two runs are
 ``aggregates_json`` is set only when its status is ``complete``.
 
 List functions take the same ``include_private`` / ``owner`` arguments as
-:mod:`culture_library.core.library` (via :func:`uploaders.visible_sql`). Archived items are
+:mod:`culture_library.core.library` (the rule in :func:`_visible`). Archived items are
 hidden. Stdlib only, no network.
 """
 
 from __future__ import annotations
 
-import json
-import sqlite3
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from . import uploaders
 from .errors import NotFoundError, ValidationError
-from .store import now, register_migration, register_schema
+from .jsonvalues import sorted_keys
+from .store import now
 
 RUN_STATUSES = ("complete", "partial", "failed")
-
-register_schema("""
-CREATE TABLE IF NOT EXISTS eval_sets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    item_sha256 TEXT NOT NULL,
-    chunker_json TEXT NOT NULL,
-    adapter TEXT NOT NULL,
-    adapter_version TEXT NOT NULL,
-    generator_json TEXT NOT NULL,
-    version INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS eval_sets_item ON eval_sets(item_id);
-CREATE TABLE IF NOT EXISTS eval_samples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    set_id INTEGER NOT NULL REFERENCES eval_sets(id) ON DELETE CASCADE,
-    question TEXT NOT NULL,
-    reference_answer TEXT NOT NULL,
-    reference_chunk_shas TEXT NOT NULL DEFAULT '[]',
-    reference_contexts TEXT NOT NULL DEFAULT '[]',
-    source_urls TEXT NOT NULL DEFAULT '[]'
-);
-CREATE INDEX IF NOT EXISTS eval_samples_set ON eval_samples(set_id);
-CREATE TABLE IF NOT EXISTS eval_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    set_id INTEGER NOT NULL REFERENCES eval_sets(id) ON DELETE CASCADE,
-    set_version INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL CHECK (status IN ('complete', 'partial', 'failed')),
-    config_json TEXT NOT NULL,
-    total INTEGER NOT NULL DEFAULT 0,
-    completed INTEGER NOT NULL DEFAULT 0,
-    aggregates_json TEXT,
-    created_at TEXT NOT NULL,
-    CHECK (aggregates_json IS NULL OR status = 'complete')
-);
-CREATE INDEX IF NOT EXISTS eval_runs_set ON eval_runs(set_id);
-CREATE TABLE IF NOT EXISTS eval_run_samples (
-    run_id INTEGER NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
-    sample_id INTEGER NOT NULL,
-    retrieved_chunk_shas TEXT NOT NULL DEFAULT '[]',
-    scores_json TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (run_id, sample_id)
-)
-""")
-
-# Columns added after 0.17.2, per table. Existing databases get them with ALTER TABLE ADD COLUMN
-# (never a table rebuild), so ids, rows and sqlite_sequence are untouched.
-_ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
-    "eval_runs": (
-        ("partial_aggregates_json", "TEXT"),
-        ("error_rate", "REAL"),
-        ("suites_json", "TEXT"),
-        ("running", "INTEGER NOT NULL DEFAULT 0"),
-    ),
-    "eval_run_samples": (
-        ("question", "TEXT"),
-        ("reference_chunk_shas", "TEXT"),
-        ("set_version", "INTEGER"),
-        ("retrieved_item_ids", "TEXT"),
-        ("latency_ms", "REAL"),
-        ("freshness", "TEXT"),
-    ),
-}
-
-
-def ensure_columns(conn: sqlite3.Connection) -> None:
-    """Add any missing column from :data:`_ADDED_COLUMNS` (idempotent)."""
-    for table, columns in _ADDED_COLUMNS.items():
-        have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}  # nosec B608
-        for name, decl in columns:
-            if name not in have:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")  # nosec B608
-
-
-register_migration(ensure_columns)
 
 _SET_COLS = (
     "id, item_id, item_sha256, chunker_json, adapter, adapter_version, generator_json, "
@@ -123,20 +47,45 @@ _JSON_SET = ("chunker_json", "generator_json")
 _JSON_RUN = ("config_json", "aggregates_json", "partial_aggregates_json", "suites_json")
 
 
-def _dumps(value: Any) -> str:
-    return json.dumps(value, sort_keys=True)
+def _clean(value: Any) -> Any:
+    """``value`` with NaN and infinity turned into None: jsonb rejects them, JSON has none."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {k: _clean(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_clean(v) for v in value]
+    return value
 
 
-def _decode(row: sqlite3.Row | tuple, cols: str, json_cols: Sequence[str]) -> dict[str, Any]:
+def _finite(value: float | None) -> float | None:
+    return value if value is None or math.isfinite(value) else None
+
+
+def _json(value: Any) -> Any:
+    """A jsonb parameter for ``value`` (None stays SQL NULL); non-finite floats become null."""
+    from psycopg.types.json import Jsonb
+
+    return None if value is None else Jsonb(_clean(value))
+
+
+def _decode(row: Sequence[Any], cols: str, json_cols: Sequence[str]) -> dict[str, Any]:
     out = dict(zip((c.strip() for c in cols.split(",")), tuple(row), strict=True))
     for col in json_cols:
-        raw = out[col]
-        out[col] = None if raw is None else json.loads(raw)
+        out[col] = sorted_keys(out[col])
     return out
 
 
+def _visible(include_private: bool, owner: str | None, item: str) -> tuple[str, list[str]]:
+    """The library's visibility rule for the item alias ``item``, as ``(condition, params)``:
+    :func:`culture_library.core.uploaders.visible_sql`, the one copy of the rule."""
+    return uploaders.visible_sql(
+        include_private, owner, visibility=f"{item}.visibility", item_id=f"{item}.id"
+    )
+
+
 def create_set(
-    conn: sqlite3.Connection,
+    conn: Any,
     item_id: int,
     item_sha256: str,
     *,
@@ -146,16 +95,16 @@ def create_set(
     generator: Any,
 ) -> int:
     """Insert an eval set (version 1) for an item; return its id."""
-    cur = conn.execute(
+    row = conn.execute(
         "INSERT INTO eval_sets (item_id, item_sha256, chunker_json, adapter, adapter_version, "
-        "generator_json, version, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-        (item_id, item_sha256, _dumps(chunker), adapter, adapter_version, _dumps(generator), now()),
-    )
-    return int(cur.lastrowid)
+        "generator_json, version, created_at) VALUES (%s, %s, %s, %s, %s, %s, 1, %s) RETURNING id",
+        (item_id, item_sha256, _json(chunker), adapter, adapter_version, _json(generator), now()),
+    ).fetchone()
+    return int(row[0])
 
 
-def get_set(conn: sqlite3.Connection, set_id: int) -> dict[str, Any]:
-    sql = f"SELECT {_SET_COLS} FROM eval_sets WHERE id = ?"  # nosec B608
+def get_set(conn: Any, set_id: int) -> dict[str, Any]:
+    sql = f"SELECT {_SET_COLS} FROM eval_sets WHERE id = %s"  # nosec B608
     row = conn.execute(sql, (set_id,)).fetchone()
     if row is None:
         raise NotFoundError(f"eval set {set_id} not found")
@@ -163,31 +112,27 @@ def get_set(conn: sqlite3.Connection, set_id: int) -> dict[str, Any]:
 
 
 def list_sets(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     item_id: int | None = None,
     include_private: bool = False,
     owner: str | None = None,
 ) -> list[dict[str, Any]]:
     """Eval sets whose item the caller may see (same rule as the library), oldest first."""
-    vis, params = uploaders.visible_sql(
-        include_private, owner, visibility="i.visibility", item_id="i.id"
-    )
+    vis, params = _visible(include_private, owner, "i")
     sql = (
         "SELECT " + ", ".join(f"s.{c.strip()}" for c in _SET_COLS.split(",")) + " "  # nosec B608
         "FROM eval_sets s JOIN items i ON i.id = s.item_id "
         f"WHERE i.archived_at IS NULL AND {vis}"
     )
     if item_id is not None:
-        sql += " AND s.item_id = ?"
+        sql += " AND s.item_id = %s"
         params = [*params, item_id]
     rows = conn.execute(sql + " ORDER BY s.id", params).fetchall()
     return [_decode(r, _SET_COLS, _JSON_SET) for r in rows]
 
 
-def replace_samples(
-    conn: sqlite3.Connection, set_id: int, samples: Sequence[Mapping[str, Any]]
-) -> int:
+def replace_samples(conn: Any, set_id: int, samples: Sequence[Mapping[str, Any]]) -> int:
     """Replace a set's samples with ``samples``, bump its version; return the new version.
 
     Each sample mapping has ``question`` and ``reference_answer`` and optionally
@@ -195,10 +140,10 @@ def replace_samples(
     """
     get_set(conn, set_id)
     _check_samples(samples)
-    conn.execute("DELETE FROM eval_samples WHERE set_id = ?", (set_id,))
+    conn.execute("DELETE FROM eval_samples WHERE set_id = %s", (set_id,))
     _insert_samples(conn, set_id, samples)
-    conn.execute("UPDATE eval_sets SET version = version + 1 WHERE id = ?", (set_id,))
-    return int(conn.execute("SELECT version FROM eval_sets WHERE id = ?", (set_id,)).fetchone()[0])
+    conn.execute("UPDATE eval_sets SET version = version + 1 WHERE id = %s", (set_id,))
+    return int(conn.execute("SELECT version FROM eval_sets WHERE id = %s", (set_id,)).fetchone()[0])
 
 
 def _check_samples(samples: Sequence[Mapping[str, Any]]) -> None:
@@ -207,39 +152,35 @@ def _check_samples(samples: Sequence[Mapping[str, Any]]) -> None:
             raise ValidationError("a sample needs a question and a reference_answer")
 
 
-def _insert_samples(
-    conn: sqlite3.Connection, set_id: int, samples: Sequence[Mapping[str, Any]]
-) -> None:
+def _insert_samples(conn: Any, set_id: int, samples: Sequence[Mapping[str, Any]]) -> None:
     for sample in samples:
         conn.execute(
             "INSERT INTO eval_samples (set_id, question, reference_answer, reference_chunk_shas, "
-            "reference_contexts, source_urls) VALUES (?, ?, ?, ?, ?, ?)",
+            "reference_contexts, source_urls) VALUES (%s, %s, %s, %s, %s, %s)",
             (
                 set_id,
                 sample["question"],
                 sample["reference_answer"],
-                _dumps(list(sample.get("reference_chunk_shas", []))),
-                _dumps(list(sample.get("reference_contexts", []))),
-                _dumps(list(sample.get("source_urls", []))),
+                _json(list(sample.get("reference_chunk_shas", []))),
+                _json(list(sample.get("reference_contexts", []))),
+                _json(list(sample.get("source_urls", []))),
             ),
         )
 
 
-def add_samples(
-    conn: sqlite3.Connection, set_id: int, samples: Sequence[Mapping[str, Any]]
-) -> None:
+def add_samples(conn: Any, set_id: int, samples: Sequence[Mapping[str, Any]]) -> None:
     """Append samples to a set without changing its version (initial generation)."""
     get_set(conn, set_id)
     _check_samples(samples)
     _insert_samples(conn, set_id, samples)
 
 
-def list_samples(conn: sqlite3.Connection, set_id: int) -> list[dict[str, Any]]:
+def list_samples(conn: Any, set_id: int) -> list[dict[str, Any]]:
     cols = (
         "id, set_id, question, reference_answer, reference_chunk_shas, "
         "reference_contexts, source_urls"
     )
-    sql = f"SELECT {cols} FROM eval_samples WHERE set_id = ? ORDER BY id"  # nosec B608
+    sql = f"SELECT {cols} FROM eval_samples WHERE set_id = %s ORDER BY id"  # nosec B608
     rows = conn.execute(sql, (set_id,)).fetchall()
     return [
         _decode(r, cols, ("reference_chunk_shas", "reference_contexts", "source_urls"))
@@ -248,7 +189,7 @@ def list_samples(conn: sqlite3.Connection, set_id: int) -> list[dict[str, Any]]:
 
 
 def create_run(
-    conn: sqlite3.Connection,
+    conn: Any,
     set_id: int,
     *,
     status: str,
@@ -271,30 +212,30 @@ def create_run(
     if aggregates is not None and status != "complete":
         raise ValidationError("aggregates are only stored for a complete run")
     version = get_set(conn, set_id)["version"]
-    cur = conn.execute(
+    row = conn.execute(
         "INSERT INTO eval_runs (set_id, set_version, status, config_json, total, completed, "
         "aggregates_json, created_at, partial_aggregates_json, error_rate, suites_json, running) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (
             set_id,
             version,
             status,
-            _dumps(config),
+            _json(config),
             total,
             completed,
-            None if aggregates is None else _dumps(aggregates),
+            None if aggregates is None else _json(aggregates),
             now(),
-            None if partial_aggregates is None else _dumps(partial_aggregates),
-            error_rate,
-            None if suites is None else _dumps(list(suites)),
-            1 if running else 0,
+            None if partial_aggregates is None else _json(partial_aggregates),
+            _finite(error_rate),
+            None if suites is None else _json(list(suites)),
+            bool(running),
         ),
-    )
-    return int(cur.lastrowid)
+    ).fetchone()
+    return int(row[0])
 
 
 def add_run_sample(
-    conn: sqlite3.Connection,
+    conn: Any,
     run_id: int,
     sample_id: int,
     *,
@@ -309,25 +250,32 @@ def add_run_sample(
 ) -> None:
     """Store one sample's result; the optional fields are the run's per-question snapshot."""
     conn.execute(
-        "INSERT OR REPLACE INTO eval_run_samples (run_id, sample_id, retrieved_chunk_shas, "
+        "INSERT INTO eval_run_samples (run_id, sample_id, retrieved_chunk_shas, "
         "scores_json, question, reference_chunk_shas, set_version, retrieved_item_ids, "
-        "latency_ms, freshness) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "latency_ms, freshness) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (run_id, sample_id) DO UPDATE SET "
+        "retrieved_chunk_shas = EXCLUDED.retrieved_chunk_shas, "
+        "scores_json = EXCLUDED.scores_json, question = EXCLUDED.question, "
+        "reference_chunk_shas = EXCLUDED.reference_chunk_shas, "
+        "set_version = EXCLUDED.set_version, "
+        "retrieved_item_ids = EXCLUDED.retrieved_item_ids, "
+        "latency_ms = EXCLUDED.latency_ms, freshness = EXCLUDED.freshness",
         (
             run_id,
             sample_id,
-            _dumps(list(retrieved_chunk_shas)),
-            _dumps(dict(scores)),
+            _json(list(retrieved_chunk_shas)),
+            _json(dict(scores)),
             question,
-            None if reference_chunk_shas is None else _dumps(list(reference_chunk_shas)),
+            None if reference_chunk_shas is None else _json(list(reference_chunk_shas)),
             set_version,
-            None if retrieved_item_ids is None else _dumps(list(retrieved_item_ids)),
-            latency_ms,
-            None if freshness is None else _dumps(freshness),
+            None if retrieved_item_ids is None else _json(list(retrieved_item_ids)),
+            _finite(latency_ms),
+            None if freshness is None else _json(freshness),
         ),
     )
 
 
-def backfill_snapshots(conn: sqlite3.Connection) -> int:
+def backfill_snapshots(conn: Any) -> int:
     """Copy question and reference shas from ``eval_samples`` into run results lacking them.
 
     Idempotent: a result that already has a question is left alone. A result whose sample was
@@ -372,92 +320,95 @@ def backfill_snapshots(conn: sqlite3.Connection) -> int:
     return int(cur.rowcount)
 
 
-def get_run(conn: sqlite3.Connection, run_id: int) -> dict[str, Any]:
-    sql = f"SELECT {_RUN_COLS} FROM eval_runs WHERE id = ?"  # nosec B608
+def get_run(conn: Any, run_id: int) -> dict[str, Any]:
+    sql = f"SELECT {_RUN_COLS} FROM eval_runs WHERE id = %s"  # nosec B608
     row = conn.execute(sql, (run_id,)).fetchone()
     if row is None:
         raise NotFoundError(f"eval run {run_id} not found")
     return _decode(row, _RUN_COLS, _JSON_RUN)
 
 
-def get_runs(conn: sqlite3.Connection, run_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+def get_runs(conn: Any, run_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
     """The runs that exist among ``run_ids``, by id, in one query (missing ids are absent)."""
     ids = [int(i) for i in run_ids]
     if not ids:
         return {}
-    marks = ", ".join("?" * len(ids))
-    sql = f"SELECT {_RUN_COLS} FROM eval_runs WHERE id IN ({marks})"  # nosec B608
-    runs = [_decode(r, _RUN_COLS, _JSON_RUN) for r in conn.execute(sql, ids).fetchall()]
+    sql = f"SELECT {_RUN_COLS} FROM eval_runs WHERE id = ANY(%s)"  # nosec B608
+    runs = [_decode(r, _RUN_COLS, _JSON_RUN) for r in conn.execute(sql, (ids,)).fetchall()]
     return {r["id"]: r for r in runs}
 
 
-def list_runs_samples(
-    conn: sqlite3.Connection, run_ids: Sequence[int]
-) -> dict[int, list[dict[str, Any]]]:
+def list_runs_samples(conn: Any, run_ids: Sequence[int]) -> dict[int, list[dict[str, Any]]]:
     """``list_run_samples`` for several runs in one query, keyed by run id."""
     ids = [int(i) for i in run_ids]
     out: dict[int, list[dict[str, Any]]] = {i: [] for i in ids}
     if not ids:
         return out
-    marks = ", ".join("?" * len(ids))
     sql = (
         f"SELECT run_id, {_RUN_SAMPLE_COLS} FROM eval_run_samples "  # nosec B608
-        f"WHERE run_id IN ({marks}) ORDER BY run_id, sample_id"
+        "WHERE run_id = ANY(%s) ORDER BY run_id, sample_id"
     )
-    for row in conn.execute(sql, ids).fetchall():
+    for row in conn.execute(sql, (ids,)).fetchall():
         out[row[0]].append(_decode(row[1:], _RUN_SAMPLE_COLS, _JSON_RUN_SAMPLE))
     return out
 
 
 def list_runs(
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     set_id: int | None = None,
     include_private: bool = False,
     owner: str | None = None,
 ) -> list[dict[str, Any]]:
     """Runs whose set's item the caller may see, oldest first."""
-    vis, params = uploaders.visible_sql(
-        include_private, owner, visibility="i.visibility", item_id="i.id"
-    )
+    vis, params = _visible(include_private, owner, "i")
     sql = (
         "SELECT " + ", ".join(f"r.{c.strip()}" for c in _RUN_COLS.split(",")) + " "  # nosec B608
         "FROM eval_runs r JOIN eval_sets s ON s.id = r.set_id JOIN items i ON i.id = s.item_id "
         f"WHERE i.archived_at IS NULL AND {vis}"
     )
     if set_id is not None:
-        sql += " AND r.set_id = ?"
+        sql += " AND r.set_id = %s"
         params = [*params, set_id]
     rows = conn.execute(sql + " ORDER BY r.id", params).fetchall()
     return [_decode(r, _RUN_COLS, _JSON_RUN) for r in rows]
 
 
-def list_run_samples(conn: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
+def list_run_samples(conn: Any, run_id: int) -> list[dict[str, Any]]:
     sql = (
         f"SELECT {_RUN_SAMPLE_COLS} FROM eval_run_samples "  # nosec B608
-        "WHERE run_id = ? ORDER BY sample_id"
+        "WHERE run_id = %s ORDER BY sample_id"
     )
     rows = conn.execute(sql, (run_id,)).fetchall()
     return [_decode(r, _RUN_SAMPLE_COLS, _JSON_RUN_SAMPLE) for r in rows]
 
 
-def running_runs(conn: sqlite3.Connection, set_id: int | None = None) -> list[int]:
+def running_runs(conn: Any, set_id: int | None = None) -> list[int]:
     """Ids of runs still marked running (optionally of one set), oldest first."""
-    sql = "SELECT id FROM eval_runs WHERE running = 1"
+    sql = "SELECT id FROM eval_runs WHERE running"
     params: list[Any] = []
     if set_id is not None:
-        sql += " AND set_id = ?"
+        sql += " AND set_id = %s"
         params.append(set_id)
     return [int(r[0]) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
 
 
-def set_run_progress(conn: sqlite3.Connection, run_id: int, completed: int) -> None:
+def lock_set_runs(conn: Any, set_id: int) -> None:
+    """Serialise run starts for one set until the transaction ends.
+
+    A start that checks :func:`running_runs` and then inserts must call this first; two
+    concurrent starts for the same set then queue instead of both seeing no running run.
+    """
+    conn.execute("SELECT id FROM eval_sets WHERE id = %s FOR NO KEY UPDATE", (set_id,))
+
+
+def set_run_progress(conn: Any, run_id: int, completed: int) -> None:
     """Record how many questions a running run has finished."""
-    conn.execute("UPDATE eval_runs SET completed = ? WHERE id = ?", (int(completed), run_id))
+    conn.execute("UPDATE eval_runs SET completed = %s WHERE id = %s", (int(completed), run_id))
 
 
 def finish_run(
-    conn: sqlite3.Connection,
+    conn: Any,
     run_id: int,
     *,
     status: str,
@@ -478,16 +429,17 @@ def finish_run(
         raise ValidationError("aggregates are only stored for a complete run")
     get_run(conn, run_id)
     conn.execute(
-        "UPDATE eval_runs SET status = ?, config_json = ?, completed = ?, aggregates_json = ?, "
-        "partial_aggregates_json = ?, error_rate = ?, suites_json = ?, running = 0 WHERE id = ?",
+        "UPDATE eval_runs SET status = %s, config_json = %s, completed = %s, "
+        "aggregates_json = %s, partial_aggregates_json = %s, error_rate = %s, "
+        "suites_json = %s, running = false WHERE id = %s",
         (
             status,
-            _dumps(config),
+            _json(config),
             int(completed),
-            None if aggregates is None else _dumps(aggregates),
-            None if partial_aggregates is None else _dumps(partial_aggregates),
-            error_rate,
-            None if suites is None else _dumps(list(suites)),
+            None if aggregates is None else _json(aggregates),
+            None if partial_aggregates is None else _json(partial_aggregates),
+            _finite(error_rate),
+            None if suites is None else _json(list(suites)),
             run_id,
         ),
     )
@@ -503,14 +455,20 @@ def _score_means(results: Sequence[Mapping[str, Any]]) -> dict[str, float | None
     return {k: (sum(v) / len(v) if v else None) for k, v in sorted(values.items())}
 
 
-def close_running_runs(conn: sqlite3.Connection, reason: str) -> list[int]:
+def close_running_runs(conn: Any, reason: str) -> list[int]:
     """Close every run still marked running (a server restart interrupted it).
 
     A run with stored per-question results becomes ``partial`` (``completed`` = those results,
     ``partial_aggregates`` = the mean of each score over them); one with none becomes
     ``failed``. ``config["closed_reason"]`` records ``reason``. Returns the closed run ids.
+
+    Safe beside a concurrent start or finish: only runs already committed as running are
+    candidates (a run another transaction is creating is not seen), each is row-locked
+    before it is read, so a worker finishing it is waited for rather than overwritten, and a
+    run whose row is locked by someone else right now is skipped, never blocked on.
     """
-    closed = running_runs(conn)
+    sql = "SELECT id FROM eval_runs WHERE running ORDER BY id FOR UPDATE SKIP LOCKED"
+    closed = [int(r[0]) for r in conn.execute(sql).fetchall()]
     for run_id in closed:
         run = get_run(conn, run_id)
         results = list_run_samples(conn, run_id)
@@ -545,7 +503,7 @@ __all__ = [
     "comparable",
     "create_run",
     "create_set",
-    "ensure_columns",
+    "lock_set_runs",
     "finish_run",
     "get_run",
     "get_set",

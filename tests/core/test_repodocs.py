@@ -195,6 +195,25 @@ def test_feature_branch_push_adds_history_only(docs: RepoDocs) -> None:
     assert docs.content(r.doc.id, commit=F, include_private=False) == b"feature\n"
 
 
+def test_default_branch_flag_is_a_boolean_that_only_rises(docs: RepoDocs, store: Store) -> None:
+    """t11: on_default_branch is a Postgres boolean; a re-push sets it (GREATEST), a later
+    re-push from a feature branch never clears it."""
+
+    def stored() -> list:
+        with store.reader() as conn:
+            return [r[0] for r in conn.execute("SELECT on_default_branch FROM repodoc_versions")]
+
+    _push(docs, commit=F, default_branch_head=A, content="feature\n")
+    assert stored() == [False]
+    merged = _push(docs, commit=F, default_branch_head=F, content="feature\n")
+    assert not merged.created
+    assert merged.version.on_default_branch is True
+    assert stored() == [True]
+    _push(docs, commit=F, default_branch_head=A, content="feature\n")
+    assert stored() == [True]
+    assert type(stored()[0]) is bool
+
+
 def test_feature_branch_only_doc_has_no_current(docs: RepoDocs) -> None:
     r = _push(docs, commit=F, default_branch_head=A, content="feature\n")
     assert r.doc.current_commit is None
