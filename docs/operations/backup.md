@@ -56,10 +56,38 @@ every blob the manifest names.
 verifies the snapshot first, loads the dump with `pg_restore --single-transaction`,
 copies the blobs back, then checks the restored database: every table's row count, and
 every item's and repo-document version's id, sha256 and visibility, against the
-manifest, and re-hashes every blob. The target database must exist, be empty, and use
-the C collation (the same rule the server enforces); the `vector` extension is created
-by the dump, so the role needs the privilege to do that. Exit code 1 means a check
-failed or a target was not empty.
+manifest, and re-hashes every blob. The target database must exist, be empty, use the C
+collation (the same rule the server enforces), and already have the `vector` extension in
+the `public` schema; `restore` checks all three before it loads anything. Only a superuser
+may create the extension, so make the target the way the init script makes the live
+database; the restore itself then runs as the application role. It leaves out one entry of
+the dump, `COMMENT ON EXTENSION vector`, which only the extension's owner may set; every other
+comment is restored. Exit code 1 means a check failed or a target was not empty.
+
+On the live stack (the superuser password is the grant secret
+`CULTURE_LIBRARY_PG_SUPERUSER_PASSWORD`; inside the `postgres` container the socket needs
+none):
+
+```bash
+B=/mnt/second-disk/culture-library-backup     # the backup location (as in "On the live stack")
+R=/mnt/second-disk/culture-library-restore    # an empty directory for the restored files
+docker compose -p culture-library -f deploy/compose.yaml exec -T postgres psql -U postgres \
+  -c "CREATE DATABASE culture_library_restore OWNER culture_library TEMPLATE template0
+      ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'" \
+  -c "REVOKE ALL ON DATABASE culture_library_restore FROM PUBLIC"
+docker compose -p culture-library -f deploy/compose.yaml exec -T postgres psql -U postgres \
+  -d culture_library_restore -c "CREATE EXTENSION vector"
+mkdir -p "$R"; chmod o+w "$R"
+grant run --inject CULTURE_LIBRARY_PG_PASSWORD=CULTURE_LIBRARY_PG_PASSWORD -- \
+  docker compose -p culture-library -f deploy/compose.yaml \
+  --env-file "$HOME/.config/culture-library/live.env" run --rm --no-deps \
+  -v "$B":/backup:ro -v "$R":/restore library culture-library backup restore \
+  --from /backup/snapshots/<UTC stamp> --to /restore \
+  --dsn "host=postgres dbname=culture_library_restore user=culture_library"
+```
+
+The t18 drill (2026-11-01) ran this shape on a scratch server built from the same image and
+init script; see "Restore drill" below.
 
 ## Schedule
 
@@ -115,12 +143,36 @@ The service reads `$HOME/.config/culture-library/live.env` if it exists. `backup
 --print [--kind systemd|cron]` only prints the text. `backup overview` shows the last
 successful backup (the newest snapshot with a manifest), so a missed day is visible.
 
+## Restore drill (spark, 2026-11-01; Postgres, plan task t18)
+
+Scratch space only: live (0.19.8, SQLite) was read, never written, apart from one temporary
+read key minted and revoked for the latency baseline. The scratch server was the
+`pgvector/pgvector:pg17` image with `deploy/postgres-init/` and both grant passwords, on its
+own Docker network with no published port; the tools ran in one-off containers of the
+release image, as on the live stack.
+
+1. Source: an online `backup run` of live's volume with the 0.19.8 image (112 items, 3,896
+   blobs, a 424 MB `library.db`), then `backup verify` printed OK.
+2. Copy: `migrate sqlite-to-postgres` from that `library.db`. On 0.20.0 it refused the file
+   (`unknown vector_log`); on 0.20.1 it exited 0 in 39 s. All 23 tables were equal on count
+   and max id, the text and vector digests were the same (70,452 vectors, bit for bit), and
+   `vector_log` (4,757 rows) was reported as not copied.
+3. Backup: `backup run` against the copy took 28 s (a 272 MB dump), and `backup verify`
+   printed OK.
+4. Restore: `backup restore` into a new empty database, as the `culture_library` role. On
+   0.20.0 it failed (`must be owner of extension vector`); on 0.20.1 it printed `restore: OK
+   (112 items)` in 49 s, with all 3,896 blobs re-hashed.
+5. Independent check, outside the tool: an md5 over every row of each of the 24 tables, on
+   the copy and on the restore, diffed: identical.
+
+Result: the copy and the restore reproduce live's data exactly, as the least-privilege
+role. Not yet drilled: a restore on a second host, and a backup under write load.
+
 ## Restore drill (spark, 2026-10-24; SQLite era)
 
 This is the drill from before the move to Postgres, kept as a record. It exercised the
-old SQLite backup and is not how a backup is taken or restored now. The Postgres restore
-drill is plan task t18 (restore a snapshot into an empty database and an empty files
-directory, then compare against the manifest); its result goes in the delivery summary.
+old SQLite backup and is not how a backup is taken or restored now. The Postgres drill is
+the section above.
 
 Run on spark before any teardown. Scratch space only; all copies deleted afterwards.
 The live xteink service was only read: `docker cp xteink-api-1:/data` copies out of the
@@ -166,5 +218,5 @@ directory under the session's temp area).
 Result: 17/17 ids, sha256 and visibility reproduced on a clean directory. The same flow
 is covered by `tests/core/test_backup.py` and `tests/test_cli_backup.py`.
 
-Not yet drilled: restoring from a second host, and a restore of a snapshot taken while
-the HTTP server is under write load. Repeat the drill on the Postgres stack (t18).
+Not drilled then: restoring from a second host, and a restore of a snapshot taken while
+the HTTP server is under write load.

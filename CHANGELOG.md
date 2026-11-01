@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-11-01
+
+### Added
+
+- Migration 0003 (schema version 3): `embeddings.vec_hash` and `repodoc_embeddings.vec_hash`, a generated md5 of the vector, indexed with `(model_id, strategy)`.
+
+### Changed
+
+- The copy tests' 0.19.8 schema fixture now comes from a library.db that 0.19.8 had opened, so it carries `vector_log` and its six triggers (lapse l5).
+
+### Fixed
+
+- `migrate sqlite-to-postgres` copies the real 0.19.8 library.db: it reads past `vector_log` (the 0.19.8 vector cache's change log, which Postgres has no use for) and names it with its row count in the report, instead of refusing the file. The t18 restore drill found it (deviation d15).
+- `backup restore` works as the least-privilege `culture_library` role, as live runs it: it leaves out the dump's one `COMMENT ON EXTENSION vector` entry (only the superuser may set it) through a filtered `pg_restore --use-list`, and keeps every other comment. It now refuses up front a target without the `vector` extension, with it outside `public`, or without the C collation. The t18 drill's restore failed with "must be owner of extension vector" (deviations d16, d17, d19; lapse l6). `docs/operations/backup.md` says how to make a restore target on the live stack.
+- Search: completing a tie group at the HNSW pool's edge scores only the chunks whose vector is identical to a tied one, found by their stored hash, not the whole corpus. Repo docs tie often (one file pushed from many repos); on the t18 scratch copy of live data that step cost about 260 ms per affected query (deviations d18, d19).
+
 ## [0.20.0] - 2026-11-01
 
 ### Added

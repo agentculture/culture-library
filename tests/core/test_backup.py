@@ -22,6 +22,8 @@ OTHER_PW = secrets.token_hex(8)
 # fixtures, picked up by pytest under these names
 pg_bin = backup_fixtures.pg_bin
 scratch_dsn = backup_fixtures.scratch_dsn
+make_target = backup_fixtures.make_target
+app_role_dsn = backup_fixtures.app_role_dsn
 
 
 def _seed(store: Store) -> None:
@@ -84,6 +86,50 @@ def test_restore_into_empty_database_reproduces_every_table_count(store, tmp_pat
     for i in manifest["items"]:
         blob = target / "files" / i["sha256"][:2] / i["sha256"]
         assert backup._sha256_file(blob) == i["sha256"]
+
+
+def test_restore_as_the_least_privilege_app_role(store, tmp_path, app_role_dsn):
+    # Live's library container only has the culture_library role, which does not own the
+    # vector extension; the dump's COMMENT ON EXTENSION would need its owner.
+    _seed(store)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    report = backup.restore(snap.path, tmp_path / "restored", dsn=app_role_dsn)
+    assert report.ok, report.problems
+    restored = Store(tmp_path / "restored", dsn=app_role_dsn)
+    assert restored.read_bytes(2) == b"beta"
+
+
+@pytest.mark.parametrize(
+    ("options", "match"),
+    [
+        ({"vector": None}, "CREATE EXTENSION vector"),
+        ({"vector": "extensions"}, "in schema extensions, not public"),
+        ({"locale": "TEMPLATE template0 LOCALE_PROVIDER builtin LOCALE 'C.UTF-8'"}, "not C"),
+    ],
+    ids=["no-extension", "extension-elsewhere", "not-c-collation"],
+)
+def test_restore_refuses_a_target_the_dump_or_server_cannot_use(
+    store, tmp_path, make_target, options, match
+):
+    _seed(store)
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    dsn = make_target(**options)
+    with pytest.raises(backup.BackupError, match=match):
+        backup.restore(snap.path, tmp_path / "restored", dsn=dsn)
+    assert not (tmp_path / "restored").exists()
+
+
+def test_restore_keeps_comments_other_than_the_extension_s(store, tmp_path, app_role_dsn):
+    _seed(store)
+    with store.connect() as conn:
+        conn.execute("COMMENT ON TABLE items IS 'the catalog'")
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    report = backup.restore(snap.path, tmp_path / "restored", dsn=app_role_dsn)
+    assert report.ok, report.problems
+    restored = Store(tmp_path / "restored", dsn=app_role_dsn)
+    with restored.reader() as conn:
+        got = conn.execute("SELECT obj_description('items'::regclass, 'pg_class')").fetchone()
+    assert got == ("the catalog",)
 
 
 def test_restore_refuses_non_empty_files_target(store, tmp_path, scratch_dsn):

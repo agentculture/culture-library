@@ -21,7 +21,13 @@ table), except the ``feed`` log, which also names blobs of purged items.
 the dump with ``pg_restore --list`` to confirm every manifest table is in it, and re-hashes
 every blob the manifest names. ``restore`` loads the dump into an *empty* database with
 ``pg_restore``, then compares the restored per-table row counts, items and repo-document
-versions with the manifest and copies the blobs back, re-hashing each.
+versions with the manifest and copies the blobs back, re-hashing each. The target must
+already have the ``vector`` extension in ``public`` (the dump names ``public.vector``) and use
+the C collation (which the store requires). Only a superuser may create the extension, so on
+live the init script makes it, and a restore runs as the application role, which does not
+own it. That is also why ``restore`` leaves out the dump's ``COMMENT ON EXTENSION vector``
+entry (via a filtered ``pg_restore --use-list``): only the extension's owner may set it. Every
+other comment is restored.
 
 The client tools come from ``CULTURE_LIBRARY_PG_BIN_DIR`` (a directory holding ``pg_dump`` and
 ``pg_restore``) or, when that is unset, from ``PATH``; a missing tool raises an error naming it.
@@ -34,13 +40,20 @@ import json
 import os
 import shutil
 import subprocess  # nosec B404 - runs pg_dump / pg_restore with an argv list, never a shell
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .errors import CoreError
-from .store import _psycopg, conninfo_from_env, with_env_password
+from .store import (
+    DatabaseError,
+    _check_collation,
+    _psycopg,
+    conninfo_from_env,
+    with_env_password,
+)
 
 BACKUP_DIR_ENV = "CULTURE_LIBRARY_BACKUP_DIR"
 PG_BIN_DIR_ENV = "CULTURE_LIBRARY_PG_BIN_DIR"
@@ -164,12 +177,27 @@ def _pg_dump(conninfo: str, snapshot_id: str, dst: Path) -> None:
         _run_tool(argv, env, stdout=fh)
 
 
+# The dump's table-of-contents entry the app role may not restore: only the extension's owner
+# (the superuser) may comment on it. Its CREATE EXTENSION IF NOT EXISTS is kept (a no-op).
+_SKIPPED_TOC = " COMMENT - EXTENSION vector"
+
+
+def _restore_list(dump: Path) -> str:
+    """``pg_restore --list`` of ``dump`` without the :data:`_SKIPPED_TOC` entries."""
+    with dump.open("rb") as fh:
+        out = _run_tool([_tool("pg_restore"), "--list"], dict(os.environ), stdin=fh).decode()
+    return "".join(line for line in out.splitlines(True) if _SKIPPED_TOC not in line)
+
+
 def _pg_restore(conninfo: str, dump: Path) -> None:
     dbname, env = _conn_args(conninfo)
-    argv = [_tool("pg_restore"), "--no-owner", "--exit-on-error", "--single-transaction"]
-    argv.append(f"--dbname={dbname}")
-    with dump.open("rb") as fh:
-        _run_tool(argv, env, stdin=fh)
+    with tempfile.TemporaryDirectory() as tmp:
+        toc = Path(tmp) / "restore.list"
+        toc.write_text(_restore_list(dump))
+        argv = [_tool("pg_restore"), "--no-owner", "--exit-on-error", "--single-transaction"]
+        argv += [f"--use-list={toc}", f"--dbname={dbname}"]
+        with dump.open("rb") as fh:
+            _run_tool(argv, env, stdin=fh)
 
 
 def _dump_tables(dump: Path) -> set[str]:
@@ -483,10 +511,28 @@ def _require_empty_database(conninfo: str) -> None:
     try:
         with psycopg.connect(conninfo, connect_timeout=10) as conn:
             tables = _table_names(conn)
+            vector = conn.execute(
+                "SELECT n.nspname FROM pg_extension x JOIN pg_namespace n"
+                " ON n.oid = x.extnamespace WHERE x.extname = 'vector'"
+            ).fetchone()
+            _check_collation(conn)
+    except DatabaseError as exc:
+        raise BackupError(f"restore database: {exc}") from exc
     except psycopg.OperationalError as exc:
         raise BackupError(f"cannot connect to the restore database: {exc}") from exc
     if tables:
         raise BackupError("restore database is not empty; refusing to overwrite")
+    if vector is None:
+        raise BackupError(
+            "restore database has no vector extension; as a superuser, connect to it and run "
+            "CREATE EXTENSION vector (live's init script does this; the app role cannot)"
+        )
+    if vector[0] != "public":
+        raise BackupError(
+            f"restore database has the vector extension in schema {vector[0]}, not public, "
+            "where the dump's tables expect it; as a superuser run ALTER EXTENSION vector SET "
+            "SCHEMA public"
+        )
 
 
 def restore(

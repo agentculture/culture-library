@@ -24,7 +24,7 @@ FIXTURE = Path(__file__).resolve().parents[1] / "migrate" / "fixtures" / "sqlite
 
 # --- the mapping ---------------------------------------------------------------------------------
 
-# SQLite table -> Postgres table. None: not ported, with the reason in FTS_REPLACED.
+# SQLite table -> Postgres table. None: not ported, with the reason beside it.
 TABLES: dict[str, str | None] = {
     "api_keys": "api_keys",
     "embeddings": "embeddings",
@@ -47,6 +47,9 @@ TABLES: dict[str, str | None] = {
     "repodoc_versions": "repodoc_versions",
     "repodocs": "repodocs",
     "spec_links": "spec_links",
+    # 0.19.8's in-process vector cache read its changes from vector_log. Postgres answers vector
+    # queries from pgvector and keeps no cache, so the log has nothing to feed (lapse l5).
+    "vector_log": None,
     # FTS5: the virtual tables become plain text tables with a generated weighted tsvector
     # (FTS_REPLACED); their shadow tables are FTS5's own storage and have no counterpart.
     "search_fts": None,
@@ -80,9 +83,10 @@ RENAMED = {("feed", "cursor"): "seq"}  # cursor is a keyword; the API still says
 # The SQLite "model" label ("gemma2-embed+Retrieval-document") names a gateway role, not a
 # model; model_id + strategy replace it (decision c42), filled by the t14 copy.
 DROPPED = {("embeddings", "model"), ("repodoc_embeddings", "model")}
+# vec_hash: an indexed md5 of the vector, for completing exact ties (migration 0003, d18).
 ADDED = {
-    "embeddings": {"model_id", "strategy"},
-    "repodoc_embeddings": {"model_id", "strategy"},
+    "embeddings": {"model_id", "strategy", "vec_hash"},
+    "repodoc_embeddings": {"model_id", "strategy", "vec_hash"},
     "item_text": {"tsv"},
     "repodoc_text": {"tsv"},
 }
@@ -208,7 +212,7 @@ def _pg_name(table: str, column: str) -> str | None:
 
 def test_fixture_tables_are_all_mapped():
     assert set(_fixture_blocks()) == set(TABLES)
-    assert len(TABLES) == 33
+    assert len(TABLES) == 34
     for fts in FTS_REPLACED:
         assert "VIRTUAL TABLE" in _fixture_blocks()[fts]
         assert "fts5" in _fixture_blocks()[fts]

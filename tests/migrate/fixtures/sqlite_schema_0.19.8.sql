@@ -1,4 +1,6 @@
--- SQLite schema of live culture-library 0.19.8 (spark, 2026-10-31), from the pre-0.19.8 backup.
+-- SQLite schema of live culture-library 0.19.8 (spark), from the t18 drill snapshot of 2026-11-01:
+-- a library.db that 0.19.8 had opened. (An earlier copy, taken from the pre-0.19.8 backup, lacked
+-- vector_log and its triggers; lapse l5.)
 -- Reference for the Postgres port (plan tasks t4 and t14). Generated; do not edit.
 -- table api_keys
 CREATE TABLE api_keys (
@@ -264,6 +266,9 @@ CREATE TABLE spec_links (
     updated_at TEXT NOT NULL
 );
 
+-- table vector_log
+CREATE TABLE vector_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, owner INTEGER NOT NULL, at REAL NOT NULL);
+
 -- index eval_runs_set
 CREATE INDEX eval_runs_set ON eval_runs(set_id);
 
@@ -287,6 +292,15 @@ CREATE INDEX mirror_outbox_state ON mirror_outbox (state)
 -- index repodoc_versions_doc
 CREATE INDEX repodoc_versions_doc ON repodoc_versions (doc_id);
 
+-- trigger embeddings_delete_vlog
+CREATE TRIGGER embeddings_delete_vlog AFTER DELETE ON embeddings BEGIN INSERT INTO vector_log (tbl, owner, at) VALUES ('embeddings', OLD.item_id, (julianday('now') - 2440587.5) * 86400.0); END;
+
+-- trigger embeddings_insert_vlog
+CREATE TRIGGER embeddings_insert_vlog AFTER INSERT ON embeddings BEGIN INSERT INTO vector_log (tbl, owner, at) VALUES ('embeddings', NEW.item_id, (julianday('now') - 2440587.5) * 86400.0); END;
+
+-- trigger embeddings_update_vlog
+CREATE TRIGGER embeddings_update_vlog AFTER UPDATE ON embeddings BEGIN INSERT INTO vector_log (tbl, owner, at) VALUES ('embeddings', NEW.item_id, (julianday('now') - 2440587.5) * 86400.0); END;
+
 -- trigger repodoc_drafts_delete_dirty
 CREATE TRIGGER repodoc_drafts_delete_dirty AFTER DELETE ON repodoc_drafts BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT OLD.doc_id WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = OLD.doc_id); END;
 
@@ -295,6 +309,15 @@ CREATE TRIGGER repodoc_drafts_insert_dirty AFTER INSERT ON repodoc_drafts BEGIN 
 
 -- trigger repodoc_drafts_update_dirty
 CREATE TRIGGER repodoc_drafts_update_dirty AFTER UPDATE ON repodoc_drafts WHEN OLD.sha256 IS NOT NEW.sha256 OR OLD.visibility IS NOT NEW.visibility BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT NEW.doc_id WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = NEW.doc_id); END;
+
+-- trigger repodoc_embeddings_delete_vlog
+CREATE TRIGGER repodoc_embeddings_delete_vlog AFTER DELETE ON repodoc_embeddings BEGIN INSERT INTO vector_log (tbl, owner, at) VALUES ('repodoc_embeddings', OLD.doc_id, (julianday('now') - 2440587.5) * 86400.0); END;
+
+-- trigger repodoc_embeddings_insert_vlog
+CREATE TRIGGER repodoc_embeddings_insert_vlog AFTER INSERT ON repodoc_embeddings BEGIN INSERT INTO vector_log (tbl, owner, at) VALUES ('repodoc_embeddings', NEW.doc_id, (julianday('now') - 2440587.5) * 86400.0); END;
+
+-- trigger repodoc_embeddings_update_vlog
+CREATE TRIGGER repodoc_embeddings_update_vlog AFTER UPDATE ON repodoc_embeddings BEGIN INSERT INTO vector_log (tbl, owner, at) VALUES ('repodoc_embeddings', NEW.doc_id, (julianday('now') - 2440587.5) * 86400.0); END;
 
 -- trigger repodoc_versions_delete_dirty
 CREATE TRIGGER repodoc_versions_delete_dirty AFTER DELETE ON repodoc_versions BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT OLD.doc_id WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = OLD.doc_id); END;
@@ -313,4 +336,3 @@ CREATE TRIGGER repodocs_insert_dirty AFTER INSERT ON repodocs BEGIN INSERT INTO 
 
 -- trigger repodocs_update_dirty
 CREATE TRIGGER repodocs_update_dirty AFTER UPDATE ON repodocs WHEN OLD.visibility IS NOT NEW.visibility OR OLD.current_version_id IS NOT NEW.current_version_id OR OLD.removed_at IS NOT NEW.removed_at BEGIN INSERT INTO repodoc_dirty (doc_id) SELECT NEW.id WHERE NOT EXISTS (SELECT 1 FROM repodoc_dirty WHERE doc_id = NEW.id); END;
-

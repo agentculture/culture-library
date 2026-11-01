@@ -236,7 +236,8 @@ def test_semantic_hits_match_exact_best_chunk_per_item(corpus):
 def test_exact_ties_at_the_pool_edge_rank_the_same_for_every_k(store):
     """Identical vectors tie exactly; HNSW cannot order them, so the pool's LIMIT may cut a tie
     group anywhere. Ranking must still be deterministic: ties break on (corpus, id, chunk_no)
-    and every k is a prefix of a larger k, as on SQLite."""
+    and every k is a prefix of a larger k, as on SQLite. The twins' texts differ: the tie is
+    in the vectors, so completing it must not assume identical text."""
     from tests.core.search_helpers import add, index
 
     same = lambda texts: [es_vec(1.0, 0.0) for _ in texts]  # noqa: E731 - every chunk ties
@@ -257,6 +258,39 @@ def test_exact_ties_at_the_pool_edge_rank_the_same_for_every_k(store):
     assert widest == tuple(sorted(widest))
     for k, v in runs.items():
         assert next(iter(v)) == widest[:k]
+
+
+def test_pool_edge_tie_completion_scores_identical_vectors_only(store, monkeypatch):
+    """The completion looks the tied vectors up by their stored hash (an index), so it scores
+    the tie group, not the whole corpus (the 62k repo-doc chunks on live cost ~260 ms)."""
+    from tests.core.search_helpers import add, index
+
+    def embed(texts):  # the body chunks tie exactly; every title header is its own vector
+        return [es_vec(1.0, 0.0) if t.startswith("twin") else es_vec(len(t) / 100, 1.0)
+                for t in texts]  # fmt: skip
+
+    items = [add(store, f"Twin {'n' * n}", f"twin body {n}") for n in range(6)]
+    for item in items:
+        index(store, item, embed=embed)
+    scored = []
+    real = sr._exact
+
+    def spy(conn, corpus, q, flt, pair, **kw):
+        rows = real(conn, corpus, q, flt, pair, **kw)
+        if kw.get("at_dist") is not None:
+            scored.append(len(conn.execute(
+                f"SELECT 1 FROM {sr._SOURCES[corpus][0]} WHERE {flt[0]}", flt[1]
+            ).fetchall()))  # fmt: skip
+        return rows
+
+    monkeypatch.setattr(sr, "_exact", spy)
+    with store.reader() as conn:
+        got = [
+            (p.item_id, p.chunk_no)
+            for p in sr.passages(conn, es_vec(1.0, 0.0), 2, "semantic", sr.Vis())
+        ]
+    assert got == [(items[0].id, 1), (items[1].id, 1)]
+    assert scored == [6]  # the six tied body chunks, none of the six headers
 
 
 def es_vec(*head):
