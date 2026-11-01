@@ -37,7 +37,7 @@ def pytest_collection_modifyitems(config, items) -> None:
 def _pg_isolation(pg_dsn):
     """Visual tests share one session-scoped, seeded site; the root conftest's per-test
     truncate would empty it before the second view, so it is switched off here."""
-    yield
+    return
 
 
 @pytest.fixture(scope="session")
