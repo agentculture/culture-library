@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.4] - 2026-11-01
+
+### Added
+
+- docs/deliveries/2026-10-31-library-on-postgres-and-pgvector.md: the delivery summary of the Postgres migration (plan library-on-postgres-and-pgvector): every task delivered through #49-#52; success signals c29 (freeze under 30 min) and c41 (scheduled backups) failed and are recorded as failed; c26 met on the rerun
+
+### Changed
+
+- .devague: risk r2 resolved; the run's obligations, evidence and behavioral deltas from /validate-delivery
+- scripts/harness-smoke.py waives steward-doctor's portability finding on `.devague/deliveries/library-on-postgres-and-pgvector.json`: evidence e24 quotes the `$HOME/.config/systemd/user` directory it inspected (spelled with a tilde), and devague evidence records are append-only (the same reason the rag-endpoints frame is waived)
+
 ## [0.20.3] - 2026-11-01
 
 ### Changed

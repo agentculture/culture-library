@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-11-01T17:21:02Z",
+  "updated": "2026-11-01T21:05:46Z",
   "claims": [
     {
       "id": "c1",
@@ -1214,5 +1214,150 @@
       "status": "approved"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c23",
+      "seam": "live stack after cutover",
+      "behavior": "live serves every table, full text and vectors from Postgres 17 + pgvector through SQL and HNSW",
+      "source_text": "Live runs on PostgreSQL 17 with pgvector: every table, the full text and the vectors are in Postgres, searched through SQL and an HNSW index, while clients, files on disk and the S3 mirror behave as before",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c2",
+      "seam": "HTTP routes, MCP tools, /api/status shape",
+      "behavior": "API and MCP contracts are unchanged by the storage move",
+      "source_text": "API and MCP clients see no contract change: the HTTP routes, MCP tools and /api/status shape stay as they are; only the storage under them moves",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c8",
+      "seam": "vector storage and HNSW index per (model, strategy)",
+      "behavior": "vectors carry model id + strategy, one partial HNSW index per pair, queried through it",
+      "source_text": "Vectors are stored in a pgvector column with a model tag, with one HNSW index per embedding model (768 dimensions for embeddinggemma-2 today, room for 1024 for Qwen3-Embedding), and the in-process vector cache, vector_log table and its triggers are removed",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c9",
+      "seam": "core/search.py full text",
+      "behavior": "weighted title/body ts_rank, English stemming, last-term prefix, highlighted snippets, stopword cases as FTS5",
+      "source_text": "Full-text search is reimplemented on Postgres: title weighted above body, English stemming, prefix match on the last term, and highlighted snippets, for items and repo docs separately",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c34",
+      "seam": "feed appends under concurrent writers",
+      "behavior": "cursor paging never skips an event; read-then-write paths are concurrency-safe",
+      "source_text": "The feed's cursor paging never skips an event under concurrent writers: feed appends are serialised (for example a transaction-level advisory lock) so cursor order equals commit order",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c13",
+      "seam": "SQLite-specific SQL across core modules",
+      "behavior": "no SQLite construct remains; store runs on Postgres with migrations",
+      "source_text": "SQLite-specific SQL is ported in every core module: AUTOINCREMENT + lastrowid become identity + RETURNING, integer booleans become boolean, MAX(a,b) becomes GREATEST, json_extract on TEXT becomes jsonb, INSERT OR REPLACE/IGNORE become ON CONFLICT, the feed column named cursor is quoted or renamed, and ? placeholders change",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c15",
+      "seam": "migrate sqlite-to-postgres on the live library.db",
+      "behavior": "the cutover copy preserves ids, cursors, counts, text and vectors exactly",
+      "source_text": "The live data moves once from SQLite to Postgres with ids, cursors and counts preserved: items, repo docs and their versions and drafts, feed, API keys, eval sets and runs, sources, projects, spec links, mirror outbox and the vectors",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c28",
+      "seam": "backup and restore drill before cutover (t18)",
+      "behavior": "a backup restores into an empty Postgres and files tree with every table identical",
+      "source_text": "A restore drill rebuilds an empty Postgres and files tree from a backup with every table count identical, before the live cutover",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c17",
+      "seam": "deploy restart and secrets",
+      "behavior": "deploy restart starts Postgres first and injects the PG password from grant, never live.env",
+      "source_text": "deploy restart starts and checks the Postgres service too, and the database password comes from grant like every other secret, never from live.env",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c27",
+      "seam": "CI test and publish jobs",
+      "behavior": "the full suite passes against Postgres in CI with no test skipped for lack of a database",
+      "source_text": "The full test suite passes against Postgres in CI (the test and publish jobs) with no test skipped for lack of a database",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c40",
+      "seam": "/api/status database block and /api/health",
+      "behavior": "status reports reachability, schema version and vector index state; health is 503 without the database",
+      "source_text": "/api/status reports the database: reachable or not, the applied schema version, and the vector index state, and the library refuses to serve writes if the schema version is ahead of the code",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c24",
+      "seam": "eval sets 1-8, k=5 hybrid, on live",
+      "behavior": "books >= 0.84 with rerank and >= 0.74 without; newspapers >= 0.95 with rerank",
+      "source_text": "After cutover, eval sets 1-8 (k=5, hybrid) score within 0.05 of today's found@5 means: books >= 0.84 with rerank and >= 0.74 without, newspapers >= 0.95 with rerank",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c25",
+      "seam": "rerank-off retrieval latency on live",
+      "behavior": "p95 < 300 ms for items, < 500 ms for items plus repo docs, over 40 queries",
+      "source_text": "On live after cutover, rerank-off retrieval p95 is < 300 ms for items only and < 500 ms for items plus repo docs (k=5), measured over 40 queries each",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c29",
+      "seam": "cutover write freeze",
+      "behavior": "the freeze from pausing culture-rules' push to resuming it lasts under 30 minutes",
+      "source_text": "The write freeze at cutover lasts under 30 minutes, from pausing culture-rules' push to resuming it",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c41",
+      "seam": "scheduled backups around the cutover",
+      "behavior": "backups run on a schedule before and after the cutover, and the cutover waits for a scheduled Postgres backup",
+      "source_text": "Backups run on a schedule on spark before cutover and after it, and the cutover is blocked until a scheduled backup has succeeded on Postgres",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c26",
+      "seam": "cutover completeness: table counts and the full-corpus mirror",
+      "behavior": "every table's count and max id match the SQLite source, and a full-corpus verify-mirror reports 0 missing and 0 mismatched",
+      "source_text": "Cutover loses nothing: every table's row count and max id match the SQLite source exactly, and a full-corpus verify-mirror run reports 0 missing and 0 mismatched",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
 }
