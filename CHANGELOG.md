@@ -14,7 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - .devague: risk r2 resolved; the run's obligations, evidence and behavioral deltas from /validate-delivery
-- scripts/harness-smoke.py waives steward-doctor's portability finding on `.devague/deliveries/library-on-postgres-and-pgvector.json`: evidence e24 quotes the `~/.config/systemd/user` directory it inspected, and devague evidence records are append-only (the same reason the rag-endpoints frame is waived)
+- scripts/harness-smoke.py waives steward-doctor's portability finding on `.devague/deliveries/library-on-postgres-and-pgvector.json`: evidence e24 quotes the `$HOME/.config/systemd/user` directory it inspected (spelled with a tilde), and devague evidence records are append-only (the same reason the rag-endpoints frame is waived)
 
 ## [0.20.3] - 2026-11-01
 
