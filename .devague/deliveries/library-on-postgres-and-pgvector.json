@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-11-01T17:21:02Z",
+  "updated": "2026-11-01T17:32:11Z",
   "deviations": [
     {
       "id": "d1",
@@ -236,6 +236,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 18
+    },
+    {
+      "id": "d19",
+      "what": "Corrects d18 and d17. Tie completion finds identical vectors by vec_hash, an indexed md5 of each vector added by migration 0003 (schema version 3), not by chunk text, so it is exact again and still scores only the tie group. Restore leaves out only the dump's COMMENT ON EXTENSION vector entry, via a filtered pg_restore --use-list (d16's original mechanism), and keeps every other comment. Restore also refuses a target whose vector extension is outside public, or whose collation is not C.",
+      "task_ref": "t18",
+      "reason": "/code-review medium of PR #50: text equality is only a proxy for the tie condition (the restored original test, distinct texts with identical vectors, fails under it), and --no-comments would silently drop every future table or column comment on restore.",
+      "affects": [
+        "t20",
+        "t16"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 19
     }
   ],
   "evidence": [],

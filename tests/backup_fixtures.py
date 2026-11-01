@@ -18,9 +18,16 @@ from culture_library.core import backup
 
 TEST_CONTAINER = "culture-library-pgtest"
 _WRAPPER = """#!/usr/bin/env python3
-# test-only: run the real {tool} inside the throwaway Postgres container.
-import subprocess, sys
-args = [a.replace("55432", "5432") for a in sys.argv[1:]]
+# test-only: run the real {tool} inside the throwaway Postgres container. A --use-list file
+# lives on the host, so it is copied into the container first.
+import subprocess, sys, uuid
+args = []
+for a in sys.argv[1:]:
+    if a.startswith("--use-list="):
+        inside = "/tmp/use-list-" + uuid.uuid4().hex
+        subprocess.check_call(["docker", "cp", a.split("=", 1)[1], "{container}:" + inside])
+        a = "--use-list=" + inside
+    args.append(a.replace("55432", "5432"))
 sys.exit(subprocess.call(["docker", "exec", "-i", "{container}", "{tool}", *args]))
 """
 
@@ -46,9 +53,12 @@ def pg_bin(tmp_path_factory):
     os.environ.pop(backup.PG_BIN_DIR_ENV, None)
 
 
-def _empty_database(admin_dsn: str, name: str, *, owner: str | None = None, vector=True) -> None:
+def _empty_database(
+    admin_dsn: str, name: str, *, owner: str | None = None, vector="public", locale: str = ""
+) -> None:
     """Create an empty database the way live's init script does: the superuser makes it and
-    its ``vector`` extension, since the application role may do neither."""
+    its ``vector`` extension (in schema ``vector``; None: none), which the app role may not.
+    ``locale`` is extra CREATE DATABASE options (default: the server's C)."""
     import psycopg
     from psycopg.conninfo import make_conninfo
 
@@ -56,10 +66,11 @@ def _empty_database(admin_dsn: str, name: str, *, owner: str | None = None, vect
 
     owned = f" OWNER {_ident(owner)}" if owner else ""
     with psycopg.connect(admin_dsn, autocommit=True) as admin:
-        admin.execute(f"CREATE DATABASE {_ident(name)}{owned}")
+        admin.execute(f"CREATE DATABASE {_ident(name)}{owned} {locale}")
     if vector:
         with psycopg.connect(make_conninfo(admin_dsn, dbname=name), autocommit=True) as conn:
-            conn.execute("CREATE EXTENSION vector")
+            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {_ident(vector)}")
+            conn.execute(f"CREATE EXTENSION vector SCHEMA {_ident(vector)}")
 
 
 @pytest.fixture
@@ -78,18 +89,25 @@ def scratch_dsn(pg_admin_dsn):
 
 
 @pytest.fixture
-def no_vector_dsn(pg_admin_dsn):
-    """An empty database without the vector extension, dropped afterwards."""
+def make_target(pg_admin_dsn):
+    """A factory of empty databases shaped by ``_empty_database``'s options, dropped after."""
     from psycopg.conninfo import make_conninfo
 
     from tests.conftest import drop_database
 
-    name = f"culture_library_test_bk_{uuid.uuid4().hex[:10]}"
-    _empty_database(pg_admin_dsn, name, vector=False)
+    made = []
+
+    def make(**options) -> str:
+        name = f"culture_library_test_bk_{uuid.uuid4().hex[:10]}"
+        made.append(name)
+        _empty_database(pg_admin_dsn, name, **options)
+        return make_conninfo(pg_admin_dsn, dbname=name)
+
     try:
-        yield make_conninfo(pg_admin_dsn, dbname=name)
+        yield make
     finally:
-        drop_database(pg_admin_dsn, name)
+        for name in made:
+            drop_database(pg_admin_dsn, name)
 
 
 @pytest.fixture

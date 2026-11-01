@@ -22,7 +22,7 @@ OTHER_PW = secrets.token_hex(8)
 # fixtures, picked up by pytest under these names
 pg_bin = backup_fixtures.pg_bin
 scratch_dsn = backup_fixtures.scratch_dsn
-no_vector_dsn = backup_fixtures.no_vector_dsn
+make_target = backup_fixtures.make_target
 app_role_dsn = backup_fixtures.app_role_dsn
 
 
@@ -99,12 +99,36 @@ def test_restore_as_the_least_privilege_app_role(store, tmp_path, app_role_dsn):
     assert restored.read_bytes(2) == b"beta"
 
 
-def test_restore_refuses_a_database_without_the_vector_extension(store, tmp_path, no_vector_dsn):
+@pytest.mark.parametrize(
+    ("options", "match"),
+    [
+        ({"vector": None}, "CREATE EXTENSION vector"),
+        ({"vector": "extensions"}, "in schema extensions, not public"),
+        ({"locale": "TEMPLATE template0 LOCALE_PROVIDER builtin LOCALE 'C.UTF-8'"}, "not C"),
+    ],
+    ids=["no-extension", "extension-elsewhere", "not-c-collation"],
+)
+def test_restore_refuses_a_target_the_dump_or_server_cannot_use(
+    store, tmp_path, make_target, options, match
+):
     _seed(store)
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
-    with pytest.raises(backup.BackupError, match="CREATE EXTENSION vector"):
-        backup.restore(snap.path, tmp_path / "restored", dsn=no_vector_dsn)
+    with pytest.raises(backup.BackupError, match=match):
+        backup.restore(snap.path, tmp_path / "restored", dsn=make_target(**options))
     assert not (tmp_path / "restored").exists()
+
+
+def test_restore_keeps_comments_other_than_the_extension_s(store, tmp_path, app_role_dsn):
+    _seed(store)
+    with store.connect() as conn:
+        conn.execute("COMMENT ON TABLE items IS 'the catalog'")
+    snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    report = backup.restore(snap.path, tmp_path / "restored", dsn=app_role_dsn)
+    assert report.ok, report.problems
+    restored = Store(tmp_path / "restored", dsn=app_role_dsn)
+    with restored.reader() as conn:
+        got = conn.execute("SELECT obj_description('items'::regclass, 'pg_class')").fetchone()
+    assert got == ("the catalog",)
 
 
 def test_restore_refuses_non_empty_files_target(store, tmp_path, scratch_dsn):

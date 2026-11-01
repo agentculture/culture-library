@@ -83,9 +83,10 @@ RENAMED = {("feed", "cursor"): "seq"}  # cursor is a keyword; the API still says
 # The SQLite "model" label ("gemma2-embed+Retrieval-document") names a gateway role, not a
 # model; model_id + strategy replace it (decision c42), filled by the t14 copy.
 DROPPED = {("embeddings", "model"), ("repodoc_embeddings", "model")}
+# vec_hash: an indexed md5 of the vector, for completing exact ties (migration 0003, d18).
 ADDED = {
-    "embeddings": {"model_id", "strategy"},
-    "repodoc_embeddings": {"model_id", "strategy"},
+    "embeddings": {"model_id", "strategy", "vec_hash"},
+    "repodoc_embeddings": {"model_id", "strategy", "vec_hash"},
     "item_text": {"tsv"},
     "repodoc_text": {"tsv"},
 }

@@ -663,17 +663,32 @@ def _ann(conn: Any, corpus: int, q: str, flt: tuple[str, list], limit: int, pair
     if len(rows) > limit and rows[limit][0] == rows[limit - 1][0]:
         # The LIMIT cut a group of exactly tied chunks (identical vectors). HNSW cannot order
         # them, so which tied chunks made the pool is arbitrary: complete the group exactly so
-        # ties always break on (owner, chunk_no), as the SQLite scan did. Identical vectors
-        # come from identical chunk text under one (model, strategy) (a file pushed from many
-        # repos), so only chunks with a tied chunk's text are scored: rescoring the whole
-        # corpus cost about 260 ms on live's 62k repo-doc chunks, this about 11 ms.
+        # ties always break on (owner, chunk_no), as the SQLite scan did. The group is found
+        # by the tied vectors' stored hash (migration 0003, indexed), so only identical vectors
+        # are scored, not the whole corpus.
         edge = rows[limit - 1][0]
-        texts = sorted({r[4] for r in rows if r[0] == edge})
-        where, params = flt
-        same_text = (f"{where} AND e.text = ANY(%s)", [*params, texts])
-        tied = _exact(conn, corpus, q, same_text, pair, limit=None, at_dist=edge)
+        hashes = _vector_hashes(conn, corpus, pair, [r for r in rows if r[0] == edge])
+        same_vec = (f"{where} AND e.vec_hash = ANY(%s::uuid[])", [*params, hashes])
+        tied = _exact(conn, corpus, q, same_vec, pair, limit=None, at_dist=edge)
         rows = sorted({(r[1], r[2], r[3]): r for r in rows + tied}.values(), key=_ann_order)
     return rows[:limit]
+
+
+# Each corpus's vector table and its owner column (the ``e`` alias of :data:`_SOURCES`).
+_VECTOR_TABLES = {_ITEM: ("embeddings", "item_id"), _DOC: ("repodoc_embeddings", "doc_id")}
+
+
+def _vector_hashes(conn: Any, corpus: int, pair, rows: list) -> list[str]:
+    """The distinct ``vec_hash`` of the pooled chunks ``rows`` (owner r[2], chunk_no r[3])."""
+    model_id, strategy = pair
+    table, owner = _VECTOR_TABLES[corpus]
+    sql = (
+        f"SELECT DISTINCT e.vec_hash::text FROM {table} e"  # nosec B608 - catalog names
+        f" WHERE {_pair_sql(model_id, strategy)}"
+        f" AND (e.{owner}, e.chunk_no) IN (SELECT * FROM unnest(%s::bigint[], %s::int[]))"
+    )
+    keys = ([r[2] for r in rows], [r[3] for r in rows])
+    return sorted(r[0] for r in conn.execute(sql, keys).fetchall())
 
 
 def _ann_order(r: tuple) -> tuple:
