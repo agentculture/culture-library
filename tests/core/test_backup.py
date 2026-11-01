@@ -113,8 +113,9 @@ def test_restore_refuses_a_target_the_dump_or_server_cannot_use(
 ):
     _seed(store)
     snap = backup.run_backup(store.data_dir, tmp_path / "bk")
+    dsn = make_target(**options)
     with pytest.raises(backup.BackupError, match=match):
-        backup.restore(snap.path, tmp_path / "restored", dsn=make_target(**options))
+        backup.restore(snap.path, tmp_path / "restored", dsn=dsn)
     assert not (tmp_path / "restored").exists()
 
 

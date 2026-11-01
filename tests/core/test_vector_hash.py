@@ -16,7 +16,8 @@ def test_vec_hash_is_generated_from_the_vector_and_indexed(pg_dsn, table):
             " WHERE table_name = %s AND column_name = 'vec_hash'",
             (table,),
         ).fetchone()
-        assert col[0] == "uuid" and col[1] == "ALWAYS"
+        assert col[0] == "uuid"
+        assert col[1] == "ALWAYS"
         assert "md5" in col[2]
         defs = [r[0] for r in conn.execute(
             "SELECT indexdef FROM pg_indexes WHERE tablename = %s", (table,)
