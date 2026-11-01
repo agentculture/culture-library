@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.3] - 2026-11-01
+
+### Changed
+
+- HNSW search breadth is per corpus: `search.EF_SEARCH` is `{"item": 100, "repodoc": 400}`. Measured on live (40 questions, top 10 against exact scoring), items were already exact at 100, and repo docs (62.6k chunks, many near-duplicates across repos) went from 0.853 recall@10 at 100 to 0.953 at 400, for an index query of about 10 ms instead of 4. The item paths (RAG retrieve, evals, the turn path in #25) keep 100. Resolves plan risk r2 (deviation d23).
+- CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md say live runs PostgreSQL since the 2026-11-01 cutover.
+
 ## [0.20.2] - 2026-11-01
 
 ### Added

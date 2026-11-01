@@ -11,19 +11,19 @@ it all, published at **library.culture.dev**.
 
 **Status: built and live.** library.culture.dev has served the library
 behind Cloudflare Access since 2026-10-24, from the compose stack on spark
-(`deploy/compose.yaml`). Spark runs 0.19.1 (devague work in the library,
-with the private S3 mirror on) as of 2026-10-31, with embeddings and the
-reranker on. Machine clients reach it on spark's loopback
-(`127.0.0.1:8796` for the API and site, `:8797` for MCP).
+(`deploy/compose.yaml`). Spark runs the 0.20 release on PostgreSQL since 2026-11-01, with
+the private S3 mirror, embeddings and the reranker on. Machine clients reach it on
+spark's loopback (`127.0.0.1:8796` for the API and site, `:8797` for MCP).
 
-**Postgres: on disk, not live yet.** The code in this tree stores everything in
-PostgreSQL 17 with pgvector (`pgvector/pgvector:pg17`, compose service `postgres`,
-volume `culture-library-pgdata`). **Live on spark still runs the SQLite 0.19.x
-release** until the cutover (plan task t19, runbook
-`docs/operations/cutover-postgres.md`). On 2026-10-31 the operator decided to migrate
-to Postgres before any further SQLite optimisation (issue #47); do not tune the SQLite
-store. Until the cutover, anything about live (sizes, timings, the running version)
-describes SQLite, and anything about `culture_library/` describes Postgres.
+**Postgres: live since 2026-11-01.** Everything is stored in PostgreSQL 17 with
+pgvector (`pgvector/pgvector:pg17`, compose service `postgres`, volume
+`culture-library-pgdata`). The one-shot cutover from SQLite ran that day (plan task
+t19, runbook `docs/operations/cutover-postgres.md`): a freeze of 2.5 minutes, every
+table copied and verified. The operator had decided on 2026-10-31 to migrate before
+any further SQLite optimisation (issue #47). The old SQLite volume
+(`culture-library_culture-library-data`, `library.db`) is no longer read; problems are
+fixed forward, never by going back to it. The pre-cutover snapshot is
+`$HOME/backups/culture-library-pre-postgres`.
 
 - **Spec, plan and evidence.** The library was specified with devague:
   - spec: `docs/specs/2026-10-23-library-culture-dev.md`;
@@ -211,7 +211,6 @@ describes SQLite, and anything about `culture_library/` describes Postgres.
   The run's delivery summary is
   `docs/deliveries/2026-10-25-rag-endpoints-ragas-evals.md`.
 - **Not done yet:**
-  - the cutover to Postgres on live (t19; runbook `docs/operations/cutover-postgres.md`);
   - the question review queue (#30);
   - runs 1-22 predate recorded suites, so the Evals overview's suite cards
     count only newer runs;
@@ -219,10 +218,9 @@ describes SQLite, and anything about `culture_library/` describes Postgres.
   - culture-rules is told about the eval API in agentculture/culture-rules#121;
   - culture-rules 0.38.1 pushes drafts from one owner clone per origin (d26); the
     full-corpus mirror check passed once on 2026-10-31, which #35 needs before removal;
-  - retrieval is still too slow for Gwen's turn path (#25) on live: about 0.3 s without
-    rerank on 0.19.7 (`math.sumprod` scoring over an in-process vector cache). The
-    Postgres port (#47) replaces both with pgvector HNSW queries (`core/search.py`; the
-    cache, `vector_log` and its triggers are gone), measured only on test data so far;
+  - faster retrieval for Gwen's turn path (#25): on live Postgres (0.20.2, t20) RAG
+    retrieve without rerank has a p95 of 166 ms (0.19.8: about 220 ms), and search over
+    items and repo docs 270 ms (0.19.8: 13.6 s); what the turn path needs is still open;
   - in-progress items (#22);
   - the Project Gutenberg header and licence are still indexed and
     retrievable (#27);

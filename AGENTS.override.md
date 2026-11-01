@@ -29,10 +29,9 @@ deliveries, designs and raw `.devague/` state), pushed by culture-rules and
 mirrored to a private S3 bucket; that work is live since 2026-10-31.
 
 **The library is built and live** at library.culture.dev (behind Cloudflare
-Access). The code on disk stores everything in PostgreSQL 17 with pgvector; live on
-spark still runs the SQLite 0.19.x release until the cutover
-(`docs/operations/cutover-postgres.md`). The operator decided on 2026-10-31 to migrate
-before any further SQLite optimisation (issue #47). `culture_library/` holds the core, the HTTP API, the MCP server and
+Access). It stores everything in PostgreSQL 17 with pgvector, live on spark since the
+2026-11-01 cutover (`docs/operations/cutover-postgres.md`). The operator decided on
+2026-10-31 to migrate before any further SQLite optimisation (issue #47). `culture_library/` holds the core, the HTTP API, the MCP server and
 the site. It also serves RAG passages (`/api/rag/retrieve`) and stores
 retrieval evals (`/api/eval`): metric suites (id_retrieval, judged,
 result_quality, speed, freshness), a 0-1 shape radar, and twelve `eval_*` MCP

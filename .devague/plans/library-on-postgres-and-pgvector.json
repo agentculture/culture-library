@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-11-01T04:38:15Z",
+  "updated": "2026-11-01T19:20:38Z",
   "targets": [
     {
       "id": "c1",
@@ -985,8 +985,8 @@
       "text": "Rankings move with ts_rank; if recall falls below the c24 margin, a BM25 extension is the fallback (decision q3)",
       "kind": "follow_up",
       "task_id": "t20",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "No BM25 fallback (operator, 2026-11-01): on live 0.20.2 every eval set met or beat its 0.19.8 ID recall@5 (books 0.91/0.82 with/without rerank vs 0.89/0.79; newspapers 1.00/0.83 vs 1.00/0.75; runs 90-105), after the trailing-stopword fix (d20-d22)."
     },
     {
       "id": "r2",

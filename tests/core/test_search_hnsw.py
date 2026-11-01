@@ -3,7 +3,7 @@ still return complete, near-exact results (acceptance criterion 2 of plan task t
 
 pgvector applies WHERE filters after the HNSW scan, so a filtered index query could come back
 short or miss rows. search.py runs each index query with ``hnsw.iterative_scan =
-relaxed_order`` and ``hnsw.ef_search >= search.EF_SEARCH``, re-sorts the candidates exactly,
+relaxed_order`` and ``hnsw.ef_search >= search.EF_SEARCH[corpus]``, re-sorts the candidates exactly,
 and scores given ``item_ids`` exactly without the index; the planner itself picks an exact
 plan (items first, then the embeddings primary key) for a narrow kind filter.
 
@@ -16,8 +16,13 @@ scoring, and how often a query came back short:
   (0.5%), k=5 and k=50; never short. Index queries took 4-8 ms against 15-27 ms exact.
 * 4,000 unstructured random vectors (the worst case for HNSW): with no filter, recall@5 was
   0.51 at ef_search 40, 0.80 at 100 and 0.93 at 200 (about 8, 10 and 11 ms); never short.
-  Hence EF_SEARCH = 100. Narrow kind filters were exact at every setting (the planner did not
+  Hence 100 at first. Narrow kind filters were exact at every setting (the planner did not
   use the index).
+
+Those figures are for the test sizes above. On live (t20, 2026-11-01; 40 questions) items were
+exact at 100. Repo docs (62.6k chunks, many near-duplicates) gave recall@10 of 0.853 at 100 and
+0.953 at 400, for an index query of about 10 ms instead of 4. So ``EF_SEARCH`` is per corpus:
+items 100, repo docs 400 (deviation d23).
 
 The tests below keep the clustered case as a regression check at a smaller size.
 """
@@ -297,3 +302,44 @@ def es_vec(*head):
     from tests.core.search_helpers import vec
 
     return vec(*head)
+
+
+def test_each_corpus_queries_its_index_with_its_own_ef_search(store):
+    """Items were exact at 100 on live; repo docs, full of near-duplicates, needed 400 (t20,
+    deviation d23). The item paths (RAG retrieve, evals, the turn path in #25) must not pay
+    for the repo docs' search breadth, and a rollback of either value fails here."""
+    from culture_library.core.repodocs import RepoDocs
+    from tests.core.search_helpers import add, index
+
+    assert sr.EF_SEARCH == {"item": 100, "repodoc": 400}
+    item = add(store, "Felines", "all about the cat family")
+    index(store, item)
+    pushed = RepoDocs(store).push(
+        remote="https://github.com/agentculture/x",
+        path="docs/specs/cats.md",
+        commit="a" * 40,
+        committed_at="2026-10-01T00:00:00Z",
+        default_branch_head="a" * 40,
+        visibility="public",
+        content="cats",
+    )
+    with store.connect() as conn:
+        sr.set_repodoc_text(conn, pushed.doc.id, "Cats", pushed.doc.path, "cats", "public")
+        sr.set_repodoc_embeddings(conn, pushed.doc.id, ["cats"], [es_vec(1.0, 0.0)], **PAIR)
+    seen = {}
+    with store.reader() as raw:
+
+        class Spy:
+            def __getattr__(self, name):
+                return getattr(raw, name)
+
+            def execute(self, sql, params=()):
+                if "hnsw.ef_search" in sql and params:
+                    seen.setdefault(self.corpus, set()).add(int(params[0]))
+                return raw.execute(sql, params)
+
+        spy = Spy()
+        for corpus in ("item", "repodoc"):
+            spy.corpus = corpus
+            sr.passages(spy, es_vec(1.0, 0.0), 1, "semantic", sr.Vis(), corpora=(corpus,))
+    assert seen == {"item": {100}, "repodoc": {400}}

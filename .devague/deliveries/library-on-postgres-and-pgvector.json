@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-11-01T19:05:13Z",
+  "updated": "2026-11-01T19:20:38Z",
   "deviations": [
     {
       "id": "d1",
@@ -289,6 +289,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 22
+    },
+    {
+      "id": "d23",
+      "what": "Raise EF_SEARCH from 100 to 400 in 0.20.3 (operator's choice), then resolve r2 on a live re-measurement.",
+      "task_ref": "t20",
+      "reason": "r2 measured on live 0.20.2 (40 questions, HNSW top-10 vs exact): items exact at 40/40 under operator and public-only filters; repo docs (62.6k chunks, many near-duplicates) 0.853 at ef_search 100, misses near-ties (10th distance at most 0.0066 farther). ef_search 200: 0.922 (+1 ms); 400: 0.953 (+5 ms); 1000: 1.000 (+129 ms).",
+      "affects": [
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 23
     }
   ],
   "evidence": [],
