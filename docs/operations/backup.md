@@ -70,7 +70,7 @@ culture-library backup schedule --data-dir /srv/culture-library --to /mnt/second
 ```
 
 It writes `culture-library-backup.service` and `.timer` into
-`~/.config/systemd/user/` (`--unit-dir` changes that; `--command` replaces the
+`$HOME/.config/systemd/user/` (`--unit-dir` changes that; `--command` replaces the
 `ExecStart`, for example a `docker exec` into the library container) and prints the
 commands to run yourself:
 
@@ -107,7 +107,7 @@ culture-library backup schedule --data-dir /data --to "$B" \
 This form is written from the code and the compose file; run it once by hand and check
 `backup overview` before trusting the timer.
 
-The service reads `~/.config/culture-library/live.env` if it exists. `backup schedule
+The service reads `$HOME/.config/culture-library/live.env` if it exists. `backup schedule
 --print [--kind systemd|cron]` only prints the text. `backup overview` shows the last
 successful backup (the newest snapshot with a manifest), so a missed day is visible.
 
