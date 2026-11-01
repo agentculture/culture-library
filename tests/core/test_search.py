@@ -6,6 +6,10 @@ tests (queueing, backoff, text extraction) wait for its port, plan task t13
 (``tests/core/test_indexer_pending_t13.py``).
 """
 
+import math
+import random
+import time
+
 import pytest
 
 from culture_library.core import embedding_strategy as es
@@ -126,6 +130,103 @@ def test_limit(store):
         add(store, f"Okapi {n}")
     assert len(sr.fulltext(store, "okapi", limit=3)) == 3
     assert sr.fulltext(store, "okapi", limit=0) == []
+
+
+def test_body_only_punctuated_match_gets_a_body_snippet(store):
+    # "search" matches the body only through migration 0002's split words of core/search.py;
+    # the snippet must come from the body (and mark the word), not fall back to the title.
+    item = add(store, "Notes", "x")
+    index(store, item, body="the parser lives in core/search.py today", embed=None)
+    snip = sr.fulltext(store, "search")[0].snippet
+    assert "[search]" in snip
+    assert "parser" in snip
+
+
+def test_snippet_finds_a_match_deep_in_a_long_body(store):
+    words = [f"w{n}" for n in range(60_000)]  # ~400 kB, far past the snippet window
+    words[59_000] = "Aardvarks"
+    item = add(store, "Long", "x")
+    index(store, item, body=" ".join(words), embed=None)
+    snip = sr.fulltext(store, "aardvark")[0].snippet
+    assert "[Aardvarks]" in snip
+    assert "w58995" in snip
+
+
+def test_snippet_window_survives_a_stem_that_is_not_a_prefix(store):
+    # porter stems "happiness" to happi, which is no prefix of "happy": the window still lands
+    item = add(store, "Mood", "x")
+    body = " ".join(["filler"] * 3000) + " she was happy that day"
+    index(store, item, body=body, embed=None)
+    assert "[happy]" in sr.fulltext(store, "happiness")[0].snippet
+
+
+def _best_ms(fn, runs=3):
+    best = math.inf
+    for _ in range(runs):
+        start = time.perf_counter()
+        fn()
+        best = min(best, (time.perf_counter() - start) * 1000)
+    return best
+
+
+def test_snippet_cost_is_bounded_for_a_multi_mb_body(store):
+    """A 3 MB body (a full book): the snippet runs ts_headline on a bounded window, so the
+    query costs a small fraction of the old full-body to_tsvector + ts_headline snippet.
+
+    Measured on the test database (min of 3, match near the end of the body): the old snippet
+    alone about 265 ms; the whole new fulltext() call about 30 ms, of which the snippet is about
+    19 ms (10 ms for a match near the start), mostly regexp_instr and substr walking the body.
+    """
+    rng = random.Random(7)
+    vocab = "the of and a to in was he that it his her with as for had not be on at".split()
+    words = [rng.choice(vocab) for _ in range(800_000)]  # ~3 MB
+    words[-50] = "aardvark"
+    body = " ".join(words)
+    item = add(store, "Big book", "x")
+    index(store, item, body=body, embed=None)
+    hits = sr.fulltext(store, "aardvark")
+    assert "[aardvark]" in hits[0].snippet
+    new_ms = _best_ms(lambda: sr.fulltext(store, "aardvark"))
+    old_sql = (
+        "SELECT CASE WHEN to_tsvector('english', body) @@ to_tsquery('english', 'aardvark')"
+        " THEN ts_headline('english', body, to_tsquery('english', 'aardvark'))"
+        " ELSE '' END FROM item_text WHERE item_id = %s"
+    )
+    with store.reader() as conn:
+        old_ms = _best_ms(lambda: conn.execute(old_sql, (item.id,)).fetchall())
+    assert new_ms < old_ms / 4, (new_ms, old_ms)
+
+
+def test_stopword_only_queries_match_titles(store):
+    the_the = add(store, "The The")
+    tale = add(store, "A Tale")
+    add(store, "Zebra")
+    assert [h.item_id for h in sr.fulltext(store, "the the")] == [the_the.id]
+    assert the_the.id in [h.item_id for h in sr.fulltext(store, "the")]
+    assert [h.item_id for h in sr.fulltext(store, "a")] == [tale.id]
+    hit = sr.fulltext(store, "the the")[0]
+    assert hit.snippet == "[The] [The]"
+    assert hit.score > 0
+
+
+def test_stopword_last_word_still_matches_as_a_prefix(store):
+    road = add(store, "The Road")
+    theory = add(store, "Road notes", "x")
+    index(store, theory, body="road theory for engineers", embed=None)
+    add(store, "Road map")
+    assert [h.item_id for h in sr.fulltext(store, "the road")][0] == road.id
+    assert [h.item_id for h in sr.fulltext(store, "the roa")][0] == road.id
+    # "the" is a stopword the english query drops; as the last word it is still a prefix
+    assert sorted(h.item_id for h in sr.fulltext(store, "road the")) == [road.id, theory.id]
+
+
+def test_stopword_only_query_feeds_hybrid_fulltext_rank(store):
+    the_the = add(store, "The The")
+    index(store, the_the)
+    with store.reader() as conn:
+        ps = sr.passages(conn, vec(1, 0, 0.1), 3, "hybrid", (False, None), query="the the")
+    assert ps and ps[0].item_id == the_the.id
+    assert ps[0].score > 1.0 / (sr.RRF_K + 0)
 
 
 def test_semantic_ranking_and_visibility(store):

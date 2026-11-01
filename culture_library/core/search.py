@@ -21,9 +21,12 @@ Full-text ranking (spec decisions s8 and s21) is ``ts_rank`` over the weighted t
 weights A=1.0 and B=0.2 (the 5:1 title:body ratio bm25 used) and normalisation 1 (divided by
 1 + log of the document length). ``ts_rank`` has no IDF, so one corpus never moves another's
 scores. Every query word must match (AND), stemmed; the last word also matches as a prefix.
-Snippets come from ``ts_headline`` with ``[`` ``]`` markers and about 12 words, computed only
-for the rows returned, over one column as the FTS5 snippet was: the body when the query
-matches it, else the title.
+English stopwords, which ``to_tsquery('english')`` drops, still match titles (and, as the last
+word, lexeme prefixes) through a ``'simple'``-config fallback (:class:`_FtsQuery`). Snippets
+come from ``ts_headline`` with ``[`` ``]`` markers and about 12 words, computed only for the rows
+returned, over one column as the FTS5 snippet was: the body when the stored vector's body
+lexemes match, else the title. The body headline reads a bounded window around the first
+likely match (:data:`SNIPPET_WINDOW`), never the whole body.
 
 Semantic ranking orders by the pgvector cosine distance ``vec::vector(N) <=> q::vector(N)``
 with the (model id, strategy) written as SQL literals, so the planner can prove the partial
@@ -66,7 +69,6 @@ CORPORA: tuple[str, ...] = ("item", "repodoc")
 # ts_rank weights in {D, C, B, A} order: a title (A) match counts five times a body (B) one.
 _WEIGHTS = "'{0.0, 0.0, 0.2, 1.0}'"
 _HEADLINE = "StartSel=[, StopSel=], MaxWords=12, MinWords=6, MaxFragments=1"
-_TSQ = "to_tsquery('english', %s)"
 RRF_K = 60
 # hybrid passages: the nearest chunks and the top full-text owners per corpus that are fused
 HYBRID_POOL = 50
@@ -348,6 +350,11 @@ def tsquery_text(q: str) -> str:
     Postgres's parser reads it whole (a file, host or hyphenated word is one lexeme in the
     indexed text too) or as its ``\\w+`` words ANDed. ``""`` when the query has no words.
     """
+    return " & ".join(_tsquery_pieces(q))
+
+
+def _tsquery_pieces(q: str) -> list[str]:
+    """:func:`tsquery_text`'s ANDed pieces, one per query word (the last a prefix)."""
     pieces = [(p, re.findall(r"\w+", p)) for p in q.split()]
     pieces = [(p, words) for p, words in pieces if words]
     out = []
@@ -359,7 +366,75 @@ def tsquery_text(q: str) -> str:
             out.append(split)
         else:
             out.append(f"('{whole}'{star} | {split})")
-    return " & ".join(out)
+    return out
+
+
+_TITLE_SIMPLE = "to_tsvector('simple', {a}.title)"
+_LEXEME = re.compile(r"'((?:[^']|'')*)'")
+
+
+@dataclass(frozen=True)
+class _FtsQuery:
+    """How one user query matches, ranks and is highlighted (spec decisions s8 and s21).
+
+    ``to_tsquery('english')`` drops English stopwords, which FTS5 (unicode61/porter) kept, so:
+
+    * normally the stored ``tsv`` is matched and ranked with the english query;
+    * when every word is a stopword (``the``, ``a``, ``The The``), the english query is empty
+      and the ``'simple'`` query (no stemming, no stopwords) is used instead, against a
+      ``to_tsvector('simple', title)`` computed in the query (titles are short; bodies are not
+      re-parsed) or the stored ``tsv`` (where the last word's prefix finds ``the`` in
+      ``theory``); its rank is over the simple title (weight A) and the stored ``tsv``;
+    * when only the last word is a stopword (``road the``), the english query keeps the other
+      words and ranks, and the last word must still match as a simple prefix, of the title or
+      of a stored lexeme.
+    """
+
+    cfg: str  # the text search config of ``q``: "english" or "simple"
+    q: str  # to_tsquery input for matching, ranking and the headline
+    last: str | None  # the simple prefix the last (stopword) word must match, if english lost it
+    lexemes: tuple[str, ...]  # the query's lexemes, to place the body snippet's window
+
+    def where(self, a: str) -> tuple[str, list[str]]:
+        tsq = f"to_tsquery('{self.cfg}', %s)"
+        if self.cfg == "simple":
+            return f"({a}.tsv @@ {tsq} OR {_TITLE_SIMPLE.format(a=a)} @@ {tsq})", [self.q] * 2
+        if self.last is None:
+            return f"{a}.tsv @@ {tsq}", [self.q]
+        last = "to_tsquery('simple', %s)"
+        return (
+            f"{a}.tsv @@ {tsq} AND ({a}.tsv @@ {last}"
+            f" OR {_TITLE_SIMPLE.format(a=a)} @@ {last})",
+            [self.q, self.last, self.last],
+        )
+
+    def rank(self, a: str) -> tuple[str, list[str]]:
+        vector = f"{a}.tsv"
+        if self.cfg == "simple":
+            vector = f"setweight({_TITLE_SIMPLE.format(a=a)}, 'A') || {a}.tsv"
+        return f"ts_rank({_WEIGHTS}, {vector}, to_tsquery('{self.cfg}', %s), 1)", [self.q]
+
+
+def _fts_query(conn: Any, query: str) -> _FtsQuery | None:
+    """The :class:`_FtsQuery` for ``query``; ``None`` when it has no words. One round trip
+    asks Postgres which words its english config keeps, and for the query's lexemes."""
+    pieces = _tsquery_pieces(query)
+    if not pieces:
+        return None
+    q = " & ".join(pieces)
+    english, last_kept, eng_text, simple_text = conn.execute(
+        "SELECT numnode(to_tsquery('english', %s)), numnode(to_tsquery('english', %s)),"
+        " to_tsquery('english', %s)::text, to_tsquery('simple', %s)::text",
+        (q, pieces[-1], q, q),
+    ).fetchone()
+    if not english:
+        return _FtsQuery("simple", q, None, _lexemes(simple_text))
+    last = None if last_kept else pieces[-1]
+    return _FtsQuery("english", q, last, _lexemes(eng_text))
+
+
+def _lexemes(tsquery: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(m.replace("''", "'") for m in _LEXEME.findall(tsquery)))
 
 
 def _visible(include_private: bool, owner: str | None) -> tuple[str, list[str]]:
@@ -382,22 +457,74 @@ def _doc_visible(include_private: bool) -> str:
     return where
 
 
-def _rank_sql(alias: str) -> str:
-    return f"ts_rank({_WEIGHTS}, {alias}.tsv, {_TSQ}, 1)"
+# The body snippet's window: ts_headline parses only SNIPPET_WINDOW characters of the body,
+# starting SNIPPET_LEAD before the first match. Over a whole 3 MB book the old snippet (a fresh
+# to_tsvector of the body, then ts_headline over all of it) cost about 290 ms a hit; the window
+# costs about 0.5 ms, and finding it (regexp_instr, then substr, over the body) 10 to 19 ms as
+# the match moves from the start to the end of the body: both walk the text up to the match
+# (tests/core/test_search.py, test_snippet_cost_is_bounded_for_a_multi_mb_body).
+SNIPPET_WINDOW = 1000
+SNIPPET_LEAD = 250
+# ts_headline marks with these control characters first, so the SQL can tell whether the window
+# was marked at all (a body's own "[" would not), then they become [ and ].
+_MARKS = "chr(1) || chr(2)"
+_BODY_HEADLINE = "StartSel=\x01, StopSel=\x02, MaxWords=12, MinWords=6, MaxFragments=1"
+# A space after each run of punctuation inside a token (core/ search. py), so the parser reads
+# the words of a punctuated token separately and ts_headline can mark one (migration 0002
+# indexes those words; the parser alone reads core/search.py as one file lexeme).
+_SPLIT_RE = r"'([^[:space:][:punct:]])([[:punct:]]+)(?=[^[:space:][:punct:]])', '\1\2 ', 'g'"
 
 
-def _headline_sql(alias: str) -> str:
+def _window_locator(lexemes: Iterable[str]) -> str | None:
+    """A case-insensitive regex for the first body word that may carry a query lexeme: each
+    lexeme at a word start, a trailing ``e``/``i`` dropped first (porter's ``happi`` for
+    happy and ``hope`` for hoping are no prefixes of the word). ``None`` without lexemes.
+
+    A false start (``hop`` in hopper) only costs the highlight: ts_headline then shows the
+    window's first words unmarked.
+    """
+    alts = []
+    for lex in lexemes:
+        if len(lex) > 3 and lex[-1] in "ei":
+            lex = lex[:-1]
+        alts.append("".join(c if c.isalnum() else "\\" + c for c in lex))
+    return r"\m(" + "|".join(alts) + ")" if alts else None
+
+
+def _headline_sql(fq: _FtsQuery, a: str) -> tuple[str, list]:
     """The snippet from one column, as the FTS5 snippet (column -1, the best column) was:
-    the body when the query matches it, else the title. Binds the tsquery three times
-    (:data:`_HEADLINE_PARAMS`)."""
-    return (
-        f"CASE WHEN to_tsvector('english', {alias}.body) @@ {_TSQ}"
-        f" THEN ts_headline('english', {alias}.body, {_TSQ}, '{_HEADLINE}')"
-        f" ELSE ts_headline('english', {alias}.title, {_TSQ}, '{_HEADLINE}') END"
+    the body when the query matches it, else the title.
+
+    Whether the body matches is read from the stored ``tsv``'s weight-B (body) lexemes, which
+    include migration 0002's punctuation-split words, so nothing is re-parsed. The body
+    headline reads only :data:`SNIPPET_WINDOW` characters around the first likely match
+    (:func:`_window_locator`); if nothing in that window was marked, the window is headlined
+    again with its punctuated tokens split (:data:`_SPLIT_RE`).
+    """
+    tsq = f"to_tsquery('{fq.cfg}', %s)"
+
+    def headline(text: str, opts: str) -> str:
+        return f"ts_headline('{fq.cfg}', {text}, {tsq}, '{opts}')"
+
+    window = (
+        f"translate(substr({a}.body, greatest(1, coalesce(nullif("
+        f"regexp_instr({a}.body, %s::text, 1, 1, 0, 'i'), 0), 1) - {SNIPPET_LEAD}),"
+        f" {SNIPPET_WINDOW}), {_MARKS}, '')"
     )
-
-
-_HEADLINE_PARAMS = 3
+    # OFFSET 0 keeps each subquery from being inlined: inlined, the window (and so the body
+    # scan) and the headline ran once per reference, about doubling the cost.
+    body = (
+        f"(SELECT translate(CASE WHEN strpos(h, chr(1)) > 0 THEN h"  # nosec B608 - fixed
+        f" ELSE {headline(f'regexp_replace(w, {_SPLIT_RE})', _BODY_HEADLINE)} END,"
+        f" {_MARKS}, '[]')"
+        f" FROM (SELECT w, {headline('w', _BODY_HEADLINE)} AS h"
+        f" FROM (SELECT {window} AS w OFFSET 0) AS win OFFSET 0) AS hl)"
+    )  # fixed fragments and a two-value config; the query and locator are bound parameters
+    sql = (
+        f"CASE WHEN ts_filter({a}.tsv, '{{b}}') @@ {tsq} THEN {body}"
+        f" ELSE {headline(f'{a}.title', _HEADLINE)} END"
+    )
+    return sql, [fq.q, fq.q, fq.q, _window_locator(fq.lexemes), fq.q]
 
 
 def fulltext(
@@ -416,47 +543,57 @@ def fulltext(
     (corpus, id).
     """
     want = _corpora(corpora)
-    tsq = tsquery_text(query)
-    if not tsq or not want or limit <= 0:
+    if not tsquery_text(query) or not want or limit <= 0:
         return []
     hits: list[Hit] = []
     with store.reader() as conn:
+        fq = _fts_query(conn, query)
+        if fq is None:
+            return []
         if "item" in want:
-            hits += _fulltext_items(conn, tsq, include_private, owner, limit)
+            hits += _fulltext_items(conn, fq, include_private, owner, limit)
         if "repodoc" in want:
-            hits += _fulltext_docs(conn, tsq, include_private, limit)
+            hits += _fulltext_docs(conn, fq, include_private, limit)
     return sorted(hits, key=lambda h: (-h.score, *_key(h)))[:limit]
 
 
 def _fulltext_items(
-    conn: Any, tsq: str, include_private: bool, owner: str | None, limit: int
+    conn: Any, fq: _FtsQuery, include_private: bool, owner: str | None, limit: int
 ) -> list[Hit]:
     vis, params = _visible(include_private, owner)
+    rank, rank_params = fq.rank("t")
+    match, match_params = fq.where("t")
+    snippet, snippet_params = _headline_sql(fq, "t")
     sql = (
         "WITH hits AS ("  # nosec B608
-        f" SELECT i.id, i.title, i.kind, i.visibility, {_rank_sql('t')} AS rank"
+        f" SELECT i.id, i.title, i.kind, i.visibility, {rank} AS rank"
         " FROM item_text t JOIN items i ON i.id = t.item_id"
-        f" WHERE t.tsv @@ {_TSQ} AND {vis}"
+        f" WHERE {match} AND {vis}"
         " ORDER BY rank DESC, i.id LIMIT %s)"
-        f" SELECT h.id, h.title, h.kind, h.visibility, h.rank, {_headline_sql('t')}"
+        f" SELECT h.id, h.title, h.kind, h.visibility, h.rank, {snippet}"
         " FROM hits h JOIN item_text t ON t.item_id = h.id ORDER BY h.rank DESC, h.id"
     )  # fixed fragments; every value is a bound parameter
-    rows = conn.execute(sql, (tsq, tsq, *params, limit, *[tsq] * _HEADLINE_PARAMS)).fetchall()
+    args = (*rank_params, *match_params, *params, limit, *snippet_params)
+    rows = conn.execute(sql, args).fetchall()
     return [Hit(r[0], r[1], r[2], r[3], float(r[4]), r[5], "fulltext") for r in rows]
 
 
-def _fulltext_docs(conn: Any, tsq: str, include_private: bool, limit: int) -> list[Hit]:
+def _fulltext_docs(conn: Any, fq: _FtsQuery, include_private: bool, limit: int) -> list[Hit]:
+    rank, rank_params = fq.rank("f")
+    match, match_params = fq.where("f")
+    snippet, snippet_params = _headline_sql(fq, "f")
     sql = (
         "WITH hits AS ("  # nosec B608
-        f" SELECT d.id, f.label, d.kind, f.visibility, {_rank_sql('f')} AS rank, d.repo, d.path"
+        f" SELECT d.id, f.label, d.kind, f.visibility, {rank} AS rank, d.repo, d.path"
         " FROM repodoc_text f JOIN repodocs d ON d.id = f.doc_id"
-        f" WHERE f.tsv @@ {_TSQ} AND {_doc_visible(include_private)}"
+        f" WHERE {match} AND {_doc_visible(include_private)}"
         " ORDER BY rank DESC, d.id LIMIT %s)"
-        f" SELECT h.id, h.label, h.kind, h.visibility, h.rank, {_headline_sql('f')},"
+        f" SELECT h.id, h.label, h.kind, h.visibility, h.rank, {snippet},"
         " h.repo, h.path"
         " FROM hits h JOIN repodoc_text f ON f.doc_id = h.id ORDER BY h.rank DESC, h.id"
     )  # fixed fragments; every value is a bound parameter
-    rows = conn.execute(sql, (tsq, tsq, limit, *[tsq] * _HEADLINE_PARAMS)).fetchall()
+    args = (*rank_params, *match_params, limit, *snippet_params)
+    rows = conn.execute(sql, args).fetchall()
     return [
         Hit(None, r[1], r[2], r[3], float(r[4]), r[5], "fulltext", "repodoc", r[0], r[6], r[7])
         for r in rows
@@ -576,16 +713,18 @@ def _exact(
 
 def _fts_rank(conn: Any, corpus: int, query: str, flt: tuple[str, list], limit: int) -> dict:
     """``owner id -> 0-based full-text rank`` among the top ``limit`` filtered owners."""
-    tsq = tsquery_text(query)
-    if not tsq:
+    fq = _fts_query(conn, query)
+    if fq is None:
         return {}
     src, oid, alias = _FTS_SOURCES[corpus]
     where, params = flt
+    match, match_params = fq.where(alias)
+    rank, rank_params = fq.rank(alias)
     sql = (
-        f"SELECT {oid} FROM {src} WHERE {alias}.tsv @@ {_TSQ} AND {where}"  # nosec B608
-        f" ORDER BY {_rank_sql(alias)} DESC, {oid} LIMIT %s"
+        f"SELECT {oid} FROM {src} WHERE {match} AND {where}"  # nosec B608
+        f" ORDER BY {rank} DESC, {oid} LIMIT %s"
     )  # fixed fragments; every value is a bound parameter
-    rows = conn.execute(sql, (tsq, *params, tsq, limit)).fetchall()
+    rows = conn.execute(sql, (*match_params, *params, *rank_params, limit)).fetchall()
     return {r[0]: pos for pos, r in enumerate(rows)}
 
 
