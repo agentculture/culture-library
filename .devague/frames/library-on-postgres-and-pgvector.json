@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-11-01T04:38:15Z",
+  "updated": "2026-11-01T17:21:02Z",
   "claims": [
     {
       "id": "c1",
@@ -1185,6 +1185,30 @@
       "skipped_check": "write the failing tests first (TDD)",
       "refs": [
         "plan task t14, branch pg/t14"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l5",
+      "code": "provenance-missing",
+      "what": "The copy's source fixture, labelled the 0.19.8 schema, was generated from the pre-0.19.8 backup, i.e. before 0.19.8 first opened the file and added vector_log and its six triggers. Every copy test passed against a schema live never had; the t18 drill's copy of the real 0.19.8 library.db refused with 'unknown vector_log'.",
+      "skipped_check": "diff the fixture schema against a library.db that 0.19.8 had opened",
+      "refs": [
+        "t14",
+        "tests/migrate/fixtures/sqlite_schema_0.19.8.sql"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "The backup tests restore as the postgres superuser only. The t18 drill restored as the culture_library app role (the only role live's library container has) and pg_restore failed: 'must be owner of extension vector' on the dump's COMMENT ON EXTENSION entry.",
+      "skipped_check": "restore as the least-privilege culture_library role, as live would",
+      "refs": [
+        "t16",
+        "culture_library/core/backup.py"
       ],
       "origin": "llm",
       "status": "approved"
