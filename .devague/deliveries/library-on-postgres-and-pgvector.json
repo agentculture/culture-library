@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-11-01T17:32:11Z",
+  "updated": "2026-11-01T18:49:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -247,9 +247,35 @@
         "t16"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 19
+    },
+    {
+      "id": "d20",
+      "what": "Change s21's third case: a trailing stopword the english config drops is no longer required to match as a simple prefix; the other words must still match, and ranking is unchanged. Ship as 0.20.2, deploy with deploy restart, rerun t20.",
+      "task_ref": "t20",
+      "reason": "t20 on live: newspapers with rerank average 0.917 ID recall@5 against the >= 0.95 target (set 6: 0.75, was 1.0 on 0.19.8; stable over 3 runs). Question 103 ('...JetPack 7.0 ship with?') ends in a stopword; s21 makes that last word match only as a prefix of a stored lexeme or title word, and the english tsv never stores the stopword itself, so item 81 (which has every content word) is filtered out of the full-text owners. FTS5 had no stopwords and matched the word itself. Without the requirement item 81 ranks first. 10 of the 112 eval questions end in a stopword.",
+      "affects": [
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky",
+      "seq": 20
+    },
+    {
+      "id": "d21",
+      "what": "Correction to d20's mechanism: the trailing stopword is still required, but it now also matches as a word start in the raw body (body ~* '\\mwith'), as FTS5 matched the word itself; evaluated only on rows the english query already matched. Ships as 0.20.2.",
+      "task_ref": "t20",
+      "reason": "Dropping the trailing-stopword requirement (d20's mechanism) would break FTS5 parity the suite pins: 'road the' must not match 'Road map', which has no 'the'. A word-start regex over the raw body keeps it: measured on live, the 10 stopword-ending eval questions cost at most 6 ms (mean 1.0 -> 1.9 ms), and question 103's full-text owners go from 4 to 9, item 81 included.",
+      "affects": [
+        "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 21
     }
   ],
   "evidence": [],
