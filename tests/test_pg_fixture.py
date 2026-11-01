@@ -75,6 +75,34 @@ def test_each_test_starts_empty_second(pg_dsn):
         assert conn.execute("SELECT count(*) FROM t2_probe").fetchone()[0] == 0
 
 
+def _setting(conn, name: str) -> str:
+    return conn.execute("SELECT setting FROM pg_settings WHERE name = %s", (name,)).fetchone()[0]
+
+
+def test_throwaway_durability_settings_are_opt_in(pg_admin_dsn, monkeypatch):
+    with psycopg.connect(pg_admin_dsn, autocommit=True) as conn:
+        before = {n: _setting(conn, n) for n in infra.THROWAWAY_SETTINGS}
+        monkeypatch.delenv(infra.THROWAWAY_ENV, raising=False)
+        assert infra.apply_throwaway_settings(pg_admin_dsn) is False
+        assert {n: _setting(conn, n) for n in infra.THROWAWAY_SETTINGS} == before
+        monkeypatch.setenv(infra.THROWAWAY_ENV, "1")
+        try:
+            assert infra.apply_throwaway_settings(pg_admin_dsn) is True
+            # ALTER SYSTEM writes postgresql.auto.conf at once; pg_reload_conf only signals
+            # the server, so read what the file now says rather than racing the reload.
+            rows = conn.execute(
+                "SELECT name, setting FROM pg_file_settings WHERE name = ANY(%s) AND error IS NULL",
+                (list(infra.THROWAWAY_SETTINGS),),
+            ).fetchall()
+            assert {name: value for name, value in rows} == {
+                n: "off" for n in infra.THROWAWAY_SETTINGS
+            }
+        finally:
+            for n in infra.THROWAWAY_SETTINGS:
+                conn.execute(f"ALTER SYSTEM RESET {n}")
+            conn.execute("SELECT pg_reload_conf()")
+
+
 def _public_indexes(conn) -> set[str]:
     rows = conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'").fetchall()
     return {r[0] for r in rows}

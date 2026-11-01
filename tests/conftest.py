@@ -156,6 +156,27 @@ def pytest_configure(config):
     _run_uid()  # fixed before xdist spawns workers, which inherit the environment
 
 
+THROWAWAY_ENV = "CULTURE_LIBRARY_TEST_PG_THROWAWAY"
+THROWAWAY_SETTINGS = ("fsync", "synchronous_commit", "full_page_writes")
+
+
+def apply_throwaway_settings(admin_dsn: str) -> bool:
+    """Turn off durability on a throwaway test server, only when ``THROWAWAY_ENV`` is ``1``.
+
+    Every ``DROP DATABASE`` forces a checkpoint, and with fsync on each one waited for the
+    dirty buffers of the multi-MB and HNSW tests to reach disk (a 60-test file took 98 s instead
+    of 8 s). Never on by default: it rewrites the server's postgresql.auto.conf.
+    """
+    if os.environ.get(THROWAWAY_ENV) != "1":
+        return False
+    psycopg = _psycopg()
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        for name in THROWAWAY_SETTINGS:
+            conn.execute(f"ALTER SYSTEM SET {name} = off")
+        conn.execute("SELECT pg_reload_conf()")
+    return True
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_sessionstart(session):
     """Controller only: fail early and clearly, then build the shared migrated template."""
@@ -163,6 +184,7 @@ def pytest_sessionstart(session):
     if _is_worker(config):
         return
     admin = check_admin(os.environ.get(TEST_DSN_ENV))
+    apply_throwaway_settings(admin)
     name = f"{DB_PREFIX}tpl_{_run_uid()}"
     config._pg_template = name
     config._pg_admin = admin

@@ -31,6 +31,7 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_THROWAWAY: "1"  # throwaway CI database: fsync off
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -132,6 +133,7 @@ jobs:
           --health-retries 10
     env:
       CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_THROWAWAY: "1"  # throwaway CI database: fsync off
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -270,6 +272,7 @@ jobs:
           --health-retries 10
     env:
       CULTURE_LIBRARY_TEST_PG_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      CULTURE_LIBRARY_TEST_PG_THROWAWAY: "1"  # throwaway CI database: fsync off
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

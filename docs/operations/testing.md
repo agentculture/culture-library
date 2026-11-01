@@ -7,7 +7,7 @@ with one error naming this setting. Tests are never skipped for lack of a databa
 ## Local one-liner
 
 ```bash
-docker run -d --name culture-library-test-pg -p 127.0.0.1:55432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_INITDB_ARGS="--locale=C --encoding=UTF8" pgvector/pgvector:pg17
+docker run -d --name culture-library-test-pg -p 127.0.0.1:55432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_INITDB_ARGS="--locale=C --encoding=UTF8" pgvector/pgvector:pg17 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 export CULTURE_LIBRARY_TEST_PG_DSN=postgresql://postgres@127.0.0.1:55432/postgres
 uv run pytest -n auto
 ```
