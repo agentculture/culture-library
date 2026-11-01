@@ -2,7 +2,7 @@
   "plan_slug": "library-on-postgres-and-pgvector",
   "schema_version": 2,
   "created": "2026-10-31T20:53:04Z",
-  "updated": "2026-10-31T23:17:05Z",
+  "updated": "2026-11-01T04:38:15Z",
   "deviations": [
     {
       "id": "d1",
@@ -11,7 +11,7 @@
       "reason": "both jobs run pytest and load the root conftest, so without a database they would fail at session start; no driver was installed for the fixture before t1 adds the pg extra",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 1
     },
@@ -22,7 +22,7 @@
       "reason": "--wait blocks until postgres is healthy so the order is explicit in dry-run, and mcp reaches the library only over HTTP, so least privilege leaves it without database credentials",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 2
     },
@@ -35,7 +35,7 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 3
     },
@@ -50,7 +50,7 @@
         "t14"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 4
     },
@@ -61,7 +61,7 @@
       "reason": "under Postgres concurrency two rotations of one key could both read it live and both mint replacements; SQLite's single writer prevented that",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 5
     },
@@ -76,7 +76,7 @@
         "t14"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 6
     },
@@ -87,7 +87,7 @@
       "reason": "criterion 1 needs /api/health to fail with the database stopped, and app.py belonged to no wave-2 task; the duplicate sources.py port conflicted with t5's",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 7
     },
@@ -101,7 +101,7 @@
         "t20"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "risky",
       "seq": 8
     },
@@ -114,7 +114,7 @@
         "t16"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 9
     },
@@ -127,7 +127,7 @@
         "t14"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 10
     },
@@ -138,7 +138,7 @@
       "reason": "the main agent's context is long after waves 0-4; the sweep is a bounded, file-listed task with a grep test and a known failure list, so delegating it keeps the integration check with the main agent",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 11
     },
@@ -152,7 +152,7 @@
         "t19"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 12
     },
@@ -165,7 +165,7 @@
         "t12"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 13
     },
@@ -179,7 +179,7 @@
         "t19"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 14
     }

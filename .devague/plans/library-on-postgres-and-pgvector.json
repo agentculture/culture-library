@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-31T20:02:04Z",
-  "updated": "2026-10-31T23:12:04Z",
+  "updated": "2026-11-01T04:38:15Z",
   "targets": [
     {
       "id": "c1",
@@ -1001,32 +1001,32 @@
       "text": "jsonb does not keep JSON object key order, so key order inside JSON values in API responses may differ from SQLite's sort_keys text; the contract tests in t16 must confirm no client depends on it",
       "kind": "unknown_nonblocking",
       "task_id": "t16",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. Fixed in the review round: feed, sources and projects return jsonb with keys sorted at every depth (core/jsonvalues.sorted_keys); eval_store already did"
     },
     {
       "id": "r4",
       "text": "jsonb and text reject NaN, Infinity and NUL bytes that SQLite TEXT accepted; the t14 copy must detect and report such values rather than fail midway",
       "kind": "unknown_nonblocking",
       "task_id": "t14",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. The copy refuses NaN, Infinity, NUL and invalid JSON before writing and reports table, column and row; the indexer strips NUL from repo-doc text"
     },
     {
       "id": "r5",
       "text": "Postgres full text keeps a path such as core/search.py as one token where SQLite FTS5 unicode61 split it into core, search and py, so a body-only path no longer matches its parts; t13's migration should index punctuation-split words too",
       "kind": "follow_up",
       "task_id": "t13",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. Migration 0002 adds the punctuation-split words to the tsvector; 'search' finds core/search.py"
     },
     {
       "id": "r6",
       "text": "Search and RAG routes query CURRENT_MODEL_ID / CURRENT_STRATEGY as constants; if /capabilities reports another model the indexer writes vectors under the new pair while queries ask for the old one. Routes should use the query embedder's vector_space()",
       "kind": "follow_up",
       "task_id": "t16",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Operator approved 2026-11-01. Search and RAG ask the query embedder for its vector space (search.embedder_space); t16"
     },
     {
       "id": "r7",

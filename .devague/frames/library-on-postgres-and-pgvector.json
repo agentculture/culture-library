@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-31T19:24:50Z",
-  "updated": "2026-10-31T22:42:44Z",
+  "updated": "2026-11-01T04:38:15Z",
   "claims": [
     {
       "id": "c1",
@@ -1165,7 +1165,7 @@
         "plan task t2, branch pg/t2"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1176,7 +1176,7 @@
         "plan task t12, branch pg/t12"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -1187,7 +1187,7 @@
         "plan task t14, branch pg/t14"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": []
