@@ -154,17 +154,34 @@ def test_postgres_init_script_shape():
     assert "\\getenv apppw CULTURE_LIBRARY_PG_PASSWORD" in sql
 
 
-def test_library_joins_the_broker_network_and_keeps_the_default(compose):
-    assert compose["services"]["library"]["networks"] == ["default", "events"]
+@pytest.fixture(scope="module")
+def events_overlay() -> dict:
+    return yaml.safe_load((COMPOSE.parent / "compose.events.yaml").read_text(encoding="utf-8"))
 
 
-def test_only_the_library_joins_the_broker_network(compose):
-    others = {k: v for k, v in compose["services"].items() if k != "library"}
-    assert not [name for name, svc in others.items() if "events" in svc.get("networks", [])]
+def test_the_base_compose_needs_no_broker_network(compose):
+    assert "networks" not in compose
 
 
-def test_the_broker_network_is_external_and_named_by_config(compose):
-    assert compose["networks"]["events"] == {
-        "external": True,
-        "name": "${EVENTS_NETWORK:-events-cli_default}",
-    }
+def test_no_base_service_joins_a_network(compose):
+    assert not [name for name, svc in compose["services"].items() if "networks" in svc]
+
+
+def test_the_overlay_joins_only_the_library(events_overlay):
+    assert list(events_overlay["services"]) == ["library"]
+
+
+def test_the_overlay_keeps_the_library_on_its_default_network(events_overlay):
+    assert events_overlay["services"]["library"]["networks"] == ["default", "events"]
+
+
+def test_the_overlay_network_is_external(events_overlay):
+    assert events_overlay["networks"]["events"]["external"] is True
+
+
+def test_the_overlay_network_name_is_required_config(events_overlay):
+    assert events_overlay["networks"]["events"]["name"].startswith("${EVENTS_NETWORK:?")
+
+
+def test_the_runbook_rebuild_keeps_the_broker_settings():
+    assert "EVENTS_BROKER_(HOST|PORT)" in DOC.read_text(encoding="utf-8")

@@ -295,7 +295,10 @@ runbook's "Restart the live stack" (`docs/operations/deploy.md`).
   `CULTURE_LIBRARY_SEND_TARGETS` is missing, empty or a placeholder, or the targets do not
   parse (a `${...}` value, which compose would interpolate, is refused too). Settings the file
   sets are dropped from the commands' environment, so a stale shell export cannot override
-  the checked file. Then run `grant run --inject TUNNEL_TOKEN=S --inject GATEWAY_API_KEY=G --
+  the checked file.
+  An enabled send target needs `EVENTS_BROKER_HOST`. `EVENTS_NETWORK`, when set, adds
+  `compose.events.yaml`, and the network must exist. The new container must reach the broker.
+  Then run `grant run --inject TUNNEL_TOKEN=S --inject GATEWAY_API_KEY=G --
   docker compose -f C --env-file F --profile remote up -d --no-deps library mcp` (no shell;
   both secrets stay in grant; `G` defaults to `LOBES_GATEWAY_API_KEY`, and an env file that sets
   `GATEWAY_API_KEY` is refused), wait for

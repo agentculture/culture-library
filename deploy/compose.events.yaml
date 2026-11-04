@@ -1,0 +1,20 @@
+# Optional overlay: the library also joins the event broker's Docker network, for a broker
+# that publishes on the host's loopback only and so can't be reached from the bridge.
+#
+# `culture-library deploy restart` adds this file when the env file sets EVENTS_NETWORK. A
+# broker reachable some other way (another address or machine) needs only
+# EVENTS_BROKER_HOST and EVENTS_BROKER_PORT, with EVENTS_NETWORK unset. By hand:
+#   docker compose -f deploy/compose.yaml -f deploy/compose.events.yaml --env-file F up -d
+#
+# Only the library joins, and the base file stays without it, so backups, restores and a
+# stack with no broker don't depend on this network. The network must exist first.
+services:
+  library:
+    networks:
+      - default
+      - events
+
+networks:
+  events:
+    external: true
+    name: ${EVENTS_NETWORK:?set EVENTS_NETWORK to the broker's Docker network}

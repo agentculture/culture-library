@@ -189,6 +189,7 @@ def _env(tmp_path, **over):
         "CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN": "team.cloudflareaccess.com",
         "CULTURE_LIBRARY_ACCESS_AUD": "aud123",
         "CULTURE_LIBRARY_SEND_TARGETS": f"'{TARGETS}'",
+        "EVENTS_BROKER_HOST": "broker.example",
     }
     values.update(over)
     path = tmp_path / "live.env"
