@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.5] - 2026-11-04
+
+### Changed
+
+- The library service joins the event broker's Docker network (`EVENTS_NETWORK`, default `events-cli_default`), so Send can publish: the broker listens on the host's loopback only, and a send answered 503 `publish_unavailable`. Only this service joins. The network must exist before the stack starts.
+
 ## [0.20.4] - 2026-11-01
 
 ### Added

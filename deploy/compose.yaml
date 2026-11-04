@@ -113,6 +113,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    # The second network reaches the event broker, which publishes on the host's loopback
+    # only. Only this service joins it; the broker takes anonymous clients.
+    networks:
+      - default
+      - events
 
   mcp:
     image: *image
@@ -173,6 +178,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+networks:
+  events:
+    # The broker's own network, created by events-cli's stack. It must exist before this
+    # stack starts: without events-cli, `docker network create` one of this name.
+    external: true
+    name: ${EVENTS_NETWORK:-events-cli_default}
 
 volumes:
   culture-library-data:

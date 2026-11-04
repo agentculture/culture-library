@@ -238,7 +238,15 @@ COMPOSE_PROJECT_NAME=culture-library
 CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
 CULTURE_LIBRARY_ACCESS_AUD=<application AUD tag>
 CULTURE_LIBRARY_SEND_TARGETS='[{"label":"<label>","type":"<description>","enabled":true}]'
+EVENTS_BROKER_HOST=events-mosquitto
+EVENTS_BROKER_PORT=1883
 ```
+
+Send publishes through the event broker. The broker publishes on the host's loopback only,
+so the `library` service alone also joins the broker's Docker network (`EVENTS_NETWORK`,
+default `events-cli_default`), which must exist before the stack starts. The broker takes
+anonymous clients, so this gives the library read and write access to the whole bus. Without
+`EVENTS_BROKER_HOST` a send answers 503 `publish_unavailable`.
 
 If the file is missing, rebuild it from the running container before you recreate
 anything. The container's environment also holds `GATEWAY_API_KEY`, so keep the grep: it

@@ -152,3 +152,19 @@ def test_postgres_init_script_shape():
     assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
     assert ":'apppw'" in sql
     assert "\\getenv apppw CULTURE_LIBRARY_PG_PASSWORD" in sql
+
+
+def test_library_joins_the_broker_network_and_keeps_the_default(compose):
+    assert compose["services"]["library"]["networks"] == ["default", "events"]
+
+
+def test_only_the_library_joins_the_broker_network(compose):
+    others = {k: v for k, v in compose["services"].items() if k != "library"}
+    assert not [name for name, svc in others.items() if "events" in svc.get("networks", [])]
+
+
+def test_the_broker_network_is_external_and_named_by_config(compose):
+    assert compose["networks"]["events"] == {
+        "external": True,
+        "name": "${EVENTS_NETWORK:-events-cli_default}",
+    }
