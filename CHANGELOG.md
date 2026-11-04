@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.5] - 2026-11-05
+
+### Changed
+
+- Send can publish to a broker the container can't reach directly: `EVENTS_NETWORK` makes `deploy restart` add `deploy/compose.events.yaml`, which joins only the library to that Docker network. The base compose file doesn't need the broker, so a stack without one still runs, and backups and restores stay off its network. A broker elsewhere needs only `EVENTS_BROKER_HOST` and `EVENTS_BROKER_PORT`.
+- `deploy restart` refuses an enabled send target with no `EVENTS_BROKER_HOST`, a bad `EVENTS_BROKER_PORT`, or a missing `EVENTS_NETWORK`, before anything runs, and afterwards fails by name if the new container can't reach the broker.
+- The runbook's rebuild of the host env file keeps the broker settings.
+
+### Fixed
+
+- A bad broker setting answers the designed 503 `publish_unavailable` on send, not a 500.
+
 ## [0.20.4] - 2026-11-01
 
 ### Added

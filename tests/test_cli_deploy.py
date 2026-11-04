@@ -23,6 +23,7 @@ def _env(tmp_path, **over):
         "CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN": "team.cloudflareaccess.com",
         "CULTURE_LIBRARY_ACCESS_AUD": "aud123",
         "CULTURE_LIBRARY_SEND_TARGETS": f"'{TARGETS}'",
+        "EVENTS_BROKER_HOST": "broker.example",
     }
     values.update(over)
     path = tmp_path / "live.env"
@@ -514,3 +515,93 @@ def test_missing_pg_grant_secret_is_refused_before_compose(tmp_path, compose, mo
     assert _restart("--env-file", str(env), "--compose", str(compose)) == 2
     assert "CULTURE_LIBRARY_PG_PASSWORD" in json.loads(capsys.readouterr().err)["message"]
     assert ran == []
+
+
+# --- the event broker
+
+
+@pytest.fixture
+def overlay(compose):
+    path = compose.with_name("compose.events.yaml")
+    path.write_text("services: {}\n")
+    return path
+
+
+def _restart_with(env, compose):
+    return _restart("--env-file", str(env), "--compose", str(compose))
+
+
+def test_an_enabled_target_needs_a_broker_host(tmp_path, compose, calls, capsys):
+    assert _restart_with(_env(tmp_path, EVENTS_BROKER_HOST=None), compose) == 1
+    assert "EVENTS_BROKER_HOST" in json.loads(capsys.readouterr().err)["message"]
+
+
+def test_a_refused_broker_host_runs_nothing(tmp_path, compose, calls, capsys):
+    _restart_with(_env(tmp_path, EVENTS_BROKER_HOST=None), compose)
+    assert calls == []
+
+
+def test_only_disabled_targets_need_no_broker_host(tmp_path, compose, calls, capsys):
+    off = '[{"label":"x3","type":"reader","enabled":false}]'
+    env = _env(tmp_path, EVENTS_BROKER_HOST=None, CULTURE_LIBRARY_SEND_TARGETS=f"'{off}'")
+    assert _restart_with(env, compose) == 0
+
+
+@pytest.mark.parametrize("port", ["1883x", "0", "65536", "<port>"])
+def test_a_bad_broker_port_is_refused(tmp_path, compose, calls, capsys, port):
+    assert _restart_with(_env(tmp_path, EVENTS_BROKER_PORT=port), compose) == 1
+
+
+def test_a_good_broker_port_is_accepted(tmp_path, compose, calls, capsys):
+    assert _restart_with(_env(tmp_path, EVENTS_BROKER_PORT="1883"), compose) == 0
+
+
+def test_no_network_setting_leaves_the_overlay_out(tmp_path, compose, overlay, calls, capsys):
+    _restart_with(_env(tmp_path), compose)
+    assert not [c for c in calls if str(overlay) in c]
+
+
+def test_a_network_setting_adds_the_overlay_to_every_compose_command(
+    tmp_path, compose, overlay, calls, capsys
+):
+    _restart_with(_env(tmp_path, EVENTS_NETWORK="bus"), compose)
+    composed = [c for c in calls if "compose" in c]
+    assert [str(overlay) in c for c in composed] == [True] * len(composed)
+
+
+def test_a_network_setting_without_the_overlay_file_is_refused(tmp_path, compose, calls, capsys):
+    assert _restart_with(_env(tmp_path, EVENTS_NETWORK="bus"), compose) == 1
+    assert calls == []
+
+
+def test_a_missing_network_is_refused_before_compose(
+    tmp_path, compose, overlay, monkeypatch, capsys
+):
+    seen = []
+
+    def fake_run(argv, **kw):
+        seen.append(list(argv))
+        return subprocess.CompletedProcess(argv, 1 if "network" in argv else 0, "", "")
+
+    monkeypatch.setattr(deploy, "_run", fake_run)
+    monkeypatch.setattr(deploy, "_which", lambda tool: f"/usr/bin/{tool}")
+    assert _restart_with(_env(tmp_path, EVENTS_NETWORK="bus"), compose) == 2
+    assert not [c for c in seen if "compose" in c]
+
+
+def test_restart_reports_the_broker_it_reached(tmp_path, compose, calls, capsys):
+    _restart_with(_env(tmp_path, EVENTS_BROKER_PORT="1884"), compose)
+    assert json.loads(capsys.readouterr().out)["broker"] == "broker.example:1884"
+
+
+def test_an_unreachable_broker_fails_the_restart_by_name(tmp_path, compose, monkeypatch, capsys):
+    def fake_run(argv, **kw):
+        failed = any("create_connection" in part for part in argv)
+        out = '["x3"]\n' if "exec" in argv else ""
+        return subprocess.CompletedProcess(argv, 1 if failed else 0, out, "")
+
+    monkeypatch.setattr(deploy, "_run", fake_run)
+    monkeypatch.setattr(deploy, "_which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(deploy, "_health", lambda url, timeout: {"status": "ok"})
+    assert _restart_with(_env(tmp_path), compose) == 2
+    assert "cannot reach the broker" in json.loads(capsys.readouterr().err)["message"]

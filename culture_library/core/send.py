@@ -138,7 +138,10 @@ def _publish_api(client_cls: Any, data: dict[str, Any]) -> None:
     from events_cli.core.envelope import Envelope  # noqa: PLC0415
     from events_cli.core.topics import type_to_topic  # noqa: PLC0415
 
-    client = client_cls()
+    try:
+        client = client_cls()  # a bad broker setting raises here
+    except Exception as exc:
+        raise PublishUnavailable(f"{type(exc).__name__}: {exc}") from exc
     try:
         deadline = time.monotonic() + 5.0
         while hasattr(client, "is_connected") and not client.is_connected:

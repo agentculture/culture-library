@@ -23,7 +23,11 @@ Postgres starts first (``--wait`` for its healthcheck). Two grant secrets cover 
 role's password (also given to library) and the superuser's (postgres only). Neither may be
 in the env file.
 
-It checks ``/api/health`` and the send targets inside the new container. ``--build``
+When the env file sets ``EVENTS_NETWORK``, every compose command also takes
+``compose.events.yaml`` beside the compose file, and the network must exist. An enabled send
+target needs ``EVENTS_BROKER_HOST``, because a send publishes through that broker.
+
+It checks ``/api/health``, the send targets and the broker inside the new container. ``--build``
 rebuilds the image first; ``--dry-run`` prints the commands and runs nothing. The tunnel
 token and the gateway key stay in ``grant`` and never pass through this process; an env
 file that contains ``GATEWAY_API_KEY`` is refused.
@@ -82,6 +86,10 @@ REQUIRED_SETTINGS = (
     "CULTURE_LIBRARY_ACCESS_AUD",
     send.TARGETS_ENV,
 )
+BROKER_HOST_ENV = "EVENTS_BROKER_HOST"
+BROKER_PORT_ENV = "EVENTS_BROKER_PORT"
+EVENTS_NETWORK_ENV = "EVENTS_NETWORK"
+EVENTS_OVERLAY = "compose.events.yaml"
 DB_SERVICE = "postgres"
 SERVICES = ("library", "mcp")
 _EXPORT = "export "
@@ -93,6 +101,11 @@ _PLACEHOLDER = re.compile(r"<[^>]*>|\.\.\.")
 _TARGETS_PROBE = (
     "import json; from culture_library.core import send; "
     "print(json.dumps([t.label for t in send.load_targets('/data')]))"
+)
+_BROKER_PROBE = (
+    "import os, socket; "
+    f"socket.create_connection((os.environ['{BROKER_HOST_ENV}'], "
+    f"int(os.environ.get('{BROKER_PORT_ENV}') or 1883)), 5).close()"
 )
 
 # Seams for tests.
@@ -199,6 +212,28 @@ def check_settings(values: dict[str, str], source: str) -> None:
         if _PLACEHOLDER.search(values.get(key, "")):
             raise _placeholder(source, key, values[key])
     _check_targets(values, source)
+    _check_events(values, source)
+
+
+def _check_events(values: dict[str, str], source: str) -> None:
+    """The broker settings: no placeholder, a real port, a host if anything can be sent."""
+    for key in (BROKER_HOST_ENV, BROKER_PORT_ENV, EVENTS_NETWORK_ENV):
+        if _PLACEHOLDER.search(values.get(key, "")):
+            raise _placeholder(source, key, values[key])
+    port = values.get(BROKER_PORT_ENV, "").strip()
+    if port and not (port.isascii() and port.isdigit() and 1 <= int(port) <= 65535):
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"{source}: {BROKER_PORT_ENV} is not a port: {port!r}",
+            "set a number from 1 to 65535, or leave it empty for the default",
+        )
+    targets = send.parse_targets(values[send.TARGETS_ENV], f"{source}: {send.TARGETS_ENV}")
+    if any(t.enabled for t in targets) and not values.get(BROKER_HOST_ENV, "").strip():
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"{source}: a send target is enabled but {BROKER_HOST_ENV} is empty",
+            f"set the broker's address, or every send answers 503; see {_RUNBOOK}",
+        )
 
 
 def _check_required(values: dict[str, str], source: str) -> None:
@@ -238,8 +273,60 @@ def _child_env(values: dict[str, str]) -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in drop}
 
 
-def _compose_base(compose: Path, env_file: Path) -> list[str]:
-    return ["docker", "compose", "-f", str(compose), "--env-file", str(env_file)]
+def _compose_base(compose: Path, env_file: Path, overlay: Path | None = None) -> list[str]:
+    files = ["-f", str(compose)] + (["-f", str(overlay)] if overlay else [])
+    return ["docker", "compose", *files, "--env-file", str(env_file)]
+
+
+def _events_overlay(compose: Path, values: dict[str, str]) -> Path | None:
+    """The overlay beside ``compose`` when the env file names a network, refused if absent."""
+    if not values.get(EVENTS_NETWORK_ENV, "").strip():
+        return None
+    overlay = compose.with_name(EVENTS_OVERLAY)
+    if not overlay.is_file():
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"{EVENTS_NETWORK_ENV} is set but {overlay} does not exist",
+            f"keep {EVENTS_OVERLAY} beside the compose file, or unset {EVENTS_NETWORK_ENV}",
+        )
+    return overlay
+
+
+def _check_network(name: str, env: dict[str, str]) -> None:
+    """Refuse, before compose runs, when the Docker network to join does not exist."""
+    if _which("docker") is None:
+        raise CliError(EXIT_ENV_ERROR, "docker is not on PATH", "install docker")
+    proc = _run(  # nosec B603 - fixed argv; the name comes from the checked env file
+        ["docker", "network", "inspect", name],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=env,
+    )
+    if proc.returncode != 0:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"Docker network {name} ({EVENTS_NETWORK_ENV}) does not exist",
+            "start the broker's stack, or fix or unset the setting",
+        )
+
+
+def _check_broker(base: list[str], values: dict[str, str], env: dict[str, str]) -> str | None:
+    """The broker's address once the new container has reached it; None if none is set."""
+    host = values.get(BROKER_HOST_ENV, "").strip()
+    if not host:
+        return None
+    address = f"{host}:{values.get(BROKER_PORT_ENV, '').strip() or '1883'}"
+    try:
+        _step(base + ["exec", "-T", "library", "python3", "-c", _BROKER_PROBE], env, verbose=False)
+    except CliError:
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"the library restarted but cannot reach the broker at {address}",
+            "every send answers 503 until it can; check the broker and the EVENTS_* settings",
+        ) from None
+    return address
 
 
 def plan(
@@ -252,13 +339,14 @@ def plan(
     aws_secrets: dict[str, str] | None = None,
     pg_secret: str = DEFAULT_PG_PASSWORD_SECRET,
     pg_superuser_secret: str = DEFAULT_PG_SUPERUSER_SECRET,
+    overlay: Path | None = None,
 ) -> list[list[str]]:
     """The commands ``restart`` runs, in order. Secrets are injected by name from grant.
 
     Postgres comes up first and ``--wait`` blocks until its healthcheck passes, so library
     and mcp (started ``--no-deps``) never race the database.
     """
-    base = _compose_base(compose, env_file)
+    base = _compose_base(compose, env_file, overlay)
     steps = [base + ["build", "library"]] if build else []
     db_up = base + ["up", "-d", "--no-deps", "--wait", DB_SERVICE]
     steps.append(
@@ -429,6 +517,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
     _refuse_secrets(env_file_keys(env_file), str(env_file), secrets)  # before value parsing
     values = read_env_file(env_file)
     check_settings(values, str(env_file))
+    overlay = _events_overlay(compose, values)
     aws: dict[str, str] = {}
     if values.get(S3_BUCKET_ENV, "").strip() and not args.no_aws_credentials:
         aws = {
@@ -446,6 +535,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         aws_secrets=aws,
         pg_secret=args.pg_password_secret,
         pg_superuser_secret=args.pg_superuser_secret,
+        overlay=overlay,
     )
     if args.dry_run:
         emit_result(
@@ -471,12 +561,14 @@ def cmd_restart(args: argparse.Namespace) -> int:
         aws_names=list(aws.values()),
         pg_names=[args.pg_password_secret, args.pg_superuser_secret],
     )
+    if overlay:
+        _check_network(values[EVENTS_NETWORK_ENV].strip(), env)
     for argv in steps:
         _step(argv, env, verbose=verbose)
     health = _health(_health_url(values), args.timeout)
+    base = _compose_base(compose, env_file, overlay)
     probe = _step(
-        _compose_base(compose, env_file)
-        + ["exec", "-T", "library", "python3", "-c", _TARGETS_PROBE],
+        base + ["exec", "-T", "library", "python3", "-c", _TARGETS_PROBE],
         env,
         verbose=False,
     )
@@ -488,10 +580,17 @@ def cmd_restart(args: argparse.Namespace) -> int:
             f"the send-targets check printed no JSON: {probe.stdout[-300:]!r}",
             "run the check from docs/operations/deploy.md by hand",
         ) from None
-    result = {"dry_run": False, "steps": steps, "health": health, "send_targets": targets}
+    broker = _check_broker(base, values, env)
+    result = {
+        "dry_run": False,
+        "steps": steps,
+        "health": health,
+        "send_targets": targets,
+        "broker": broker,
+    }
     text = (
         f"restarted {', '.join(SERVICES)}: version {health.get('version')}, "
-        f"send targets {', '.join(targets) or '(none)'}"
+        f"send targets {', '.join(targets) or '(none)'}, broker {broker or '(none)'}"
     )
     emit_result(result if _json(args) else text, json_mode=_json(args))
     return 0

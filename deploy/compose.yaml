@@ -78,8 +78,8 @@ services:
       LOBES_RERANK_MODEL: ${LOBES_RERANK_MODEL:-reranker}
       # `off` disables the Retrieval-document / Retrieval-query prompt names.
       LOBES_EMBED_PROMPTS: ${LOBES_EMBED_PROMPTS:-on}
-      # MQTT broker for send-to-device events (events-cli). The broker must be reachable from
-      # the container, e.g. a host address it listens on, not the host's 127.0.0.1.
+      # MQTT broker for send-to-device events (events-cli). Must be reachable from the
+      # container: its name on a shared network (compose.events.yaml) or another address.
       EVENTS_BROKER_HOST: ${EVENTS_BROKER_HOST:-}
       EVENTS_BROKER_PORT: ${EVENTS_BROKER_PORT:-}
       # S3 mirror of repo documents (off while the bucket is unset). The AWS credentials are

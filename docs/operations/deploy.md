@@ -238,22 +238,39 @@ COMPOSE_PROJECT_NAME=culture-library
 CULTURE_LIBRARY_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
 CULTURE_LIBRARY_ACCESS_AUD=<application AUD tag>
 CULTURE_LIBRARY_SEND_TARGETS='[{"label":"<label>","type":"<description>","enabled":true}]'
+EVENTS_BROKER_HOST=events-mosquitto
+EVENTS_BROKER_PORT=1883
+EVENTS_NETWORK=events-cli_default
 ```
+
+Send publishes through the event broker, wherever it runs: `EVENTS_BROKER_HOST` and
+`EVENTS_BROKER_PORT` are all the library needs to find it. On spark the broker publishes on
+the host's loopback only, so `EVENTS_NETWORK` also joins the `library` service alone to the
+broker's Docker network, through `deploy/compose.events.yaml`. If the broker moves somewhere
+reachable another way, change the host and port, unset `EVENTS_NETWORK`, and restart.
+
+The broker takes anonymous clients, so the network gives the library read and write access to
+the whole bus, and other containers on it can reach `library:8796` (API keys still apply).
+Backups and restores use the base compose file and stay off it. After `events down` and
+`events up` the network may have a new id: run `deploy restart` to reattach the library.
 
 If the file is missing, rebuild it from the running container before you recreate
 anything. The container's environment also holds `GATEWAY_API_KEY`, so keep the grep: it
-prints the three settings only, never the key:
+prints these settings only, never the key. Add `EVENTS_NETWORK` back by hand: compose does not
+pass it into the container.
 
 ```bash
 docker inspect culture-library-library-1 --format '{{range .Config.Env}}{{println .}}{{end}}' \
-  | grep -E '^CULTURE_LIBRARY_(ACCESS_TEAM_DOMAIN|ACCESS_AUD|SEND_TARGETS)='
+  | grep -E '^(CULTURE_LIBRARY_(ACCESS_TEAM_DOMAIN|ACCESS_AUD|SEND_TARGETS)|EVENTS_BROKER_(HOST|PORT))='
 ```
 
 Recreate `postgres`, `library` and `mcp` with the current image (cloudflared keeps its
 tunnel). Starting `postgres` when it already runs is a no-op. The CLI does it in one step: it refuses an env file with a missing, empty or placeholder
-setting, or send targets that do not parse, before anything runs. Then it starts
+setting, send targets that do not parse, an enabled target with no broker host, a bad broker
+port, or a missing `EVENTS_NETWORK`, before anything runs. Then it starts
 `postgres` and waits for its healthcheck, recreates `library` and `mcp`, waits for
-`/api/health` and lists the send targets the new container loads:
+`/api/health`, lists the send targets the new container loads and checks that it can reach
+the broker:
 
 ```bash
 uv run culture-library deploy restart            # --build rebuilds the image first
